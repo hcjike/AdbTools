@@ -5,46 +5,115 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools" xmlns:customcontrol="clr-namespace:AdbTools.CustomControl"
         mc:Ignorable="d"
-        Title="Adb连接工具" Height="460" Width="350" FontSize="16" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" Unloaded="Window_Unloaded" >
+        Title="Adb连接工具" Height="560" Width="460" MinHeight="500" MinWidth="400" FontSize="14" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" Loaded="Window_Loaded" Unloaded="Window_Unloaded" >
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <ContextMenu x:Key="ListBoxItemContextMenu"  FontSize="13">
             <MenuItem x:Name="installApkItem" Header="安装应用" Click="installApkItem_Click" Cursor="Hand"   Margin="0,2" />
             <MenuItem x:Name="disconnectDeviceItem" Header="断开设备" Click="disconnectDeviceItem_Click"  Cursor="Hand" Margin="0,2"/>
             <Separator  Margin="0,5"/>
-            <MenuItem Header="查看日志" Cursor="Hand" Margin="0,2" >
+            <MenuItem Header="查看日志" Cursor="Hand"   Margin="0,2" >
                 <MenuItem x:Name="logcatItem" Header="实时日志" Cursor="Hand"   Margin="0,2" Click="logcatItem_Click" />
-                <MenuItem x:Name="logcatDebugItem" Header="Debug日志" Cursor="Hand" Margin="0,2" Click="logcatDebugItem_Click" />
+                <MenuItem x:Name="logcatDebugItem" Header="Debug日志" Cursor="Hand"   Margin="0,2" Click="logcatDebugItem_Click" />
             </MenuItem>
             <Separator  Margin="0,5"/>
-            <MenuItem Header="恢复默认" Cursor="Hand" Margin="0,2" >
-                <MenuItem x:Name="resetPortItem" Header="恢复默认TCP端口" Cursor="Hand" Margin="0,2" Click="resetPortItem_Click" />
-                <MenuItem x:Name="resetPXItem" Header="恢复默认分辨率" Cursor="Hand" Margin="0,2" Click="resetPXItem_Click" />
-                <MenuItem x:Name="resetDPIItem" Header="恢复默认DPI" Cursor="Hand" Margin="0,2" Click="resetDPIItem_Click"/>
+            <MenuItem Header="恢复默认" Cursor="Hand"   Margin="0,2" >
+                <MenuItem x:Name="resetPortItem" Header="恢复默认TCP端口" Cursor="Hand"   Margin="0,2" Click="resetPortItem_Click" />
+                <MenuItem x:Name="resetPXItem" Header="恢复默认分辨率" Cursor="Hand"   Margin="0,2" Click="resetPXItem_Click" />
+                <MenuItem x:Name="resetDPIItem" Header="恢复默认DPI" Cursor="Hand"   Margin="0,2" Click="resetDPIItem_Click"/>
             </MenuItem>
             <Separator  Margin="0,5"/>
-            <MenuItem Header="应用控制" Cursor="Hand" Margin="0,2">
-                <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand" Margin="0,2" Click="openShell_Click"/>
+            <MenuItem Header="应用控制" Cursor="Hand"   Margin="0,2">
+                <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand"   Margin="0,2" Click="openShell_Click"/>
                 <Separator  Margin="0,5"/>
-                <MenuItem Header="显示包名" Cursor="Hand" Margin="0,2">
-                    <MenuItem x:Name="systemAppPackagep" Header="显示系统应用包名" Cursor="Hand" Margin="0,2" Click="systemAppPackagep_Click"/>
-                    <MenuItem x:Name="thirdPartyAppPackage" Header="显示第三方应用包名" Cursor="Hand" Margin="0,2" Click="thirdPartyAppPackage_Click"/>
-                    <MenuItem x:Name="allAppPackage" Header="显示所有应用包名" Cursor="Hand" Margin="0,2" Click="allAppPackage_Click"/>
+                <MenuItem Header="显示包名" Cursor="Hand"   Margin="0,2">
+                    <MenuItem x:Name="systemAppPackagep" Header="显示系统应用包名" Cursor="Hand"   Margin="0,2" Click="systemAppPackagep_Click" />
+                    <MenuItem x:Name="thirdPartyAppPackage" Header="显示第三方应用包名" Cursor="Hand"   Margin="0,2" Click="thirdPartyAppPackage_Click" />
+                    <MenuItem x:Name="allAppPackage" Header="显示所有应用包名" Cursor="Hand"   Margin="0,2" Click="allAppPackage_Click" />
                 </MenuItem>
-                <MenuItem Header="指定包名" Cursor="Hand" Margin="0,2">
-                    <MenuItem x:Name="customkEnable" Header="启用应用" Cursor="Hand" Margin="0,2" Click="customkEnable_Click"/>
-                    <MenuItem x:Name="customDisable" Header="禁用应用" Cursor="Hand" Margin="0,2" Click="customDisable_Click"/>
+                <MenuItem Header="指定包名" Cursor="Hand"   Margin="0,2">
+                    <MenuItem x:Name="customkEnable" Header="启用应用" Cursor="Hand"   Margin="0,2" Click="customkEnable_Click" />
+                    <MenuItem x:Name="customDisable" Header="禁用应用" Cursor="Hand"   Margin="0,2" Click="customDisable_Click" />
                 </MenuItem>
                 <Separator  Margin="0,5"/>
-                <MenuItem x:Name="disableAllAppPackage" Header="一键禁用" ToolTip="仅特殊设备可用" Cursor="Hand" Margin="0,2" Click="disableAllAppPackage_Click"/>
+                <MenuItem x:Name="disableAllAppPackage" Header="一键禁用" ToolTip="仅特殊设备可用" Cursor="Hand"   Margin="0,2" Click="disableAllAppPackage_Click"/>
             </MenuItem>
             <Separator  Margin="0,5"/>
-            <MenuItem x:Name="disconnectAllDeviceItem" Header="断开所有设备" Click="disconnectAllDeviceItem_Click" Cursor="Hand" Margin="0,2" />
+            <MenuItem x:Name="disconnectAllDeviceItem" Header="断开所有设备" Click="disconnectAllDeviceItem_Click" Cursor="Hand"   Margin="0,2" />
         </ContextMenu>
         <ContextMenu x:Key="ComboBoxItemContextMenu" FontSize="13">
             <MenuItem x:Name="deleteHistory" Header="删除记录" Cursor="Hand"  Margin="0,2" Click="deleteHistory_Click"/>
             <Separator  Margin="0,5"/>
-            <MenuItem x:Name="deleteAllHistory" Header="清空所有记录" Click="deleteAllHistory_Click" Cursor="Hand"  Margin="0,2"/>
+            <MenuItem x:Name="deleteAllHistory" Header="清空所有记录" Click="deleteAllHistory_Click" Cursor="Hand"   Margin="0,2"/>
         </ContextMenu>
+
+        <!-- 顶栏菜单按钮（悬停浅灰底） -->
+        <Style x:Key="MenuButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FF374151"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFE5E7EB"/>
+                    <Setter Property="Foreground" Value="#FF2A9FFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 设备行（白面板上：透明底，悬停浅灰、选中浅蓝） -->
+        <Style x:Key="DeviceRowStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFF3F4F6"/>
+                </Trigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter Property="Background" Value="#FFE3F2FD"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 细长滚动条（匹配卡片风格，默认样式过于笨重） -->
+        <Style x:Key="SlimScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="Margin" Value="0,0,2,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Rectangle x:Name="thumbRect" RadiusX="3" RadiusY="3" Fill="#FFC3CAD3"/>
+                                            <ControlTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Thumb}}" Value="True">
+                                                    <Setter TargetName="thumbRect" Property="Fill" Value="#FF94A3B8"/>
+                                                </DataTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Opacity="0" Command="ScrollBar.PageDownCommand"/>
+                            </Track.IncreaseRepeatButton>
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Opacity="0" Command="ScrollBar.PageUpCommand"/>
+                            </Track.DecreaseRepeatButton>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Height" Value="6"/>
+                    <Setter Property="Width" Value="Auto"/>
+                    <Setter Property="Margin" Value="0,0,0,2"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Command="{x:Static local:MainWindow.CommandF5}"
@@ -55,87 +124,183 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="30"/>
-            <RowDefinition Height="auto"/>
+            <RowDefinition Height="34"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <Grid  Grid.Row="0"  x:Name="menuHeader" Background="#FFF6F6F6">
+
+        <!-- 顶部菜单栏（白色通栏） -->
+        <Grid  Grid.Row="0"  x:Name="menuHeader" Background="White">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="30"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <Button x:Name="setup" Content="设置" Cursor="Hand" Background="{x:Null}" Margin="10,0,0,0" Click="setup_Click"/>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="setup" Content="设置" Cursor="Hand" Style="{StaticResource MenuButtonStyle}" Margin="14,0,0,0" Click="setup_Click"/>
                 <Popup x:Name="setup_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=setup}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True">
-                    <Border Background="{Binding ElementName=menuHeader,Path=Background}" Padding="10" CornerRadius="0,0,5,5" BorderBrush="#FF06AB26" BorderThickness="1,0,1,1">
+                    <Border Background="White" Padding="10,6" CornerRadius="0,0,6,6" BorderBrush="#FF06AB26" BorderThickness="1,0,1,1">
                         <StackPanel>
                             <CheckBox IsChecked="False" x:Name="topmastCB" Content="置顶显示" Cursor="Hand" Click="topmastCB_Click" VerticalContentAlignment="Center" HorizontalAlignment="Left"  FontSize="14"/>
                         </StackPanel>
                     </Border>
                 </Popup>
 
-                <Button x:Name="about" Content="关于" Cursor="Hand" Background="{x:Null}" Margin="10,0,0,0" Click="about_Click"/>
+                <Button x:Name="about" Content="关于" Cursor="Hand" Style="{StaticResource MenuButtonStyle}" Margin="6,0,0,0" Click="about_Click"/>
                 <Popup x:Name="about_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=about}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True">
-                    <Border Background="{Binding ElementName=menuHeader,Path=Background}" Padding="10" CornerRadius="0,0,5,5" BorderBrush="#FF06AB26" BorderThickness="1,0,1,1">
+                    <Border Background="White" Padding="12,8" CornerRadius="0,0,6,6" BorderBrush="#FF06AB26" BorderThickness="1,0,1,1">
                         <StackPanel Cursor="">
                             <Button x:Name="projectAddress" Content="项目地址" Background="{x:Null}" Click="projectAddress_Click" HorizontalAlignment="Left" Cursor="Hand" FontSize="14"/>
-                            <Button x:Name="projectAddressMirror" Content="项目地址(镜像)" Margin="0,10,0,0" Background="{x:Null}" HorizontalAlignment="Left" Cursor="Hand" FontSize="14" Click="projectAddressMirror_Click"/>
-                            <Button x:Name="cheackUpdate" Content="检查更新" Margin="0,10,0,0" Background="{x:Null}" Click="cheackUpdate_Click" HorizontalAlignment="Left" Cursor="Hand" FontSize="14"/>
+                            <Button x:Name="projectAddressMirror" Content="项目地址(镜像)" Margin="0,8,0,0" Background="{x:Null}" HorizontalAlignment="Left" Cursor="Hand" FontSize="14" Click="projectAddressMirror_Click"/>
+                            <Button x:Name="cheackUpdate" Content="检查更新" Margin="0,8,0,0" Background="{x:Null}" Click="cheackUpdate_Click" HorizontalAlignment="Left" Cursor="Hand" FontSize="14"/>
                         </StackPanel>
                     </Border>
                 </Popup>
             </StackPanel>
 
-            <Image x:Name="updateVersion" Grid.Column="1" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" HorizontalAlignment="Center" Width="25" Height="25"  MouseDown="updateVersion_MouseDown" />
-        </Grid>
-        <Grid Grid.Row="1" Grid.ColumnSpan="3" Margin="0,0,0,0">
-            <Label Content="IP和端口" Margin="10,10,0,0" VerticalAlignment="Top" HorizontalContentAlignment="Center" HorizontalAlignment="Left" Width="85"/>
-            <ComboBox x:Name="deviceAddress" IsEditable="True" ToolTip="示例：192.168.0.1:5555，使用英文【:】连接IP和端口" Margin="100,10,10,0" IsSynchronizedWithCurrentItem="False" Height="30" MaxDropDownHeight="400"
-                      VerticalAlignment="Top" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{x:Null}" Background="{x:Null}" TabIndex="0" >
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" ContextMenu="{StaticResource ComboBoxItemContextMenu}" Cursor="Hand" Margin="0,0,0,0"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-            <Button x:Name="connectDevice" IsDefault="True" Content="连接(Enter)" ToolTip="输入连接的IP和端口进行连接"  Foreground="White" Background="#FF2A9FFF"  Margin="10,55,0,0" VerticalAlignment="Top" Height="30" HorizontalAlignment="Left" Width="100" Click="connectDevice_Click" Cursor="Hand" TabIndex="2"/>
-            <Button x:Name="refreshList" Content="刷新(F5)" ToolTip="刷新已连接列表" Margin="0,55,0,10" Width="100" Cursor="Hand" Height="30" VerticalAlignment="Bottom" Click="refreshList_Click" Foreground="White" BorderBrush="{x:Null}" Background="#FF06AB26" TabIndex="5"/>
-            <Button x:Name="pairDevice" Content="配对(F8)" ToolTip="输入配对的IP和端口进行配对" Margin="0,55,10,0"  Foreground="White" Background="#FFE87D00"  VerticalAlignment="Top" Height="30" HorizontalAlignment="Right" Width="100" Click="pairDevice_Click" Cursor="Hand" TabIndex="3"/>
-
+            <Image x:Name="updateVersion" Grid.Column="1" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" HorizontalAlignment="Center" Width="22" Height="22" Margin="0,0,14,0" MouseDown="updateVersion_MouseDown" />
+            <!-- 底部分隔线 -->
+            <Rectangle Grid.ColumnSpan="2" Height="1" Fill="#FFE5E7EB" VerticalAlignment="Bottom" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
         </Grid>
 
-        <Grid Grid.Row="2" Grid.ColumnSpan="3">
-            <Label Content="连接列表" Margin="10,0,10,0" VerticalAlignment="Top" HorizontalContentAlignment="Center" Cursor=""/>
-            <ListBox x:Name="deviceList" Margin="10,35,10,10" ToolTip="右键连接的设备进行操作" ItemsSource="{Binding}" HorizontalContentAlignment="Center" TabIndex="4" ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.HorizontalScrollBarVisibility="Hidden" AllowDrop="True">
+        <!-- 连接区卡片 -->
+        <Border Grid.Row="1" Margin="0,0,0,1" Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="12,10">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="IP和端口" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#FF374151" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="deviceAddress" Grid.Column="1" Height="28" FontSize="14" ToolTip="示例：192.168.0.1:5555，使用英文【:】连接IP和端口" IsEditable="True" IsSynchronizedWithCurrentItem="False" VerticalAlignment="Center" VerticalContentAlignment="Center" BorderBrush="#FFD1D5DB" Background="White" Padding="10,0" TabIndex="0">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" ContextMenu="{StaticResource ComboBoxItemContextMenu}" Cursor="Hand" Margin="0,0,0,0"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                <Grid Grid.Row="1" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="connectDevice" Grid.Column="0" Content="连接 (Enter)" IsDefault="True" ToolTip="输入连接的IP和端口进行连接" Foreground="White" FontWeight="SemiBold" Background="#FF2A9FFF" Height="30" Margin="0,0,4,0" Cursor="Hand" TabIndex="1" Click="connectDevice_Click"/>
+                    <Button x:Name="pairDevice" Grid.Column="1" Content="配对 (F8)" ToolTip="输入配对的IP和端口和配对码进行配对" Foreground="White" FontWeight="SemiBold" Background="#FFE87D00" Height="30" Margin="4,0" Cursor="Hand" TabIndex="2" Click="pairDevice_Click"/>
+                    <Button x:Name="refreshList" Grid.Column="2" Content="刷新 (F5)" ToolTip="刷新已连接列表" Foreground="White" FontWeight="SemiBold" Background="#FF06AB26" Height="30" Margin="4,0,0,0" Cursor="Hand" TabIndex="3" Click="refreshList_Click"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 连接设备列表 -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Background="White" Margin="1,1,1,0">
+                <StackPanel Orientation="Horizontal" Margin="10" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Border Width="3" Height="12" CornerRadius="1.5" Background="#FF2A9FFF" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="连接列表" FontSize="13" FontWeight="SemiBold" Foreground="#FF2B2523" VerticalAlignment="Center"/>
+                </StackPanel>
+                <!-- 面板头部分隔线 -->
+                <Rectangle Height="1" Fill="#FFE5E7EB" VerticalAlignment="Bottom" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
+            </Grid>
+            <ListBox x:Name="deviceList" Grid.Row="1" Margin="1,1,1,1" ToolTip="右键连接的设备进行操作，支持拖入APK文件安装" Background="White" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Hidden" AllowDrop="True">
+                <!-- 套用细滚动条（覆盖默认样式） -->
+                <ListBox.Resources>
+                    <Style TargetType="ScrollBar" BasedOn="{StaticResource SlimScrollBarStyle}"/>
+                </ListBox.Resources>
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
                         <VirtualizingStackPanel Orientation="Vertical" />
                     </ItemsPanelTemplate>
                 </ListBox.ItemsPanel>
+                <!-- 去除默认选中底色，由卡片样式统一控制 -->
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Grid x:Name="listBoxItem" Cursor="Hand" Width="300" Margin="0,5" ContextMenu="{StaticResource ListBoxItemContextMenu}" DataContext="{Binding}"
+                        <Grid x:Name="listBoxItem" Margin="0" Cursor="Hand" ContextMenu="{StaticResource ListBoxItemContextMenu}"
                               DragEnter="listBoxItem_DragEnter" DragLeave="listBoxItem_DragLeave" DragOver="listBoxItem_DragOver" Drop="listBoxItem_Drop" >
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="50"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid Grid.Column="0">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Path=DeviceInfo, Mode=Default}" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding Path=DeviceMark, Mode=Default}" TextWrapping="Wrap" Foreground="#FF2A9FFF" FontSize="13"/>
+                            <!-- 行背景（悬停/选中变色，拖放时由代码覆写） -->
+                            <Border x:Name="itemCard" Style="{StaticResource DeviceRowStyle}"/>
+                            <!-- 选中指示条（左侧蓝色竖条） -->
+                            <Rectangle Width="3" Fill="#FF2A9FFF" HorizontalAlignment="Left">
+                                <Rectangle.Style>
+                                    <Style TargetType="Rectangle">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Rectangle.Style>
+                            </Rectangle>
+                            <Grid Margin="14,10,12,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- 设备图标（15%连接色圆角底 + 同色手机轮廓） -->
+                                <Grid Grid.Column="0" Width="36" Height="36" VerticalAlignment="Center">
+                                    <Border CornerRadius="9" Background="{Binding Path=ConnectWayColor, Mode=Default}" Opacity="0.15"/>
+                                    <Grid Width="17" Height="17">
+                                        <Border CornerRadius="3" BorderThickness="1.5" BorderBrush="{Binding Path=ConnectWayColor, Mode=Default}"/>
+                                        <Rectangle RadiusX="0.75" RadiusY="0.75" Width="5" Height="1.5" Fill="{Binding Path=ConnectWayColor, Mode=Default}" VerticalAlignment="Top" Margin="0,2.5,0,0"/>
+                                        <Ellipse Width="2.2" Height="2.2" Fill="{Binding Path=ConnectWayColor, Mode=Default}" VerticalAlignment="Bottom" Margin="0,0,0,2"/>
+                                    </Grid>
+                                </Grid>
+                                <!-- 设备信息 -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <TextBlock Text="{Binding Path=DeviceInfo, Mode=Default}" FontSize="14" FontWeight="SemiBold" Foreground="#FF111827" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path=DeviceInfo, Mode=Default}"/>
+                                    <TextBlock Text="{Binding Path=DeviceMark, Mode=Default}" FontSize="11.5" Foreground="#FF6B7280" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path=DeviceMark, Mode=Default}" Visibility="{Binding Path=DeviceMarkVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                 </StackPanel>
+                                <!-- 连接方式徽章 -->
+                                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="9" Padding="8,1" Margin="8,0,0,0" Background="{Binding Path=ConnectWayColor, Mode=Default}">
+                                    <TextBlock Text="{Binding Path=ConnectWay, Mode=Default}" Foreground="White" FontSize="11.5" FontWeight="SemiBold"/>
+                                </Border>
                             </Grid>
-                            <Grid Grid.Column="1" Margin="0">
-                                <Label Content="{Binding Path=ConnectWay}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Foreground="{Binding Path=ConnectWayColor}"/>
-                            </Grid>
-                            <Label Grid.ColumnSpan="2" x:Name="dragLabel" Visibility="Collapsed" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Foreground="White"/>
+                            <!-- 行底部分隔线（与文字左对齐） -->
+                            <Rectangle Height="1" Fill="#FFEEF0F3" VerticalAlignment="Bottom" Margin="60,0,0,0" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
+                            <!-- 拖放提示层 -->
+                            <Label x:Name="dragLabel" Visibility="Collapsed" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Foreground="White"/>
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+            <!-- 空列表提示（有设备时由 RefreshDeviceList 隐藏） -->
+            <StackPanel x:Name="emptyHint" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                    <Border CornerRadius="11" Background="#FF6B7280" Opacity="0.1"/>
+                    <Grid Width="20" Height="20">
+                        <Border CornerRadius="3.5" BorderThickness="1.5" BorderBrush="#FFB0B7C3"/>
+                        <Rectangle RadiusX="0.75" RadiusY="0.75" Width="5.5" Height="1.5" Fill="#FFB0B7C3" VerticalAlignment="Top" Margin="0,3,0,0"/>
+                        <Ellipse Width="2.6" Height="2.6" Fill="#FFB0B7C3" VerticalAlignment="Bottom" Margin="0,0,0,2.5"/>
+                    </Grid>
+                </Grid>
+                <TextBlock Text="暂无连接设备" Margin="0,10,0,0" Foreground="#FF9CA3AF" FontSize="13" HorizontalAlignment="Center"/>
+            </StackPanel>
         </Grid>
 
+        <!-- 加载中遮罩 -->
         <Grid Grid.RowSpan="3" Visibility="Collapsed" x:Name="processBarGrid" Background="#7F000000" >
             <customcontrol:RoundProcessBarLoading x:Name="waitProcessBar" Height="130" Width="130"/>
             <Label Content="处理中"  Height="120" Width="120" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Foreground="White"/>

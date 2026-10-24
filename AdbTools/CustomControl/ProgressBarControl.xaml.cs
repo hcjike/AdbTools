@@ -1,17 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.ComponentModel;
-using System.Linq;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace AdbTools.CustomControl
 {
@@ -29,20 +20,20 @@ namespace AdbTools.CustomControl
         /// 获取或设置进度条的背景色
         /// </summary>
         [Description("获取或设置进度条的背景色")]
-        public System.Windows.Media.Brush ProgressBackground
+        public Brush ProgressBackground
         {
-            get { return progressBG.Fill; }
-            set { progressBG.Fill = value; }
+            get => progressBG.Fill;
+            set => progressBG.Fill = value;
         }
 
         /// <summary>
         /// 获取或设置进度条的边框色
         /// </summary>
         [Description("获取或设置进度条的边框色")]
-        public System.Windows.Media.Brush ProgressStroke
+        public Brush ProgressStroke
         {
-            get { return progressBG.Stroke; }
-            set { progressBG.Stroke = value; }
+            get => progressBG.Stroke;
+            set => progressBG.Stroke = value;
         }
 
         /// <summary>
@@ -51,18 +42,18 @@ namespace AdbTools.CustomControl
         [Description("获取或设置进度条的边框粗细")]
         public double ProgressStrokeThickness
         {
-            get { return progressBG.StrokeThickness; }
-            set { progressBG.StrokeThickness = value; }
+            get => progressBG.StrokeThickness;
+            set => progressBG.StrokeThickness = value;
         }
 
         /// <summary>
         /// 获取或设置进度条的进度色
         /// </summary>
         [Description("获取或设置进度条的进度色")]
-        public System.Windows.Media.Brush ProgressColor
+        public Brush ProgressColor
         {
-            get { return progressValue.Fill; }
-            set { progressValue.Fill = value; }
+            get => progressValue.Fill;
+            set => progressValue.Fill = value;
         }
 
         /// <summary>
@@ -71,8 +62,8 @@ namespace AdbTools.CustomControl
         [Description("获取或设置进度条提示信息")]
         public string HintProgress
         {
-            get { return progressTip.Content.ToString(); }
-            set { progressTip.Content = value; }
+            get => progressTip.Content?.ToString();
+            set => progressTip.Content = value;
         }
 
         /// <summary>
@@ -81,18 +72,18 @@ namespace AdbTools.CustomControl
         [Description("获取或设置进度条提示信息文字大小")]
         public double HintFontSize
         {
-            get { return progressTip.FontSize; }
-            set { progressTip.FontSize = value; }
+            get => progressTip.FontSize;
+            set => progressTip.FontSize = value;
         }
 
         /// <summary>
         /// 获取或设置进度条提示信息字体颜色
         /// </summary>
         [Description("获取或设置进度条提示信息字体颜色")]
-        public System.Windows.Media.Brush HintForeground
+        public Brush HintForeground
         {
-            get { return progressTip.Foreground; }
-            set { progressTip.Foreground = value; }
+            get => progressTip.Foreground;
+            set => progressTip.Foreground = value;
         }
 
         private double _Maximum = 100.0;
@@ -100,15 +91,15 @@ namespace AdbTools.CustomControl
         /// <summary>
         /// 获取或设置进度条的最大进度值,默认值为100
         /// </summary>
-        /// <exception cref="InvalidOperationException">进度值不可小于等于零</exception>
+        /// <exception cref="ArgumentOutOfRangeException">进度值小于等于零时抛出</exception>
         [Description("获取或设置进度条的最大进度值")]
         public double Maximum
         {
-            get { return _Maximum; }
-            set 
+            get => _Maximum;
+            set
             {
                 if (value <= 0)
-                    throw new InvalidOperationException("进度值不可小于等于零");
+                    throw new ArgumentOutOfRangeException(nameof(value), "进度值不可小于等于零");
                 _Maximum = value;
             }
         }
@@ -116,26 +107,22 @@ namespace AdbTools.CustomControl
         private double _Value;
 
         /// <summary>
-        /// 获取或设置进度条的进度值
+        /// 获取或设置进度条的进度值（自动限制在 0 ~ Maximum 之间）
         /// </summary>
         [Description("获取或设置进度条的进度值")]
         public double Value
         {
-            get { return _Value; }
+            get => _Value;
             set
             {
-                if (value < 0)
-                    _Value = 0;
-                else if(value > _Maximum)
-                    _Value = 100;
-                _Value = value;
+                _Value = Math.Max(0, Math.Min(_Maximum, value));
 
-                this.progressValue.Width = (_Value / _Maximum) * this.progressBG.ActualWidth;
+                if (progressBG.ActualWidth > 0)
+                {
+                    progressValue.Width = (_Value / _Maximum) * progressBG.ActualWidth;
+                }
             }
         }
-
-
-
 
     }
 }

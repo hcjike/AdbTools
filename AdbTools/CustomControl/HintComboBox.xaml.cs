@@ -1,17 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.ComponentModel;
-using System.Linq;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace AdbTools.CustomControl
 {
@@ -25,120 +17,55 @@ namespace AdbTools.CustomControl
             InitializeComponent();
         }
 
-
-
-        //[Description("获取或设置图片")]
-        //public System.Windows.Media.ImageSource ImageSource
-        //{
-        //    set
-        //    {
-        //        this.image.Source = value;
-        //    }
-        //    get
-        //    {
-        //        return this.image.Source;
-        //    }
-        //}
-
         [Description("设置或获取提示信息")]
         public object Hint
         {
-            get
-            {
-                return this.hint.Content;
-            }
-            set
-            {
-                this.hint.Content = value;
-            }
+            get => this.hint.Content;
+            set => this.hint.Content = value;
         }
 
-
         [Description("设置或获取提示信息的颜色")]
-        public System.Windows.Media.Brush HintForeground
+        public Brush HintForeground
         {
-            get
-            {
-                return this.hint.Foreground;
-            }
-            set
-            {
-                this.hint.Foreground = value;
-            }
+            get => this.hint.Foreground;
+            set => this.hint.Foreground = value;
         }
 
         [Description("设置或获取提示信息的字体大小")]
         public double HintFontSize
         {
-            get
-            {
-                return this.hint.FontSize;
-            }
-            set
-            {
-                this.hint.FontSize = value;
-            }
+            get => this.hint.FontSize;
+            set => this.hint.FontSize = value;
         }
 
-
         [Description("设置或获取输入框的字体颜色")]
-        public System.Windows.Media.Brush TextForeground
+        public Brush TextForeground
         {
-            get
-            {
-                return this.comboBox.Foreground;
-            }
-            set
-            {
-                this.comboBox.Foreground = value;
-            }
+            get => this.comboBox.Foreground;
+            set => this.comboBox.Foreground = value;
         }
 
         [Description("设置或获取输入框的字体大小")]
         public double TextFontSize
         {
-            get
-            {
-                return this.comboBox.FontSize;
-            }
-            set
-            {
-                this.comboBox.FontSize = value;
-            }
+            get => this.comboBox.FontSize;
+            set => this.comboBox.FontSize = value;
         }
-
 
         [Description("设置或获取下划线的颜色")]
-        public System.Windows.Media.Brush LineStroke
+        public Brush LineStroke
         {
-            get
-            {
-                return this.line.Stroke;
-            }
-            set
-            {
-                this.line.Stroke = value;
-            }
+            get => this.line.Stroke;
+            set => this.line.Stroke = value;
         }
-
 
         [Description("设置或获取输入框的文本")]
         public string Text
         {
-            get
-            {
-                return this.comboBox.Text;
-            }
+            get => this.comboBox.Text;
             set
             {
-                if (string.IsNullOrEmpty(value))
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
+                UpdateHintVisibility(value);
                 this.comboBox.Text = value;
                 this.UpdateLayout();
             }
@@ -147,27 +74,15 @@ namespace AdbTools.CustomControl
         [Description("设置或获取控件是否只读")]
         public bool IsReadOnly
         {
-            get
-            {
-                return this.comboBox.IsReadOnly;
-            }
-            set
-            {
-                this.comboBox.IsReadOnly = value;
-            }
+            get => this.comboBox.IsReadOnly;
+            set => this.comboBox.IsReadOnly = value;
         }
 
         [Description("获取控件的所有项")]
-        public System.Windows.Controls.ItemCollection Items
-        {
-            get
-            {
-                return this.comboBox.Items;
-            }
-        }
+        public ItemCollection Items => this.comboBox.Items;
 
         [Description("设置或获取控件的内边距")]
-        public System.Windows.Thickness ComboBoxPadding
+        public Thickness ComboBoxPadding
         {
             get
             {
@@ -184,14 +99,8 @@ namespace AdbTools.CustomControl
         [Description("设置或获取控件的下拉条高度")]
         public double MaxDropDownHeight
         {
-            get
-            {
-                return this.comboBox.MaxDropDownHeight;
-            }
-            set
-            {
-                this.comboBox.MaxDropDownHeight = value;
-            }
+            get => this.comboBox.MaxDropDownHeight;
+            set => this.comboBox.MaxDropDownHeight = value;
         }
 
         [Description("下拉改变事件，可以获取到选择的项")]
@@ -201,19 +110,8 @@ namespace AdbTools.CustomControl
         {
             if (this.IsLoad)
             {
-                if (e.AddedItems.Count > 0)
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-
-                if (SelectionChanged != null)
-                {
-                    SelectionChanged(sender, e);
-                }
+                UpdateHintVisibility(this.Text);
+                SelectionChanged?.Invoke(sender, e);
             }
         }
 
@@ -224,28 +122,14 @@ namespace AdbTools.CustomControl
             this.comboBox.Height = this.ActualHeight;
             this.comboBox.Width = this.ActualWidth;
 
-            if (string.IsNullOrEmpty(Text))
-            {
-                this.hint.Visibility = System.Windows.Visibility.Visible;
-            }
-            else
-            {
-                this.hint.Visibility = System.Windows.Visibility.Collapsed;
-            }
+            UpdateHintVisibility(Text);
         }
 
         private void comboBox_KeyUp(object sender, KeyEventArgs e)
         {
             if (this.IsLoad)
             {
-                if (string.IsNullOrEmpty(this.Text))
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
+                UpdateHintVisibility(this.Text);
             }
         }
 
@@ -253,19 +137,17 @@ namespace AdbTools.CustomControl
         {
             if (this.IsLoad)
             {
-                if (string.IsNullOrEmpty(this.Text))
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
+                UpdateHintVisibility(this.Text);
             }
         }
 
-
-
+        /// <summary>
+        /// 根据输入框内容切换提示信息的显隐
+        /// </summary>
+        private void UpdateHintVisibility(string text)
+        {
+            this.hint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Visible : Visibility.Collapsed;
+        }
 
     }
 }

@@ -1,65 +1,53 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Update
 {
     public class ZipFileUtils
     {
+        /// <summary>
+        /// 解压zip文件到指定目录（自动覆盖已存在文件，防止路径穿越）
+        /// </summary>
+        /// <exception cref="FileNotFoundException">zip文件不存在时抛出</exception>
         public static bool UnzipFile(string zipFilePath, string extractPath)
         {
-            try
+            if (!File.Exists(zipFilePath))
             {
-                // 检查 ZIP 文件是否存在
-                if (!File.Exists(zipFilePath))
-                {
-                    throw new FileNotFoundException($"ZIP file not found: {zipFilePath}");
-                }
+                throw new FileNotFoundException($"ZIP文件不存在：{zipFilePath}");
+            }
 
-                // 检查目标文件夹是否存在，如果不存在则创建
-                if (!Directory.Exists(extractPath))
-                {
-                    Directory.CreateDirectory(extractPath);
-                }
+            string rootPath = Path.GetFullPath(extractPath);
+            Directory.CreateDirectory(rootPath);
 
-                // 打开 ZIP 文件
-                using (ZipArchive archive = ZipFile.OpenRead(zipFilePath))
+            using (ZipArchive archive = ZipFile.OpenRead(zipFilePath))
+            {
+                foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    foreach (ZipArchiveEntry entry in archive.Entries)
+                    string fullPath = Path.GetFullPath(Path.Combine(rootPath, entry.FullName));
+                    if (!fullPath.StartsWith(rootPath + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                     {
-                        string fullPath = Path.Combine(extractPath, entry.FullName);
+                        // 跳过试图解压目标目录之外的条目
+                        continue;
+                    }
 
-                        // 如果是目录，则创建目录
-                        if (string.IsNullOrEmpty(entry.Name))
-                        {
-                            Directory.CreateDirectory(fullPath);
-                        }
-                        else
-                        {
-                            // 如果是文件，检查是否已存在
-                            if (File.Exists(fullPath))
-                            {
-                                File.Delete(fullPath); // 删除已存在的文件
-                            }
-
-                            // 解压文件
-                            entry.ExtractToFile(fullPath);
-                        }
+                    if (string.IsNullOrEmpty(entry.Name))
+                    {
+                        // 目录条目
+                        Directory.CreateDirectory(fullPath);
+                    }
+                    else
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+                        // 覆盖已存在的文件
+                        entry.ExtractToFile(fullPath, true);
                     }
                 }
-                File.Delete(zipFilePath);
+            }
 
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error extracting ZIP file: {ex.Message}");
-                throw ex;
-            }
+            File.Delete(zipFilePath);
+
+            return true;
         }
 
     }

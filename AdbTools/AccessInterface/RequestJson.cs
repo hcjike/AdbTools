@@ -1,14 +1,13 @@
-﻿using System;
+using AdbTools.bean;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
-using System.Web.Script.Serialization;
-using System.Configuration;
-using AdbTools.bean;
 using System.Threading;
+using System.Web.Script.Serialization;
 using System.Windows;
-using System.IO;
 using System.Windows.Controls;
 
 namespace AdbTools.AccessInterface
@@ -17,7 +16,7 @@ namespace AdbTools.AccessInterface
     public delegate void UpdateInfo(GithubReleases githubReleases);
 
     /// <summary>
-    /// post请求
+    /// 网络请求
     /// </summary>
     public static class RequestJson
     {
@@ -26,8 +25,11 @@ namespace AdbTools.AccessInterface
         public const string ApiUrlMirrorGitee = @"https://gitee.com/api/v5/repos/hcjike/AdbTools/releases";
 
         public const string UpdateFileName = "update.zip";
-        private static JavaScriptSerializer jss = new JavaScriptSerializer();
+        private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
 
+        /// <summary>
+        /// 检查更新，发现新版本时显示更新图标
+        /// </summary>
         public static void UpdateCheck(MainWindow mainWindow, Image updateVersion)
         {
             UpdateCheck(mainWindow, githubReleases =>
@@ -37,114 +39,71 @@ namespace AdbTools.AccessInterface
             });
         }
 
+        /// <summary>
+        /// 检查更新（异步），发现新版本时在主窗口线程回调action
+        /// </summary>
         public static void UpdateCheck(MainWindow mainWindow, UpdateInfo action)
         {
-            Thread thread = new Thread(new ThreadStart(() =>
+            Thread thread = new Thread(() =>
             {
                 GithubReleases githubReleases = Request();
-                if (null == githubReleases || App.Version.Equals(githubReleases.tag_name))
+                if (githubReleases == null || IsLatestVersion(githubReleases.tag_name))
                 {
                     return;
                 }
-                GithubReleasesAssets githubReleasesAssets = null;
-                foreach (GithubReleasesAssets assets in githubReleases.Assets)
+                if (githubReleases.Assets == null
+                    || !githubReleases.Assets.Any(a => UpdateFileName.Equals(a.Name, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (UpdateFileName.Equals(assets.Name, StringComparison.CurrentCultureIgnoreCase))
-                    {
-                        githubReleasesAssets = assets;
-                    }
-                }
-                if (null == githubReleasesAssets)
-                {
+                    // 没有可供更新的安装包
                     return;
                 }
 
                 mainWindow.Dispatcher.Invoke(new Action(() =>
                 {
-                    action.Invoke(githubReleases);
+                    action?.Invoke(githubReleases);
                 }));
-            }));
+            })
+            {
+                IsBackground = true
+            };
             thread.Start();
         }
 
         /// <summary>
-        /// 执行请求，返回返回类型对象
+        /// 判断版本号是否已是当前版本（兼容 “V1.2.3” 与 “1.2.3” 写法）
         /// </summary>
-        /// <typeparam name="T">请求的类型</typeparam>
-        /// <typeparam name="S">返回的类型</typeparam>
-        /// <param name="requestType">接口名称</param>
-        /// <param name="obj">请求的参数Json对象</param>
-        /// <returns>返回的类型的对象</returns>
+        private static bool IsLatestVersion(string tagName)
+        {
+            string latest = tagName?.Trim().TrimStart('v', 'V');
+            return string.IsNullOrEmpty(latest)
+                || App.Version.Equals(latest, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 请求发布列表，返回最新的发布信息（失败返回null）
+        /// </summary>
         public static GithubReleases Request()
         {
             try
             {
-                string strURL = ApiUrlMirrorGitee;
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(strURL);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(ApiUrlMirrorGitee);
                 request.UserAgent = "User-Agent:Mozilla/5.0 (Windows NT 5.1) AppleWebKit/535.1 (KHTML, like Gecko) Chrome/14.0.835.202 Safari/535.1";
                 request.ContentType = "application/x-www-form-urlencoded";
                 request.Credentials = CredentialCache.DefaultCredentials;
                 request.Method = "GET";
                 request.Proxy = null;
                 request.Timeout = 60000;
-                System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse();
-                System.IO.StreamReader myreader = new System.IO.StreamReader(response.GetResponseStream(), Encoding.UTF8);
-                string responseText = myreader.ReadToEnd();
-                myreader.Close();
 
-                //return responseText;
-                List<GithubReleases> s = jss.Deserialize<List<GithubReleases>>(responseText);
-                var sortedReleases = s.OrderByDescending(r => r.Id).ToList();
-                return sortedReleases[0];
+                using (WebResponse response = request.GetResponse())
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    List<GithubReleases> releases = Serializer.Deserialize<List<GithubReleases>>(reader.ReadToEnd());
+                    return releases?.OrderByDescending(r => r.Id).FirstOrDefault();
+                }
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 return null;
-            }
-        }
-
-        public static void DownloadFile(string url, string savePath)
-        {
-            try
-            {
-                // 创建 HttpWebRequest 对象
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create($"{Globals.AppSettings.GITHUB_PROXY}{url}");
-                request.Method = "GET";
-
-                // 发送请求并获取响应
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                using (Stream responseStream = response.GetResponseStream())
-                using (FileStream fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write))
-                {
-                    // 缓冲区大小（可以根据需要调整）
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-
-                    // 从响应流中读取数据并写入文件
-                    while ((bytesRead = responseStream.Read(buffer, 0, buffer.Length)) > 0)
-                    {
-                        fileStream.Write(buffer, 0, bytesRead);
-                    }
-                }
-
-                Console.WriteLine($"File downloaded and saved to: {savePath}");
-            }
-            catch (WebException ex)
-            {
-                Console.WriteLine($"WebException: {ex.Message}");
-                if (ex.Response != null)
-                {
-                    using (var errorResponse = (HttpWebResponse)ex.Response)
-                    using (var reader = new StreamReader(errorResponse.GetResponseStream()))
-                    {
-                        string errorText = reader.ReadToEnd();
-                        Console.WriteLine($"Error details: {errorText}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
             }
         }
 

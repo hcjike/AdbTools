@@ -1,8 +1,3 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
 namespace AdbTools.bean
 {
     public class GithubReleasesAssets
@@ -16,6 +11,6 @@ namespace AdbTools.bean
         /// 上传构件下载地址
         /// </summary>
         public string browser_download_url { get; set; }
-        
+
     }
 }

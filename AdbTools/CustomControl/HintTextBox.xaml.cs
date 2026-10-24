@@ -1,17 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.ComponentModel;
-using System.Linq;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace AdbTools.CustomControl
 {
@@ -25,179 +17,90 @@ namespace AdbTools.CustomControl
             InitializeComponent();
         }
 
-        //[Description("获取或设置图片")]
-        //public System.Windows.Media.ImageSource ImageSource
-        //{
-        //    set
-        //    {
-        //        this.image.Source = value;
-        //    }
-        //    get
-        //    {
-        //        return this.image.Source;
-        //    }
-        //}
-
         [Description("设置或获取提示信息")]
         [Bindable(true)]
         public object Hint
         {
-            get
-            {
-                return this.hint.Content;
-            }
-            set
-            {
-                this.hint.Content = value;
-            }
+            get => this.hint.Content;
+            set => this.hint.Content = value;
         }
-
 
         [Description("获取TextBox")]
-        public TextBox GetTextBox
-        {
-            get
-            {
-                return this.textBox;
-            }
-        }
-
+        public TextBox GetTextBox => this.textBox;
 
         [Description("设置或获取提示信息的颜色")]
-        public System.Windows.Media.Brush HintForeground
+        public Brush HintForeground
         {
-            get
-            {
-                return this.hint.Foreground;
-            }
-            set
-            {
-                this.hint.Foreground = value;
-            }
+            get => this.hint.Foreground;
+            set => this.hint.Foreground = value;
         }
 
         [Description("设置或获取光标颜色")]
         [Bindable(true)]
         public Brush BoxCaretBrush
         {
-            get
-            {
-                return this.textBox.CaretBrush;
-            }
-            set
-            {
-                this.textBox.CaretBrush = value;
-            }
+            get => this.textBox.CaretBrush;
+            set => this.textBox.CaretBrush = value;
         }
-
 
         [Description("设置或获取提示信息的字体大小")]
         public double HintFontSize
         {
-            get
-            {
-                return this.hint.FontSize;
-            }
-            set
-            {
-                this.hint.FontSize = value;
-            }
+            get => this.hint.FontSize;
+            set => this.hint.FontSize = value;
         }
 
         [Description("设置或获取指定文本在到达包含框的边缘时是否换行")]
         public TextWrapping TextBoxWrapping
         {
-            get
-            {
-                return this.textBox.TextWrapping;
-            }
-            set
-            {
-                this.textBox.TextWrapping = value;
-            }
+            get => this.textBox.TextWrapping;
+            set => this.textBox.TextWrapping = value;
         }
 
         [Description("获取或设置可见行的最大数目。")]
         public int TextBoxMaxLines
         {
-            get
-            {
-                return this.textBox.MaxLines;
-            }
-            set
-            {
-                this.textBox.MaxLines = value;
-            }
+            get => this.textBox.MaxLines;
+            set => this.textBox.MaxLines = value;
         }
 
-
         [Description("设置或获取输入框的字体颜色")]
-        public System.Windows.Media.Brush TextForeground
+        public Brush TextForeground
         {
-            get
-            {
-                return this.textBox.Foreground;
-            }
-            set
-            {
-                this.textBox.Foreground = value;
-            }
+            get => this.textBox.Foreground;
+            set => this.textBox.Foreground = value;
         }
 
         [Description("设置或获取输入框的字体大小")]
         public double TextFontSize
         {
-            get
-            {
-                return this.textBox.FontSize;
-            }
-            set
-            {
-                this.textBox.FontSize = value;
-            }
+            get => this.textBox.FontSize;
+            set => this.textBox.FontSize = value;
         }
 
         [Description("获取或设置一个值，确定当用户导航控件通过使用 TAB 键元素接收焦点的顺序。")]
         public int TextTabIndex
         {
-            get
-            {
-                return this.textBox.TabIndex;
-            }
-            set
-            {
-                this.textBox.TabIndex = value;
-            }
+            get => this.textBox.TabIndex;
+            set => this.textBox.TabIndex = value;
         }
-
 
         public void TextFocus()
         {
             this.textBox.Focus();
         }
 
-
         [Description("设置或获取下划线的颜色")]
-        public System.Windows.Media.Brush LineStroke
+        public Brush LineStroke
         {
-            get
-            {
-                return this.line.Stroke;
-            }
-            set
-            {
-                this.line.Stroke = value;
-            }
+            get => this.line.Stroke;
+            set => this.line.Stroke = value;
         }
-
 
         [Description("设置或获取输入框的文字")]
         public string Text
         {
-            get
-            {
-                return this.textBox.Text;
-            }
+            get => this.textBox.Text;
             set
             {
                 this.textBox.Text = value;
@@ -208,18 +111,12 @@ namespace AdbTools.CustomControl
         [Description("设置或获取输入框的文字的最大字符数")]
         public int MaxLength
         {
-            get
-            {
-                return this.textBox.MaxLength;
-            }
-            set
-            {
-                this.textBox.MaxLength = value;
-            }
+            get => this.textBox.MaxLength;
+            set => this.textBox.MaxLength = value;
         }
 
         [Description("设置或获取控件的内边距")]
-        public System.Windows.Thickness BoxPadding
+        public Thickness BoxPadding
         {
             get
             {
@@ -236,54 +133,29 @@ namespace AdbTools.CustomControl
         [Description("设置或获取Hint水平对齐方式")]
         public HorizontalAlignment HintHorizontalContentAlignment
         {
-            get
-            {
-                return this.hint.HorizontalContentAlignment;
-            }
-            set
-            {
-                this.hint.HorizontalContentAlignment = value;
-            }
+            get => this.hint.HorizontalContentAlignment;
+            set => this.hint.HorizontalContentAlignment = value;
         }
 
         [Description("设置或获取TextBox水平对齐方式")]
         public HorizontalAlignment BoxHorizontalContentAlignment
         {
-            get
-            {
-                return this.textBox.HorizontalContentAlignment;
-            }
-            set
-            {
-                this.textBox.HorizontalContentAlignment = value;
-            }
+            get => this.textBox.HorizontalContentAlignment;
+            set => this.textBox.HorizontalContentAlignment = value;
         }
-
 
         [Description("设置或获取下划线的显示和隐藏")]
         public Visibility LineVisibility
         {
-            get
-            {
-                return this.line.Visibility;
-            }
-            set
-            {
-                this.line.Visibility = value;
-            }
+            get => this.line.Visibility;
+            set => this.line.Visibility = value;
         }
 
         [Description("设置或获取控件是否只读")]
         public bool IsReadOnly
         {
-            get
-            {
-                return this.textBox.IsReadOnly;
-            }
-            set
-            {
-                this.textBox.IsReadOnly = value;
-            }
+            get => this.textBox.IsReadOnly;
+            set => this.textBox.IsReadOnly = value;
         }
 
         [Description("设置控件BoxPasting事件")]
@@ -315,14 +187,7 @@ namespace AdbTools.CustomControl
         {
             if (this.IsLoad)
             {
-                if (string.IsNullOrEmpty(this.Text))
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
+                UpdateHintVisibility(this.Text);
             }
 
             TextBoxTextChanged?.Invoke(sender, e);
@@ -333,24 +198,22 @@ namespace AdbTools.CustomControl
         {
             this.IsLoad = true;
 
-            if (string.IsNullOrEmpty(Text))
-            {
-                this.hint.Visibility = System.Windows.Visibility.Visible;
-            }
-            else
-            {
-                this.hint.Visibility = System.Windows.Visibility.Collapsed;
-            }
+            UpdateHintVisibility(Text);
         }
 
         [Description("文本输入事件")]
         public event EventHandler<TextCompositionEventArgs> TextBoxInput;
         private void textBox_TextInput(object sender, TextCompositionEventArgs e)
         {
-            if (TextBoxInput != null)
-            {
-                TextBoxInput(this, e);
-            }
+            TextBoxInput?.Invoke(this, e);
+        }
+
+        /// <summary>
+        /// 根据输入框内容切换提示信息的显隐
+        /// </summary>
+        private void UpdateHintVisibility(string text)
+        {
+            this.hint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Visible : Visibility.Collapsed;
         }
 
     }

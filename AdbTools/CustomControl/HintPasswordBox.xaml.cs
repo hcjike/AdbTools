@@ -1,17 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.ComponentModel;
-using System.Linq;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace AdbTools.CustomControl
 {
@@ -25,108 +17,52 @@ namespace AdbTools.CustomControl
             InitializeComponent();
         }
 
-        //[Description("获取或设置图片")]
-        //public System.Windows.Media.ImageSource ImageSource
-        //{
-        //    set
-        //    {
-        //        this.image.Source = value;
-        //    }
-        //    get
-        //    {
-        //        return this.image.Source;
-        //    }
-        //}
-
         [Description("设置或获取提示信息")]
         public object Hint
         {
-            get
-            {
-                return this.hint.Content;
-            }
-            set
-            {
-                this.hint.Content = value;
-            }
+            get => this.hint.Content;
+            set => this.hint.Content = value;
         }
 
-
         [Description("设置或获取提示信息的颜色")]
-        public System.Windows.Media.Brush HintForeground
+        public Brush HintForeground
         {
-            get
-            {
-                return this.hint.Foreground;
-            }
-            set
-            {
-                this.hint.Foreground = value;
-            }
+            get => this.hint.Foreground;
+            set => this.hint.Foreground = value;
         }
 
         [Description("设置或获取提示信息的字体大小")]
         public double HintFontSize
         {
-            get
-            {
-                return this.hint.FontSize;
-            }
-            set
-            {
-                this.hint.FontSize = value;
-            }
+            get => this.hint.FontSize;
+            set => this.hint.FontSize = value;
         }
 
-
         [Description("设置或获取输入框的字体颜色")]
-        public System.Windows.Media.Brush TextForeground
+        public Brush TextForeground
         {
-            get
-            {
-                return this.passwordBox.Foreground;
-            }
-            set
-            {
-                this.passwordBox.Foreground = value;
-            }
+            get => this.passwordBox.Foreground;
+            set => this.passwordBox.Foreground = value;
         }
 
         [Description("设置或获取输入框的字体大小")]
         public double TextFontSize
         {
-            get
-            {
-                return this.passwordBox.FontSize;
-            }
-            set
-            {
-                this.passwordBox.FontSize = value;
-            }
+            get => this.passwordBox.FontSize;
+            set => this.passwordBox.FontSize = value;
         }
-
 
         [Description("设置或获取下划线的颜色")]
-        public System.Windows.Media.Brush LineStroke
+        public Brush LineStroke
         {
-            get
-            {
-                return this.line.Stroke;
-            }
-            set
-            {
-                this.line.Stroke = value;
-            }
+            get => this.line.Stroke;
+            set => this.line.Stroke = value;
         }
-
 
         [Description("设置或获取输入框的文字")]
         public string Text
         {
-            get
-            {
-                return this.passwordBox.Password;
-            }
+            get => this.passwordBox.Password;
             set
             {
                 this.passwordBox.Password = value;
@@ -134,22 +70,15 @@ namespace AdbTools.CustomControl
             }
         }
 
-
         [Description("设置或获取输入框的文字的最大字符数")]
         public int MaxLength
         {
-            get
-            {
-                return this.passwordBox.MaxLength;
-            }
-            set
-            {
-                this.passwordBox.MaxLength = value;
-            }
+            get => this.passwordBox.MaxLength;
+            set => this.passwordBox.MaxLength = value;
         }
 
         [Description("设置或获取控件的内边距")]
-        public System.Windows.Thickness BoxPadding
+        public Thickness BoxPadding
         {
             get
             {
@@ -166,14 +95,8 @@ namespace AdbTools.CustomControl
         [Description("设置或获取PasswordBox水平对齐方式")]
         public HorizontalAlignment BoxHorizontalContentAlignment
         {
-            get
-            {
-                return this.passwordBox.HorizontalContentAlignment;
-            }
-            set
-            {
-                this.passwordBox.HorizontalContentAlignment = value;
-            }
+            get => this.passwordBox.HorizontalContentAlignment;
+            set => this.passwordBox.HorizontalContentAlignment = value;
         }
 
         [Description("设置控件BoxPasting事件")]
@@ -205,14 +128,7 @@ namespace AdbTools.CustomControl
         {
             if (this.IsLoad)
             {
-                if (string.IsNullOrEmpty(this.Text))
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Visible;
-                }
-                else
-                {
-                    this.hint.Visibility = System.Windows.Visibility.Collapsed;
-                }
+                UpdateHintVisibility(this.Text);
             }
 
             PasswordBoxPasswordChanged?.Invoke(sender, e);
@@ -224,22 +140,21 @@ namespace AdbTools.CustomControl
         {
             this.IsLoad = true;
 
-            if (string.IsNullOrEmpty(this.Text))
-            {
-                this.hint.Visibility = System.Windows.Visibility.Visible;
-            }
-            else
-            {
-                this.hint.Visibility = System.Windows.Visibility.Collapsed;
-            }
+            UpdateHintVisibility(this.Text);
         }
-
 
         public void TextFocus()
         {
             this.passwordBox.Focus();
         }
 
+        /// <summary>
+        /// 根据输入框内容切换提示信息的显隐
+        /// </summary>
+        private void UpdateHintVisibility(string text)
+        {
+            this.hint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Visible : Visibility.Collapsed;
+        }
 
     }
 }

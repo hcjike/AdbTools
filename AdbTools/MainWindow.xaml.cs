@@ -1,4 +1,4 @@
-﻿using AdbTools.AccessInterface;
+using AdbTools.AccessInterface;
 using AdbTools.bean;
 using Microsoft.Win32;
 using System;
@@ -7,19 +7,10 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using System.Windows.Threading;
-using Update;
 
 namespace AdbTools
 {
@@ -33,7 +24,6 @@ namespace AdbTools
 
 
         public static string adbPath = "";
-        //private DispatcherTimer timer;
         private ObservableCollection<string> deviceAddressHistory;
         private ObservableCollection<Device> deviceAddressList;
 
@@ -84,26 +74,28 @@ namespace AdbTools
         private void refreshDeviceAddressHistory()
         {
             deviceAddressHistory.Clear();
-            Globals.AppSettings.DEVICE_ADDRESS_HISTORY.ForEach(s =>
+            foreach (string address in Globals.AppSettings.DEVICE_ADDRESS_HISTORY)
             {
-                deviceAddressHistory.Add(s);
-            });
-
+                deviceAddressHistory.Add(address);
+            }
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             this.Title = $"{this.Title} V{App.Version}";
-            //adb相关资源文件
-            string path = AppDomain.CurrentDomain.BaseDirectory + "adb.exe";
-            string adbDll1 = AppDomain.CurrentDomain.BaseDirectory + "AdbWinApi.dll";
-            string adbDll2 = AppDomain.CurrentDomain.BaseDirectory + "AdbWinUsbApi.dll";
-            if (!File.Exists(path) || !File.Exists(adbDll1) || !File.Exists(adbDll2))
+
+            // adb相关资源文件
+            string adbFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "adb.exe");
+            string adbDll1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AdbWinApi.dll");
+            string adbDll2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AdbWinUsbApi.dll");
+            if (!File.Exists(adbFilePath) || !File.Exists(adbDll1) || !File.Exists(adbDll2))
             {
                 MessageBox.Show("adb工具集丢失，无法运行！", "提示", MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.Exit(0);
                 return;
             }
+
+            // 配置文件中未设置代理时，将默认代理写入配置
             if (!Globals.AppSettings.IS_GITHUB_PROXY)
             {
                 Globals.AppSettings.GITHUB_PROXY = Globals.AppSettings.GITHUB_PROXY;
@@ -111,7 +103,7 @@ namespace AdbTools
 
             RequestJson.UpdateCheck(this, updateVersion);
 
-            adbPath = $"\"{path}\"";
+            adbPath = $"\"{adbFilePath}\"";
 
             deviceAddress.Text = Globals.AppSettings.LAST_DEVICE_ADDRESS;
             deviceAddress.ItemsSource = deviceAddressHistory;
@@ -119,75 +111,90 @@ namespace AdbTools
 
             deviceList.ItemsSource = deviceAddressList;
 
-            //timer = new DispatcherTimer();
-            //timer.Interval = TimeSpan.FromSeconds(3);
-            //timer.Tick += Timer_Tick;
-            //timer.Start();
             Timer_Tick(null, null);
-        }
-
-        private void Timer_Tick(object sender, EventArgs e)
-        {
-            waitAnimation(true);
-            string command = $"{adbPath} devices";
-            CmdExecutor.ExecuteCommandAndReturnAsync(command, content =>
-            {
-                // 输出所有匹配项
-                int index = 0;
-                List<string> list = new List<string>();
-                string[] str = content.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < str.Length; ++i)
-                {
-                    if (str[i].EndsWith("device"))
-                    {
-                        string address = str[i].Replace("device", "").Trim();
-                        list.Add(address);
-                        Device d = null;
-                        if (!deviceAddressList.Any(o =>
-                        {
-                            d = o;
-                            return o.DeviceMark.Equals(address);
-                        }))
-                        {
-                            Device device = new Device()
-                            {
-                                IsWifiConnect = IsValidIPEndPoint(address),
-                                DeviceMark = address,
-                                ShowDeviceName = address
-                            };
-
-                            deviceAddressList.Insert(index, device);
-                        }
-                        else
-                        {
-                            deviceAddressList.Remove(d);
-                            deviceAddressList.Insert(index, d);
-                        }
-                        index++;
-                    }
-                }
-
-                List<Device> removeList = deviceAddressList.Where(o => !list.Contains(o.DeviceMark)).ToList();
-                removeList.ForEach(o => deviceAddressList.Remove(o));
-                foreach (Device d in deviceAddressList)
-                {
-                    d.Refresh();
-                }
-
-                waitAnimation(false);
-            });
         }
 
         private void Window_Unloaded(object sender, RoutedEventArgs e)
         {
         }
 
+        private void Timer_Tick(object sender, EventArgs e)
+        {
+            waitAnimation(true);
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} devices", content =>
+            {
+                RefreshDeviceList(content);
+                waitAnimation(false);
+            });
+        }
+
+        /// <summary>
+        /// 根据 adb devices 输出刷新设备列表（保持adb返回顺序，新设备插入到对应位置）
+        /// </summary>
+        private void RefreshDeviceList(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                // 命令执行失败或被中断时保留当前列表，避免误清空
+                // （正常执行时至少有cmd横幅与"List of devices attached"输出，不会为空）
+                return;
+            }
+
+            int index = 0;
+            List<string> deviceMarks = new List<string>();
+
+            foreach (string line in content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!line.EndsWith("device"))
+                {
+                    // 跳过 unauthorized、offline 等非就绪状态及cmd回显行
+                    continue;
+                }
+
+                string address = line.Replace("device", "").Trim();
+                deviceMarks.Add(address);
+
+                Device exist = deviceAddressList.FirstOrDefault(o => o.DeviceMark == address);
+                if (exist == null)
+                {
+                    deviceAddressList.Insert(index, new Device
+                    {
+                        IsWifiConnect = Globals.IsValidIPEndPoint(address),
+                        DeviceMark = address,
+                        ShowDeviceName = address
+                    });
+                }
+                else
+                {
+                    int oldIndex = deviceAddressList.IndexOf(exist);
+                    if (oldIndex != index)
+                    {
+                        deviceAddressList.Move(oldIndex, index);
+                    }
+                }
+                index++;
+            }
+
+            // 移除已不存在的设备
+            foreach (Device device in deviceAddressList.Where(o => !deviceMarks.Contains(o.DeviceMark)).ToList())
+            {
+                deviceAddressList.Remove(device);
+            }
+
+            foreach (Device device in deviceAddressList)
+            {
+                device.Refresh();
+            }
+
+            // 空列表时显示提示（HasItems不发送更改通知，需手动同步）
+            emptyHint.Visibility = deviceAddressList.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         private void connectDevice_Click(object sender, RoutedEventArgs e)
         {
-            string address = deviceAddress.Text;
-            address = address.Replace("：", ":");
+            string address = deviceAddress.Text.Replace("：", ":");
             deviceAddress.Text = address;
-            if (!IsValidIPEndPoint(address))
+            if (!Globals.IsValidIPEndPoint(address))
             {
                 MessageBox.Show("设备连接地址输入错误！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -196,25 +203,25 @@ namespace AdbTools
             waitAnimation(true);
             CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} connect {address}", result =>
             {
-                if (string.IsNullOrWhiteSpace(result) || ContainsAny(result, new string[] { "(10060)", "(10061)", "failed to connect" }))
+                if (string.IsNullOrWhiteSpace(result) || Globals.ContainsAny(result, "(10060)", "(10061)", "failed to connect"))
                 {
                     waitAnimation(false);
                     MessageBox.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-                Globals.AppSettings.LAST_DEVICE_ADDRESS = $"{address}";
+                Globals.AppSettings.LAST_DEVICE_ADDRESS = address;
 
                 string ip = address.Split(':')[0];
-                List<string> list = Globals.AppSettings.DEVICE_ADDRESS_HISTORY.Where(item => !item.StartsWith(ip)).ToList();
-                list.Insert(0, address);
-                Globals.AppSettings.DEVICE_ADDRESS_HISTORY = list;
+                List<string> history = Globals.AppSettings.DEVICE_ADDRESS_HISTORY.Where(item => !item.StartsWith(ip)).ToList();
+                history.Insert(0, address);
+                Globals.AppSettings.DEVICE_ADDRESS_HISTORY = history;
                 refreshDeviceAddressHistory();
                 deviceAddress.Text = Globals.AppSettings.LAST_DEVICE_ADDRESS;
 
                 Timer_Tick(null, null);
                 waitAnimation(false);
 
-            }, (err) =>
+            }, err =>
             {
                 waitAnimation(false);
                 MessageBox.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -235,11 +242,13 @@ namespace AdbTools
 
         private string[] SelectApkFile()
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-            openFileDialog.Filter = "APK Files (*.apk)|*.apk";
-            openFileDialog.FilterIndex = 1;
-            openFileDialog.Multiselect = true;
-            openFileDialog.RestoreDirectory = true;
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "APK Files (*.apk)|*.apk",
+                FilterIndex = 1,
+                Multiselect = true,
+                RestoreDirectory = true
+            };
 
             if (openFileDialog.ShowDialog() == true)
             {
@@ -251,20 +260,26 @@ namespace AdbTools
 
         private void installApkItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            string[] path = SelectApkFile();
-            if (null == path || path.Length <= 0)
+            Device device = GetSelectedDevice();
+            if (device == null)
             {
                 return;
             }
-            HandleApkInstallation(new List<string>(path), 0, device);
+            string[] paths = SelectApkFile();
+            if (paths == null || paths.Length == 0)
+            {
+                return;
+            }
+            HandleApkInstallation(new List<string>(paths), 0, device);
         }
 
         private void disconnectDeviceItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
 
             if (MessageBoxResult.OK != MessageBox.Show($"确定要断开设备【{device.ShowDeviceName}】的连接吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
             {
@@ -291,49 +306,6 @@ namespace AdbTools
             }
         }
 
-        public static bool IsValidIPEndPoint(string ipPort)
-        {
-            if (ipPort.Contains("._adb-tls-connect._tcp"))
-            {
-                return true;
-            }
-            string[] parts = ipPort.Split(':');
-            if (parts.Length > 2)
-            {
-                return false;
-            }
-            if (parts.Length == 1)
-            {
-                if (!IPAddress.TryParse(ipPort, out _))
-                {
-                    return false;
-                }
-                return true;
-            }
-
-            string ipAddress = parts[0];
-            string port = parts[1];
-
-            // 验证IP地址
-            if (!IPAddress.TryParse(ipAddress, out _))
-            {
-                return false;
-            }
-
-            // 验证端口号
-            if (!int.TryParse(port, out int portNumber))
-            {
-                return false;
-            }
-
-            if (portNumber <= 0 || portNumber > 65535)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
         private void deleteHistory_Click(object sender, RoutedEventArgs e)
         {
             var menuItem = (MenuItem)sender;
@@ -358,23 +330,10 @@ namespace AdbTools
             }
         }
 
-        public bool ContainsAny(string source, params string[] substrings)
-        {
-            return substrings.Any(substring => source.Contains(substring));
-        }
-
         private void waitAnimation(bool show)
         {
-            if (show)
-            {
-                processBarGrid.Visibility = Visibility.Visible;
-                waitProcessBar.IsShowAnimation = show;
-            }
-            else
-            {
-                processBarGrid.Visibility = Visibility.Collapsed;
-                waitProcessBar.IsShowAnimation = show;
-            }
+            processBarGrid.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            waitProcessBar.IsShowAnimation = show;
         }
 
         private void refreshList_Click(object sender, RoutedEventArgs e)
@@ -382,84 +341,96 @@ namespace AdbTools
             Timer_Tick(null, null);
         }
 
-        private void resetPortItem_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 获取当前选中的设备，未选中时提示并返回null
+        /// </summary>
+        private Device GetSelectedDevice()
         {
             int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            if (MessageBoxResult.OK == MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【恢复默认TCP端口(5555)】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (index < 0 || index >= deviceAddressList.Count)
             {
-                waitAnimation(true);
-                CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark} tcpip 5555 " }, result =>
+                MessageBox.Show("请先选择一个设备！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+            return deviceAddressList[index];
+        }
+
+        /// <summary>
+        /// 对选中设备执行设置类命令（统一确认、执行、成功/失败提示流程）
+        /// </summary>
+        /// <param name="actionName">操作名称，如“恢复默认DPI”</param>
+        /// <param name="commandFactory">根据设备生成要执行的命令</param>
+        /// <param name="failTip">失败提示的补充说明</param>
+        private void ExecuteDeviceSetting(string actionName, Func<Device, string> commandFactory, string failTip)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
+            if (MessageBoxResult.OK != MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【{actionName}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            {
+                return;
+            }
+            waitAnimation(true);
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { commandFactory(device) },
+                result =>
                 {
                     waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认TCP端口(5555)成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                    MessageBox.Show($"设备【{device.ShowDeviceName}】{actionName}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
                 },
                 err =>
                 {
                     waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认TCP端口(5555)失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show($"设备【{device.ShowDeviceName}】{actionName}失败！\r\n{failTip}", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return true;
                 });
-            }
+        }
+
+        private void resetPortItem_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteDeviceSetting("恢复默认TCP端口(5555)", d => $"{adbPath} -s {d.DeviceMark} tcpip 5555", "检查设备是否已离线。");
         }
 
         private void resetPXItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            if (MessageBoxResult.OK == MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【恢复默认分辨率】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
-            {
-                waitAnimation(true);
-                CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark} shell wm size reset " }, result =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认分辨率成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认分辨率失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
-            }
+            ExecuteDeviceSetting("恢复默认分辨率", d => $"{adbPath} -s {d.DeviceMark} shell wm size reset", "检查设备是否已离线。");
         }
 
         private void resetDPIItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            if (MessageBoxResult.OK == MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【恢复默认DPI】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
-            {
-                waitAnimation(true);
-                CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark} shell wm density reset " }, result =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认DPI成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】恢复默认DPI失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
-            }
+            ExecuteDeviceSetting("恢复默认DPI", d => $"{adbPath} -s {d.DeviceMark} shell wm density reset", "检查设备是否已离线。");
         }
 
         private void logcatItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
             CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} logcat");
         }
 
         private void logcatDebugItem_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
             CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} logcat -s DEBUG");
         }
 
-
+        private void openShell_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
+            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} shell ");
+        }
 
         #region 《版本更新》
 
@@ -474,16 +445,13 @@ namespace AdbTools
 
         private void UpdateVersion(GithubReleases githubReleases)
         {
-            if (null == githubReleases) return;
-            GithubReleasesAssets githubReleasesAssets = null;
-            foreach (GithubReleasesAssets assets in githubReleases.Assets)
+            if (githubReleases == null)
             {
-                if (RequestJson.UpdateFileName.Equals(assets.Name, StringComparison.CurrentCultureIgnoreCase))
-                {
-                    githubReleasesAssets = assets;
-                }
+                return;
             }
-            if (null == githubReleasesAssets)
+            GithubReleasesAssets asset = githubReleases.Assets?
+                .FirstOrDefault(a => RequestJson.UpdateFileName.Equals(a.Name, StringComparison.OrdinalIgnoreCase));
+            if (asset == null)
             {
                 return;
             }
@@ -496,19 +464,16 @@ namespace AdbTools
                 return;
             }
 
-            List<string> cmdArges = new List<string>();
-            //cmdArges.Add($"{Globals.AppSettings.GITHUB_PROXY}{githubReleasesAssets.browser_download_url}");
-            cmdArges.Add($"{githubReleasesAssets.browser_download_url}");
-            cmdArges.Add($"{AppDomain.CurrentDomain.BaseDirectory}");
-            cmdArges.Add($"{AppDomain.CurrentDomain.BaseDirectory}{AppDomain.CurrentDomain.FriendlyName}");
+            List<string> cmdArges = new List<string>
+            {
+                asset.browser_download_url,
+                AppDomain.CurrentDomain.BaseDirectory,
+                $"{AppDomain.CurrentDomain.BaseDirectory}{AppDomain.CurrentDomain.FriendlyName}"
+            };
 
             if (CmdExecutor.StartExe($"{AppDomain.CurrentDomain.BaseDirectory}Update.exe", cmdArges))
             {
                 Application.Current.Shutdown();
-            }
-            else
-            {
-
             }
         }
 
@@ -559,198 +524,130 @@ namespace AdbTools
         }
         #endregion
 
-
+        #region 《应用包管理》
 
         private void customkEnable_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            InputWindow inputWindow = new InputWindow()
-            {
-                Title = "请输入包名"
-            };
-            inputWindow.Owner = this;
-            if (inputWindow.ShowDialog() == true)
-            {
-                string package = inputWindow.Result;
-                if (MessageBoxResult.OK == MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【启用包名{package}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
-                {
-                    waitAnimation(true);
-                    CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark} shell pm enable {package} " }, result =>
-                    {
-                        waitAnimation(false);
-                        MessageBox.Show($"设备【{device.ShowDeviceName}】启用包名{package}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                    },
-                    err =>
-                    {
-                        waitAnimation(false);
-                        MessageBox.Show($"设备【{device.ShowDeviceName}】启用包名{package}失败！\r\n1.检查设备是否已离线；\r\n2.应用包名未找到！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return true;
-                    });
-                }
-            }
+            CustomPackage_Click("启用", "pm enable");
         }
 
         private void customDisable_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
+            CustomPackage_Click("禁用", "pm disable-user");
+        }
+
+        /// <summary>
+        /// 输入包名并执行启用/禁用
+        /// </summary>
+        private void CustomPackage_Click(string action, string pmCommand)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
             InputWindow inputWindow = new InputWindow()
             {
-                Title = "请输入包名"
+                Title = "请输入包名",
+                Owner = this
             };
-            inputWindow.Owner = this;
-            if (inputWindow.ShowDialog() == true)
+            if (inputWindow.ShowDialog() != true)
             {
-                string package = inputWindow.Result;
-                if (MessageBoxResult.OK == MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【禁用包名{package}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
-                {
-                    waitAnimation(true);
-                    CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark} shell pm disable-user {package} " }, result =>
-                    {
-                        waitAnimation(false);
-                        MessageBox.Show($"设备【{device.ShowDeviceName}】禁用包名{package}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                    },
-                    err =>
-                    {
-                        waitAnimation(false);
-                        MessageBox.Show($"设备【{device.ShowDeviceName}】禁用包名{package}失败！\r\n1.检查设备是否已离线；\r\n2.应用包名未找到！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return true;
-                    });
-                }
+                return;
             }
+            string package = inputWindow.Result;
+            if (MessageBoxResult.OK != MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【{action}包名{package}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            {
+                return;
+            }
+            waitAnimation(true);
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.DeviceMark} shell {pmCommand} {package}" },
+                result =>
+                {
+                    waitAnimation(false);
+                    MessageBox.Show($"设备【{device.ShowDeviceName}】{action}包名{package}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                },
+                err =>
+                {
+                    waitAnimation(false);
+                    MessageBox.Show($"设备【{device.ShowDeviceName}】{action}包名{package}失败！\r\n1.检查设备是否已离线；\r\n2.应用包名未找到！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return true;
+                });
         }
 
         private void systemAppPackagep_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark}  shell pm list packages  -s " }, result =>
-            {
-                // 1. 按行分割
-                string[] lines = result.Replace("package:", "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                // 2. 找到 "shell pm list packages" 所在行
-                int startIndex = -1;
-                for (int i = 0; i < lines.Length; i++)
-                {
-                    if (lines[i].Contains("shell pm list packages"))
-                    {
-                        startIndex = i + 1; // 下一行开始就是包名
-                        break;
-                    }
-                }
-                // 3. 提取包名（遇到空行就结束）
-                List<string> packages = new List<string>();
-                for (int i = startIndex; i < lines.Length; i++)
-                {
-                    string line = lines[i].Trim();
-                    if (string.IsNullOrEmpty(line))
-                    {
-                        break;
-                    }
-                    packages.Add(line);
-                }
-                waitAnimation(false);
-                InfoShowWindow infoShowWindow = new InfoShowWindow() { Title = "系统安装应用包名", DescriptionContent = string.Join("\r\n", packages) };
-                infoShowWindow.Show();
-            },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】获取系统安装应用包名失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
+            ShowPackageList("-s", "系统安装应用包名");
         }
 
         private void thirdPartyAppPackage_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark}  shell pm list packages  -3 " }, result =>
-            {
-                // 1. 按行分割
-                string[] lines = result.Replace("package:", "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                // 2. 找到 "shell pm list packages" 所在行
-                int startIndex = -1;
-                for (int i = 0; i < lines.Length; i++)
-                {
-                    if (lines[i].Contains("shell pm list packages"))
-                    {
-                        startIndex = i + 1; // 下一行开始就是包名
-                        break;
-                    }
-                }
-                // 3. 提取包名（遇到空行就结束）
-                List<string> packages = new List<string>();
-                for (int i = startIndex; i < lines.Length; i++)
-                {
-                    string line = lines[i].Trim();
-                    if (string.IsNullOrEmpty(line))
-                    {
-                        break;
-                    }
-                    packages.Add(line);
-                }
-                waitAnimation(false);
-                InfoShowWindow infoShowWindow = new InfoShowWindow() { Title = "第三方安装应用包名", DescriptionContent = string.Join("\r\n", packages) };
-                infoShowWindow.Show();
-            },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】获取第三方安装应用包名失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
+            ShowPackageList("-3", "第三方安装应用包名");
         }
 
         private void allAppPackage_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {device.DeviceMark}  shell pm list packages" }, result =>
+            ShowPackageList("", "所有安装应用包名");
+        }
+
+        /// <summary>
+        /// 获取设备已安装应用包名列表并展示
+        /// </summary>
+        /// <param name="arguments">pm list packages 的参数，如 -s / -3</param>
+        /// <param name="title">展示窗口标题</param>
+        private void ShowPackageList(string arguments, string title)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
             {
-                // 1. 按行分割
-                string[] lines = result.Replace("package:", "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                // 2. 找到 "shell pm list packages" 所在行
-                int startIndex = -1;
-                for (int i = 0; i < lines.Length; i++)
-                {
-                    if (lines[i].Contains("shell pm list packages"))
-                    {
-                        startIndex = i + 1; // 下一行开始就是包名
-                        break;
-                    }
-                }
-                // 3. 提取包名（遇到空行就结束）
-                List<string> packages = new List<string>();
-                for (int i = startIndex; i < lines.Length; i++)
-                {
-                    string line = lines[i].Trim();
-                    if (string.IsNullOrEmpty(line))
-                    {
-                        break;
-                    }
-                    packages.Add(line);
-                }
+                return;
+            }
+            waitAnimation(true);
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.DeviceMark} shell pm list packages {arguments}".TrimEnd() }, result =>
+            {
+                List<string> packages = ParsePackageList(result);
                 waitAnimation(false);
-                InfoShowWindow infoShowWindow = new InfoShowWindow() { Title = "所有安装应用包名", DescriptionContent = string.Join("\r\n", packages) };
+                InfoShowWindow infoShowWindow = new InfoShowWindow()
+                {
+                    Title = title,
+                    DescriptionContent = string.Join("\r\n", packages)
+                };
                 infoShowWindow.Show();
             },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】获取所有安装应用包名失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
+            err =>
+            {
+                waitAnimation(false);
+                MessageBox.Show($"设备【{device.ShowDeviceName}】获取{title}失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// 解析 “pm list packages” 输出（兼容cmd回显与提示符行，仅提取 package: 开头的行）
+        /// </summary>
+        private static List<string> ParsePackageList(string result)
+        {
+            if (string.IsNullOrEmpty(result))
+            {
+                return new List<string>();
+            }
+            return result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("package:", StringComparison.OrdinalIgnoreCase))
+                .Select(line => line.Substring("package:".Length).Trim())
+                .ToList();
         }
 
         private void disableAllAppPackage_Click(object sender, RoutedEventArgs e)
         {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
             if (!"alps k71v1_64_bsp".Equals(device.DeviceInfo, StringComparison.OrdinalIgnoreCase))
             {
-                MessageBox.Show($"仅支持操作设备【alps k71v1_64_bsp】", "提示", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("仅支持操作设备【alps k71v1_64_bsp】", "提示", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -762,42 +659,45 @@ namespace AdbTools
             };
             alpsK71V1Window.Owner = this;
             alpsK71V1Window.ShowDialog();
-
         }
 
-        private void openShell_Click(object sender, RoutedEventArgs e)
-        {
-            int index = deviceList.SelectedIndex;
-            Device device = deviceAddressList[index];
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} shell ");
-        }
+        #endregion
+
+        #region 《拖放安装》
 
         private bool dragFilevalid = false;
         private bool exceededMax = false;
         private int maxFileCount = 1000;
+
         private void listBoxItem_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
-                Globals.FileCounter.CountFiles((string[])e.Data.GetData(DataFormats.FileDrop), out exceededMax, maxFileCount);
-                List<string> apkList = new List<string>();
-                if (!exceededMax)
-                {
-                    apkList = GetAllApkFilesFromDrop(e);
-                    dragFilevalid = apkList.Count != 0;
-                }
-                e.Effects = dragFilevalid && !exceededMax ? DragDropEffects.Copy : DragDropEffects.None;
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                Globals.FileCounter.CountFiles(files, out exceededMax, maxFileCount);
+
+                List<string> apkList = exceededMax ? new List<string>() : GetAllApkFilesFromDrop(files);
+                dragFilevalid = !exceededMax && apkList.Count > 0;
+                e.Effects = dragFilevalid ? DragDropEffects.Copy : DragDropEffects.None;
+
                 if (sender is Grid grid)
                 {
-                    // 使用半透明背景
-                    grid.Background = new SolidColorBrush(Color.FromArgb(0xa0, 0x00, 0x00, 0x00));
-                    var border = grid.FindName("dragLabel") as Label;
-                    if (border != null)
+                    // 半透明深色蒙层提示拖放目标（直接设置卡片背景，
+                    // 本地值会覆盖样式中的悬停/选中效果，拖放结束后清除）
+                    if (grid.FindName("itemCard") is Border itemCard)
                     {
-                        border.Visibility = Visibility.Visible;
-                        border.Content = exceededMax ? $"文件过多（超过 {maxFileCount} 个）" : dragFilevalid ? ($"松手{(apkList.Count <= 1 ? "" : "依次")}安装 {apkList.Count} 个文件") : "未检测到有效的“.apk”文件!";
-                        border.Foreground = dragFilevalid ? Brushes.LightGreen : Brushes.LightCoral;
-                        border.FontWeight = FontWeights.Bold;
+                        itemCard.Background = new SolidColorBrush(Color.FromArgb(0xa0, 0x1f, 0x29, 0x3b));
+                    }
+                    if (grid.FindName("dragLabel") is Label dragLabel)
+                    {
+                        dragLabel.Visibility = Visibility.Visible;
+                        dragLabel.Content = exceededMax
+                            ? $"文件过多（超过 {maxFileCount} 个）"
+                            : dragFilevalid
+                                ? $"松手{(apkList.Count <= 1 ? "" : "依次")}安装 {apkList.Count} 个文件"
+                                : "未检测到有效的“.apk”文件!";
+                        dragLabel.Foreground = dragFilevalid ? Brushes.LightGreen : Brushes.LightCoral;
+                        dragLabel.FontWeight = FontWeights.Bold;
                     }
                 }
             }
@@ -808,50 +708,9 @@ namespace AdbTools
         {
             if (sender is Grid grid)
             {
-                // 恢复透明背景
-                grid.Background = Brushes.Transparent;
-                var border = grid.FindName("dragLabel") as Label;
-                if (border != null)
-                {
-                    border.Visibility = Visibility.Collapsed;
-                    border.Content = "";
-                }
+                ResetDragOverlay(grid);
             }
             e.Handled = true;
-        }
-
-        private List<string> GetAllApkFilesFromDrop(DragEventArgs e)
-        {
-            var apkFiles = new List<string>();
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                foreach (string path in files)
-                {
-                    if (File.Exists(path))
-                    {
-                        if (System.IO.Path.GetExtension(path).Equals(".apk", StringComparison.OrdinalIgnoreCase))
-                        {
-                            apkFiles.Add(path);
-                        }
-                    }
-                    else if (Directory.Exists(path))
-                    {
-                        // 使用 Directory.EnumerateFiles 递归搜索所有.apk文件
-                        try
-                        {
-                            var apksInDirectory = Directory.EnumerateFiles(path, "*.apk",
-                                SearchOption.AllDirectories);
-                            apkFiles.AddRange(apksInDirectory);
-                        }
-                        catch (Exception ex)
-                        {
-                            //MessageBox.Show($"搜索目录 {path} 时出错: {ex.Message}");
-                        }
-                    }
-                }
-            }
-            return apkFiles;
         }
 
         private void listBoxItem_DragOver(object sender, DragEventArgs e)
@@ -865,20 +724,13 @@ namespace AdbTools
             // 先恢复背景和标签
             if (sender is Grid grid)
             {
-                grid.Background = Brushes.Transparent;
-                var border = grid.FindName("dragLabel") as Label;
-                if (border != null)
-                {
-                    border.Visibility = Visibility.Collapsed;
-                    border.Content = "";
-                }
+                ResetDragOverlay(grid);
             }
 
-            if (e.Data.GetDataPresent(DataFormats.FileDrop) && !exceededMax)
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) && !exceededMax
+                && ((FrameworkElement)sender).DataContext is Device targetDevice)
             {
-                // 获取对应的数据项
-                Device targetDevice = (Device)((FrameworkElement)sender).DataContext;
-                List<string> apkList = GetAllApkFilesFromDrop(e);
+                List<string> apkList = GetAllApkFilesFromDrop((string[])e.Data.GetData(DataFormats.FileDrop));
                 if (apkList.Count > 0)
                 {
                     // 执行安装逻辑
@@ -888,6 +740,56 @@ namespace AdbTools
             e.Handled = true;
         }
 
+        /// <summary>
+        /// 恢复拖放提示：清除卡片背景的本地值（恢复样式悬停/选中效果）并隐藏标签
+        /// </summary>
+        private static void ResetDragOverlay(Grid grid)
+        {
+            if (grid.FindName("itemCard") is Border itemCard)
+            {
+                itemCard.ClearValue(Border.BackgroundProperty);
+            }
+            if (grid.FindName("dragLabel") is Label dragLabel)
+            {
+                dragLabel.Visibility = Visibility.Collapsed;
+                dragLabel.Content = "";
+            }
+        }
+
+        /// <summary>
+        /// 从拖放的数据中提取所有.apk文件（支持目录递归，无权限目录自动跳过）
+        /// </summary>
+        private static List<string> GetAllApkFilesFromDrop(string[] files)
+        {
+            var apkFiles = new List<string>();
+            foreach (string path in files)
+            {
+                if (File.Exists(path))
+                {
+                    if (Path.GetExtension(path).Equals(".apk", StringComparison.OrdinalIgnoreCase))
+                    {
+                        apkFiles.Add(path);
+                    }
+                }
+                else if (Directory.Exists(path))
+                {
+                    // 使用 Directory.EnumerateFiles 递归搜索所有.apk文件
+                    try
+                    {
+                        apkFiles.AddRange(Directory.EnumerateFiles(path, "*.apk", SearchOption.AllDirectories));
+                    }
+                    catch (Exception)
+                    {
+                        // 跳过无法访问的目录
+                    }
+                }
+            }
+            return apkFiles;
+        }
+
+        /// <summary>
+        /// 依次安装apk列表（每个文件安装前都会提醒）
+        /// </summary>
         private void HandleApkInstallation(List<string> apkList, int index, Device targetDevice)
         {
             if (index >= apkList.Count)
@@ -897,33 +799,37 @@ namespace AdbTools
             string apkFilePath = apkList[index];
             if (MessageBoxResult.OK != MessageBox.Show($"确定要安装应用【{apkFilePath}】到设备【{targetDevice.ShowDeviceName}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
             {
-                HandleApkInstallation(apkList, ++index, targetDevice);
+                HandleApkInstallation(apkList, index + 1, targetDevice);
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new string[] { $"{adbPath} -s {targetDevice.DeviceMark} install \"{apkFilePath}\"" }, result =>
-            {
-                waitAnimation(false);
-                if (!string.IsNullOrWhiteSpace(result) && ContainsAny(result, new string[] { "Success" }))
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {targetDevice.DeviceMark} install \"{apkFilePath}\"" },
+                result =>
                 {
-                    MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                    HandleApkInstallation(apkList, ++index, targetDevice);
-                }
-            },
-            err =>
-            {
-                waitAnimation(false);
-                if (!string.IsNullOrWhiteSpace(err) && ContainsAny(err, new string[] { "adb: failed to install", "device offline", "Error: closed" }))
-                {
-                    MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用失败！\r\n1.请确认安卓设备是否允许安装应用；\r\n2.应用签名是否不符；\r\n3.检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    if (!ContainsAny(err, new string[] { "device offline", "Error: closed" }))
+                    waitAnimation(false);
+                    if (Globals.ContainsAny(result, "Success"))
                     {
-                        HandleApkInstallation(apkList, ++index, targetDevice);
+                        MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
                     }
-                    return true;
-                }
-                return false;
-            }, 600);
+                    // 无论成功与否都继续下一个，避免批量安装中断
+                    HandleApkInstallation(apkList, index + 1, targetDevice);
+                },
+                err =>
+                {
+                    waitAnimation(false);
+                    if (Globals.ContainsAny(err, "adb: failed to install", "device offline", "Error: closed"))
+                    {
+                        MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用失败！\r\n1.请确认安卓设备是否允许安装应用；\r\n2.应用签名是否不符；\r\n3.检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        if (!Globals.ContainsAny(err, "device offline", "Error: closed"))
+                        {
+                            HandleApkInstallation(apkList, index + 1, targetDevice);
+                        }
+                        return true;
+                    }
+                    return false;
+                }, 600);
         }
+
+        #endregion
     }
 }

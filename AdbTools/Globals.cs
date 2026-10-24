@@ -1,262 +1,214 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Windows;
-using System.Windows.Media;
+using System.Linq;
+using System.Net;
 
 namespace AdbTools
 {
-    public class Globals
+    /// <summary>
+    /// 全局配置与公共工具
+    /// </summary>
+    public static class Globals
     {
+        /// <summary>
+        /// 判断源字符串是否包含任意一个子串
+        /// </summary>
+        public static bool ContainsAny(string source, params string[] substrings)
+        {
+            return substrings.Any(substring => source.Contains(substring));
+        }
 
+        /// <summary>
+        /// 校验是否为合法的设备连接地址（IP、IP:端口，或 mDNS 服务名）
+        /// </summary>
+        public static bool IsValidIPEndPoint(string ipPort)
+        {
+            if (string.IsNullOrEmpty(ipPort))
+            {
+                return false;
+            }
+            if (ipPort.Contains("._adb-tls-connect._tcp"))
+            {
+                // mDNS 广播出的服务名，如 adb-XXXX._adb-tls-connect._tcp
+                return true;
+            }
+
+            string[] parts = ipPort.Split(':');
+            if (parts.Length > 2)
+            {
+                return false;
+            }
+            if (parts.Length == 1)
+            {
+                // 仅 IP，使用默认端口
+                return IPAddress.TryParse(ipPort, out _);
+            }
+
+            return IPAddress.TryParse(parts[0], out _)
+                && int.TryParse(parts[1], out int port)
+                && port > 0 && port <= 65535;
+        }
 
         /// <summary>
         /// Config配置文件读取
         /// </summary>
-        public class AppSettings
+        public static class AppSettings
         {
-            private static string _LAST_DEVICE_ADDRESS = null;
-            private static List<string> _DEVICE_ADDRESS_HISTORY = null;
-            private static string _GITHUB_PROXY = null;
+            private const string DEFAULT_GITHUB_PROXY = "https://ghfast.top/";
+
+            private static string _LAST_DEVICE_ADDRESS;
+            private static List<string> _DEVICE_ADDRESS_HISTORY;
+            private static string _GITHUB_PROXY;
+
             /// <summary>
-            /// 
+            /// 最近连接的设备地址
             /// </summary>
             public static string LAST_DEVICE_ADDRESS
             {
-                get
-                {
-                    if (null == _LAST_DEVICE_ADDRESS)
-                    {
-                        _LAST_DEVICE_ADDRESS = GetKeyVlaue("LAST_DEVICE_ADDRESS");
-                    }
-                    if (null == _LAST_DEVICE_ADDRESS)
-                    {
-                        _LAST_DEVICE_ADDRESS = "";
-                    }
-                    return _LAST_DEVICE_ADDRESS;
-                }
-                set
-                {
-                    UpdateAppConfig("LAST_DEVICE_ADDRESS", value);
-                    _LAST_DEVICE_ADDRESS = value;
-                }
+                get => GetString(ref _LAST_DEVICE_ADDRESS, "LAST_DEVICE_ADDRESS", "");
+                set => SetValue("LAST_DEVICE_ADDRESS", value, v => _LAST_DEVICE_ADDRESS = v);
             }
 
             /// <summary>
-            /// 
+            /// 设备连接地址历史记录
             /// </summary>
             public static List<string> DEVICE_ADDRESS_HISTORY
             {
                 get
                 {
-                    if (null == _DEVICE_ADDRESS_HISTORY)
+                    if (_DEVICE_ADDRESS_HISTORY == null)
                     {
-                        string v = GetKeyVlaue("DEVICE_ADDRESS_HISTORY");
-                        if (!string.IsNullOrWhiteSpace(v))
-                        {
-                            _DEVICE_ADDRESS_HISTORY = new List<string>(v.Split(','));
-
-                        }
-                    }
-                    if (null == _DEVICE_ADDRESS_HISTORY)
-                    {
-                        _DEVICE_ADDRESS_HISTORY = new List<string>();
+                        string value = GetKeyValue("DEVICE_ADDRESS_HISTORY");
+                        _DEVICE_ADDRESS_HISTORY = string.IsNullOrWhiteSpace(value)
+                            ? new List<string>()
+                            : new List<string>(value.Split(','));
                     }
                     return _DEVICE_ADDRESS_HISTORY;
                 }
-                set
-                {
-                    UpdateAppConfig("DEVICE_ADDRESS_HISTORY", string.Join(",", value));
-                    _DEVICE_ADDRESS_HISTORY = value;
-                }
+                set => SetValue("DEVICE_ADDRESS_HISTORY", string.Join(",", value), v => _DEVICE_ADDRESS_HISTORY = value);
             }
 
             /// <summary>
-            /// 
+            /// GitHub 下载代理前缀
             /// </summary>
             public static string GITHUB_PROXY
             {
-                get
-                {
-                    if (null == _GITHUB_PROXY)
-                    {
-                        _GITHUB_PROXY = GetKeyVlaue("GITHUB_PROXY");
-                    }
-                    if (null == _GITHUB_PROXY)
-                    {
-                        _GITHUB_PROXY = "https://ghfast.top/";
-                    }
-                    return _GITHUB_PROXY;
-                }
-                set
-                {
-                    UpdateAppConfig("GITHUB_PROXY", value);
-                    _GITHUB_PROXY = value;
-                }
+                get => GetString(ref _GITHUB_PROXY, "GITHUB_PROXY", DEFAULT_GITHUB_PROXY);
+                set => SetValue("GITHUB_PROXY", value, v => _GITHUB_PROXY = v);
             }
 
             /// <summary>
-            /// 
+            /// 配置文件中是否已设置 GitHub 代理
             /// </summary>
-            public static bool IS_GITHUB_PROXY
-            {
-                get
-                {
-                    string v = GetKeyVlaue("GITHUB_PROXY");
-                    return null != v;
-                }
-            }
+            public static bool IS_GITHUB_PROXY => GetKeyValue("GITHUB_PROXY") != null;
 
             /// <summary>
             /// 获取配置的值
             /// </summary>
             /// <param name="key">key</param>
             /// <returns>读取错误时为null</returns>
-            public static string GetKeyVlaue(string key)
+            public static string GetKeyValue(string key)
             {
                 try
                 {
                     return ConfigurationManager.AppSettings[key];
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     return null;
                 }
             }
 
-            ///<summary>
-            ///在*.exe.config文件中appSettings配置节增加一对键、值对
-            ///</summary>
-            ///<param name="newKey"></param>
-            ///<param name="newValue"></param>
-            public static void UpdateAppConfig(string newKey, string newValue)
+            /// <summary>
+            /// 在*.exe.config文件中appSettings配置节增加或修改一对键、值对
+            /// </summary>
+            public static void UpdateAppConfig(string key, string value)
             {
                 try
                 {
-                    bool isModified = false;
-                    foreach (string key in ConfigurationManager.AppSettings)
+                    Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                    KeyValueConfigurationElement element = config.AppSettings.Settings[key];
+                    if (element == null)
                     {
-                        if (key == newKey)
-                        {
-                            isModified = true;
-                        }
+                        config.AppSettings.Settings.Add(key, value);
                     }
-
-                    // Open App.Config of executable
-                    Configuration config =
-                        ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-                    // You need to remove the old settings object before you can replace it
-                    if (isModified)
+                    else
                     {
-                        config.AppSettings.Settings.Remove(newKey);
+                        element.Value = value;
                     }
-                    // Add an Application Setting.
-                    config.AppSettings.Settings.Add(newKey, newValue);
-                    // Save the changes in App.config file.
                     config.Save(ConfigurationSaveMode.Modified);
-                    // Force a reload of a changed section.
+                    // 强制重新加载已修改的配置节
                     ConfigurationManager.RefreshSection("appSettings");
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                 }
             }
 
+            /// <summary>
+            /// 读取字符串配置，带缓存与默认值
+            /// </summary>
+            private static string GetString(ref string cache, string key, string defaultValue)
+            {
+                if (cache == null)
+                {
+                    cache = GetKeyValue(key) ?? defaultValue;
+                }
+                return cache;
+            }
+
+            /// <summary>
+            /// 写入配置并更新缓存
+            /// </summary>
+            private static void SetValue(string key, string value, Action<string> updateCache)
+            {
+                UpdateAppConfig(key, value);
+                updateCache(value);
+            }
         }
 
+        /// <summary>
+        /// 文件数量统计（统计前即可上限截断，避免遍历超大目录）
+        /// </summary>
         public static class FileCounter
         {
             /// <summary>
-            /// 统计文件数量（包括子文件夹），支持上限控制
+            /// 统计文件数量（包括子文件夹），达到上限时提前结束
             /// </summary>
-            /// <param name="paths">要统计的路径列表</param>
-            /// <param name="exceededMax">是否超过上限</param>
-            /// <param name="maxCount">最大文件数量上限（默认100）</param>
-            /// <param name="searchPattern">搜索模式（默认"*.*"）</param>
-            /// <param name="includeSubdirectories">是否包含子文件夹（默认true）</param>
-            /// <returns>文件数量</returns>
-            public static int CountFiles(
-                string[] paths,
-                out bool exceededMax,
-                int maxCount = 100,
-                string searchPattern = "*.*",
-                bool includeSubdirectories = true)
+            /// <param name="paths">要统计的路径列表（可为文件或目录）</param>
+            /// <param name="exceededMax">是否达到或超过上限</param>
+            /// <param name="maxCount">文件数量上限</param>
+            /// <returns>文件数量（不超过maxCount）</returns>
+            public static int CountFiles(string[] paths, out bool exceededMax, int maxCount)
             {
                 exceededMax = false;
-
                 if (paths == null || paths.Length == 0)
+                {
                     return 0;
+                }
 
                 int count = 0;
-                var searchOption = includeSubdirectories ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-
                 foreach (string path in paths)
                 {
+                    if (File.Exists(path))
+                    {
+                        count++;
+                    }
+                    else if (Directory.Exists(path))
+                    {
+                        count = CountDirectory(path, count, maxCount, out exceededMax);
+                        if (exceededMax)
+                        {
+                            return maxCount;
+                        }
+                    }
+
                     if (count >= maxCount)
                     {
                         exceededMax = true;
                         return maxCount;
-                    }
-
-                    if (File.Exists(path))
-                    {
-                        count++;
-                        if (count >= maxCount)
-                        {
-                            exceededMax = true;
-                            return maxCount;
-                        }
-                    }
-                    else if (Directory.Exists(path))
-                    {
-                        try
-                        {
-                            var files = Directory.EnumerateFiles(path, searchPattern, searchOption);
-                            foreach (var file in files)
-                            {
-                                count++;
-                                if (count >= maxCount)
-                                {
-                                    exceededMax = true;
-                                    return maxCount;
-                                }
-                            }
-                        }
-                        catch (UnauthorizedAccessException)
-                        {
-                            if (includeSubdirectories)
-                            {
-                                count = CountDirectorySafe(path, searchPattern, count, maxCount, out exceededMax);
-                                if (exceededMax) return maxCount;
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    var files = Directory.EnumerateFiles(path, searchPattern, SearchOption.TopDirectoryOnly);
-                                    foreach (var file in files)
-                                    {
-                                        count++;
-                                        if (count >= maxCount)
-                                        {
-                                            exceededMax = true;
-                                            return maxCount;
-                                        }
-                                    }
-                                }
-                                catch
-                                {
-                                    // 忽略错误
-                                }
-                            }
-                        }
-                        catch (Exception)
-                        {
-                            // 忽略其他错误
-                        }
                     }
                 }
 
@@ -264,46 +216,38 @@ namespace AdbTools
                 return count;
             }
 
-            private static int CountDirectorySafe(string directoryPath, string searchPattern, int currentCount, int maxCount, out bool exceededMax)
+            /// <summary>
+            /// 迭代统计目录（含子目录）中的文件数，单个目录访问失败时跳过
+            /// </summary>
+            private static int CountDirectory(string directory, int count, int maxCount, out bool exceededMax)
             {
                 exceededMax = false;
                 var stack = new Stack<string>();
-                stack.Push(directoryPath);
-                int count = currentCount;
+                stack.Push(directory);
 
                 while (stack.Count > 0)
                 {
-                    if (count >= maxCount)
-                    {
-                        exceededMax = true;
-                        return maxCount;
-                    }
-
-                    string currentDir = stack.Pop();
-
+                    string current = stack.Pop();
                     try
                     {
-                        foreach (string file in Directory.EnumerateFiles(currentDir, searchPattern, SearchOption.TopDirectoryOnly))
+                        foreach (string file in Directory.EnumerateFiles(current))
                         {
-                            count++;
-                            if (count >= maxCount)
+                            if (++count >= maxCount)
                             {
                                 exceededMax = true;
-                                return maxCount;
+                                return count;
                             }
                         }
-
-                        foreach (string subDir in Directory.EnumerateDirectories(currentDir))
+                        foreach (string subDirectory in Directory.EnumerateDirectories(current))
                         {
-                            stack.Push(subDir);
+                            stack.Push(subDirectory);
                         }
                     }
-                    catch
+                    catch (Exception)
                     {
-                        // 忽略错误
+                        // 跳过无权限或无法访问的目录，继续统计其他目录
                     }
                 }
-
                 return count;
             }
         }
