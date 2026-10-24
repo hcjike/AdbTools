@@ -52,13 +52,6 @@ namespace AdbTools.CustomControl
             set => this.comboBox.FontSize = value;
         }
 
-        [Description("设置或获取下划线的颜色")]
-        public Brush LineStroke
-        {
-            get => this.line.Stroke;
-            set => this.line.Stroke = value;
-        }
-
         [Description("设置或获取输入框的文本")]
         public string Text
         {

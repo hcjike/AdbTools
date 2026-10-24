@@ -52,13 +52,6 @@ namespace AdbTools.CustomControl
             set => this.passwordBox.FontSize = value;
         }
 
-        [Description("设置或获取下划线的颜色")]
-        public Brush LineStroke
-        {
-            get => this.line.Stroke;
-            set => this.line.Stroke = value;
-        }
-
         [Description("设置或获取输入框的文字")]
         public string Text
         {

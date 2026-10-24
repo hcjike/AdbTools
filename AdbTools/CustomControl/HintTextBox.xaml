@@ -6,12 +6,25 @@
              mc:Ignorable="d" x:Name="parent"
              d:DesignHeight="40" d:DesignWidth="300" Loaded="UserControl_Loaded">
     <Grid  x:Name="grid">
-        <TextBox x:Name="textBox" Margin="0" VerticalContentAlignment="Center" Background="{x:Null}"
-                 TextChanged="textBox_TextChanged" TextInput="textBox_TextInput" BorderBrush="{Binding  ElementName=parent, Path=BorderBrush}" BorderThickness="{Binding ElementName=parent, Path=BorderThickness}" 
-                 Foreground="{Binding ElementName=parent, Path=Foreground}" 
+        <Border x:Name="border" CornerRadius="6" Background="White" BorderThickness="1" SnapsToDevicePixels="True">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="BorderBrush" Value="#FFE5E7EB"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=textBox}" Value="True">
+                            <Setter Property="BorderBrush" Value="#FF2A9FFF"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMouseOver, ElementName=textBox}" Value="True">
+                            <Setter Property="BorderBrush" Value="#FFD1D5DB"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+        </Border>
+        <TextBox x:Name="textBox" Margin="0" VerticalContentAlignment="Center" Background="Transparent" BorderThickness="0"
+                 TextChanged="textBox_TextChanged" TextInput="textBox_TextInput"
+                 Foreground="{Binding ElementName=parent, Path=Foreground}"
                  DataObject.Pasting="textBox_Pasting" PreviewKeyDown="textBox_PreviewKeyDown" PreviewTextInput="textBox_PreviewTextInput"/>
-        <Label x:Name="hint" Content="" Foreground="#FF797A80" IsHitTestVisible="False" Background="{x:Null}"  Margin="0" Padding="0" VerticalContentAlignment="Center"/>
-        <Line x:Name="line" X1="0" X2="{Binding ElementName=textBox, Path=ActualWidth}" Y1="{Binding ElementName=textBox, Path=ActualHeight}" Y2="{Binding ElementName=textBox, Path=ActualHeight}"/>
-        <!--<Image x:Name="image" Width="20" Height="20"  HorizontalAlignment="Left" Margin="10,0,0,0" VerticalAlignment="Center" />-->
+        <Label x:Name="hint" Content="" Foreground="#FF6B7280" IsHitTestVisible="False" Background="Transparent" Margin="0" Padding="0" VerticalContentAlignment="Center"/>
     </Grid>
 </UserControl>

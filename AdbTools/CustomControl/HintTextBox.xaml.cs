@@ -90,13 +90,6 @@ namespace AdbTools.CustomControl
             this.textBox.Focus();
         }
 
-        [Description("设置或获取下划线的颜色")]
-        public Brush LineStroke
-        {
-            get => this.line.Stroke;
-            set => this.line.Stroke = value;
-        }
-
         [Description("设置或获取输入框的文字")]
         public string Text
         {
@@ -142,13 +135,6 @@ namespace AdbTools.CustomControl
         {
             get => this.textBox.HorizontalContentAlignment;
             set => this.textBox.HorizontalContentAlignment = value;
-        }
-
-        [Description("设置或获取下划线的显示和隐藏")]
-        public Visibility LineVisibility
-        {
-            get => this.line.Visibility;
-            set => this.line.Visibility = value;
         }
 
         [Description("设置或获取控件是否只读")]

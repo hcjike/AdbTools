@@ -58,6 +58,18 @@ namespace AdbTools
         {
             private const string DEFAULT_GITHUB_PROXY = "https://ghfast.top/";
 
+            /// <summary>
+            /// 配置文件路径：当前登录用户的 Roaming 专属目录（%APPDATA%\AdbTools\AdbTools.config）。
+            /// 不放在 exe 同目录，避免安装目录只读、程序更新被覆盖导致配置丢失；
+            /// 用 Roaming 可在同域多台机器间随账户漫游，保留配置
+            /// </summary>
+            private static readonly string ConfigFilePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "AdbTools",
+                "AdbTools.config");
+
+            private static Configuration _config;
+
             private static string _LAST_DEVICE_ADDRESS;
             private static List<string> _DEVICE_ADDRESS_HISTORY;
             private static string _GITHUB_PROXY;
@@ -113,7 +125,8 @@ namespace AdbTools
             {
                 try
                 {
-                    return ConfigurationManager.AppSettings[key];
+                    KeyValueConfigurationElement element = GetConfig().AppSettings.Settings[key];
+                    return element?.Value;
                 }
                 catch (Exception)
                 {
@@ -122,13 +135,19 @@ namespace AdbTools
             }
 
             /// <summary>
-            /// 在*.exe.config文件中appSettings配置节增加或修改一对键、值对
+            /// 在用户目录的配置文件中appSettings配置节增加或修改一对键、值对
             /// </summary>
             public static void UpdateAppConfig(string key, string value)
             {
                 try
                 {
-                    Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                    Configuration config = GetConfig();
+                    // 目标目录可能不存在（首次保存），先创建，否则Save会失败
+                    string directory = Path.GetDirectoryName(ConfigFilePath);
+                    if (!Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
                     KeyValueConfigurationElement element = config.AppSettings.Settings[key];
                     if (element == null)
                     {
@@ -139,11 +158,63 @@ namespace AdbTools
                         element.Value = value;
                     }
                     config.Save(ConfigurationSaveMode.Modified);
-                    // 强制重新加载已修改的配置节
-                    ConfigurationManager.RefreshSection("appSettings");
                 }
                 catch (Exception)
                 {
+                }
+            }
+
+            /// <summary>
+            /// 获取配置对象（懒加载；首次使用时将旧版 exe 目录下的配置迁移过来）
+            /// </summary>
+            private static Configuration GetConfig()
+            {
+                if (_config == null)
+                {
+                    MigrateFromExeConfigIfNeeded();
+                    _config = ConfigurationManager.OpenMappedExeConfiguration(
+                        new ExeConfigurationFileMap { ExeConfigFilename = ConfigFilePath },
+                        ConfigurationUserLevel.None);
+                }
+                return _config;
+            }
+
+            /// <summary>
+            /// 旧版配置写在 exe 同目录的 *.exe.config 中，首次启动时迁移到用户目录，保留历史记录
+            /// </summary>
+            private static void MigrateFromExeConfigIfNeeded()
+            {
+                if (File.Exists(ConfigFilePath))
+                {
+                    return;
+                }
+                try
+                {
+                    Configuration oldConfig = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                    if (oldConfig.AppSettings.Settings.Count == 0)
+                    {
+                        // 没有旧配置，无需迁移
+                        return;
+                    }
+
+                    string directory = Path.GetDirectoryName(ConfigFilePath);
+                    if (!Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    Configuration newConfig = ConfigurationManager.OpenMappedExeConfiguration(
+                        new ExeConfigurationFileMap { ExeConfigFilename = ConfigFilePath },
+                        ConfigurationUserLevel.None);
+                    foreach (KeyValueConfigurationElement setting in oldConfig.AppSettings.Settings)
+                    {
+                        newConfig.AppSettings.Settings.Add(setting.Key, setting.Value);
+                    }
+                    newConfig.Save(ConfigurationSaveMode.Modified);
+                }
+                catch (Exception)
+                {
+                    // 迁移失败不影响使用，按无配置启动
                 }
             }
 

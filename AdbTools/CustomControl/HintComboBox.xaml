@@ -6,10 +6,23 @@
              mc:Ignorable="d" 
              d:DesignHeight="40" d:DesignWidth="300" Loaded="UserControl_Loaded">
     <Grid x:Name="grid" Margin="0,0,0,0">
-        <ComboBox x:Name="comboBox" Width="{Binding ElementName=grid, Path=ActualWidth}" Height="{Binding ElementName=grid, Path=ActualHeight}"  Foreground="#FF2F99FB" Background="{x:Null}" IsReadOnly="true"
-                  Padding="3,3,3,3" Margin="0,0,0,2" BorderThickness="0" SelectionChanged="comboBox_SelectionChanged" VerticalContentAlignment="Center" KeyUp="comboBox_KeyUp" IsEditable="True" KeyDown="comboBox_KeyDown"/>
-        <Label x:Name="hint" Content="" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="#FF797A80" IsHitTestVisible="False" Background="{x:Null}" Margin="3,0,0,0"/>
-        <Line x:Name="line" X1="0" X2="{Binding ElementName=grid, Path=ActualWidth}" Y1="{Binding ElementName=comboBox, Path=ActualHeight}" Y2="{Binding ElementName=comboBox, Path=ActualHeight}"/>
-        <!--<Image x:Name="image" Width="20" Height="20" HorizontalAlignment="Left" Margin="10,0,0,0" VerticalAlignment="Center" />-->
+        <Border x:Name="border" CornerRadius="6" Background="White" BorderThickness="1" SnapsToDevicePixels="True">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="BorderBrush" Value="#FFE5E7EB"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=comboBox}" Value="True">
+                            <Setter Property="BorderBrush" Value="#FF2A9FFF"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMouseOver, ElementName=comboBox}" Value="True">
+                            <Setter Property="BorderBrush" Value="#FFD1D5DB"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+        </Border>
+        <ComboBox x:Name="comboBox" Width="{Binding ElementName=grid, Path=ActualWidth}" Height="{Binding ElementName=grid, Path=ActualHeight}" Foreground="Black" Background="Transparent" IsReadOnly="true"
+                  Padding="10,3,3,3" Margin="0" BorderThickness="0" BorderBrush="{x:Null}" SelectionChanged="comboBox_SelectionChanged" VerticalContentAlignment="Center" KeyUp="comboBox_KeyUp" IsEditable="True" KeyDown="comboBox_KeyDown"/>
+        <Label x:Name="hint" Content="" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="#FF6B7280" IsHitTestVisible="False" Background="Transparent" Margin="10,0,0,0"/>
     </Grid>
 </UserControl>

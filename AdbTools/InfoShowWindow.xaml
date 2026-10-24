@@ -5,10 +5,15 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools"
         mc:Ignorable="d"
-        Title="信息" Height="450" Width="560" FontSize="16" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
-    <Grid>
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-            <TextBox x:Name="message" Margin="10" IsReadOnly="True"  TextWrapping="Wrap" BorderThickness="0" Background="Transparent" />
-        </ScrollViewer>
+        Title="信息" Height="450" Width="580" FontSize="14" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
+    <Grid Margin="5">
+        <Border Background="White" CornerRadius="10" BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="6">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
+            </Border.Effect>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBox x:Name="message" Margin="8" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Foreground="Black" FontFamily="Consolas, Microsoft YaHei, monospace" FontSize="13" />
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

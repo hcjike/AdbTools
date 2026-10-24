@@ -6,8 +6,8 @@
              mc:Ignorable="d" 
              d:DesignHeight="30" d:DesignWidth="300">
     <Grid>
-        <Rectangle x:Name="progressBG" Fill="White" StrokeThickness="0" />
-        <Rectangle x:Name="progressValue" HorizontalAlignment="Left" Width="0" StrokeThickness="0" />
+        <Rectangle x:Name="progressBG" RadiusX="6" RadiusY="6" Fill="#FFE5E7EB" StrokeThickness="0" />
+        <Rectangle x:Name="progressValue" RadiusX="6" RadiusY="6" HorizontalAlignment="Left" Width="0" Fill="#FF2A9FFF" StrokeThickness="0" />
         <Label x:Name="progressTip" Content="" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
     </Grid>
 </UserControl>

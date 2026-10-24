@@ -11,6 +11,13 @@
                 <ResourceDictionary Source="resource/ControlStyle.xaml"></ResourceDictionary>
             </ResourceDictionary.MergedDictionaries>
 
+            <!--所有窗口统一：浅灰底 + 深色文字 + 中文字体（单窗口可自行覆盖） -->
+            <Style TargetType="{x:Type Window}">
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="Foreground" Value="Black"/>
+                <Setter Property="FontFamily" Value="Microsoft YaHei, PingFang SC, Segoe UI, sans-serif"/>
+            </Style>
+
             <!--所有button应用-->
             <Style TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}"/>
 
@@ -18,7 +25,7 @@
 
             <!--<Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource UserComboBoxItem}"/>-->
 
-            <!--<Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource UserComboBox}"/>-->
+            <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource UserComboBox}"/>
 
             <!--<Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource UserTextBox}"/>-->
 

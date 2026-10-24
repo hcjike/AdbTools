@@ -5,36 +5,43 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools"
         mc:Ignorable="d"
-        Title="操作日志" Height="450" Width="360" FontSize="14" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
+        Title="操作日志" Height="500" Width="400" FontSize="14" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
     <Window.Resources>
         <ContextMenu x:Key="ListBoxItemContextMenu" FontSize="13">
             <MenuItem x:Name="retry" Header="复制命令" Cursor="Hand" Margin="0,2" Click="retry_Click" />
         </ContextMenu>
     </Window.Resources>
-    <Grid>
-        <ListBox x:Name="logs" Margin="10" ItemsSource="{Binding}" HorizontalContentAlignment="Center" ContextMenu="{StaticResource ListBoxItemContextMenu}" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.HorizontalScrollBarVisibility="Hidden">
-            <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <VirtualizingStackPanel Orientation="Vertical" />
-                </ItemsPanelTemplate>
-            </ListBox.ItemsPanel>
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <Grid Cursor="Hand" Width="300" Margin="0,5">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid Grid.Column="0">
-                            <TextBlock Text="{Binding Path=Message, Mode=Default}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+    <Grid Margin="0">
+        <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="2">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
+            </Border.Effect>
+            <ListBox x:Name="logs" ItemsSource="{Binding}" HorizontalContentAlignment="Stretch" ContextMenu="{StaticResource ListBoxItemContextMenu}" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Hidden" BorderThickness="0" Background="Transparent" Padding="4">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel Orientation="Vertical" />
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Cursor="Hand" Margin="2,2,2,0">
+                            <!-- 日志行卡片 -->
+                            <Border Background="White" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8" Padding="8,6"/>
+                            <Grid Margin="8,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Path=Message, Mode=Default}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="Black" FontSize="13"/>
+                                <!-- 状态徽章 -->
+                                <Border Grid.Column="1" VerticalAlignment="Center" CornerRadius="9" Padding="8,2" Margin="8,0,0,0" Background="{Binding Path=StatusColor}">
+                                    <TextBlock Text="{Binding Path=Status}" Foreground="White" FontSize="11.5" FontWeight="SemiBold"/>
+                                </Border>
+                            </Grid>
                         </Grid>
-                        <Grid Grid.Column="1" Margin="0">
-                            <Label Content="{Binding Path=Status}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Foreground="{Binding Path=StatusColor}"/>
-                        </Grid>
-                    </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
     </Grid>
 </Window>

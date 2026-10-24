@@ -5,22 +5,29 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools"
         mc:Ignorable="d"
-        Title="InputWindow" FontSize="14" MinHeight="150" Height="auto" Width="260" WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Loaded="Window_Loaded" SizeToContent="Height">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="50"/>
-        </Grid.RowDefinitions>
-        <TextBox x:Name="content" TextWrapping="Wrap" TabIndex="0"  AcceptsReturn="False" Text="" Margin="10" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+        Title="InputWindow" FontSize="14" MinHeight="160" Height="auto" Width="340" WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Loaded="Window_Loaded" SizeToContent="Height">
+    <Grid Margin="0">
+        <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="14">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBox x:Name="content" Style="{StaticResource UserTextBox}" TextWrapping="Wrap" TabIndex="0" AcceptsReturn="False" Text="" 
+                         Margin="0,0,0,18" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Button x:Name="enter" Grid.Column="0" IsDefault="True" Content="确定(Enter)"  Foreground="White" Background="#FF2A9FFF"  VerticalAlignment="Center" Height="30" HorizontalAlignment="Center" Width="100" Cursor="Hand" TabIndex="1" Click="enter_Click"/>
-            <Button x:Name="cancle" Grid.Column="1" Content="取消(ESC)" Width="100" Cursor="Hand" Height="30" VerticalAlignment="Center"  Foreground="White" BorderBrush="{x:Null}" Background="#FF06AB26" IsCancel="True" TabIndex="2" HorizontalAlignment="Center" Click="cancle_Click"/>
-
-        </Grid>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="enter" Grid.Column="0" IsDefault="True" Content="确定 (Enter)"  Foreground="White" Background="#FF2A9FFF" VerticalAlignment="Center" Height="32" HorizontalAlignment="Center" Width="110" Cursor="Hand" TabIndex="1" Click="enter_Click"/>
+                    <Button x:Name="cancle" Grid.Column="1" Content="取消 (ESC)" Width="110" Cursor="Hand" Height="32" VerticalAlignment="Center" Foreground="Black" BorderBrush="{x:Null}" Background="#FFE5E7EB" IsCancel="True" TabIndex="2" HorizontalAlignment="Center" Click="cancle_Click"/>
+                </Grid>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
