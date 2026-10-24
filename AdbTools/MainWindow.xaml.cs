@@ -489,14 +489,14 @@ namespace AdbTools
         private void projectAddress_Click(object sender, RoutedEventArgs e)
         {
             about_popup.IsOpen = false;
-            CmdExecutor.StartExe("https://github.com/zsjy/AdbTools");
+            CmdExecutor.StartExe("https://github.com/hcjike/AdbTools");
         }
 
 
         private void projectAddressMirror_Click(object sender, RoutedEventArgs e)
         {
             about_popup.IsOpen = false;
-            CmdExecutor.StartExe("https://gitee.com/hcjike/AdbTools");
+            CmdExecutor.StartExe("https://code.hcjike.com/hcjike/adbtools");
         }
 
         private void cheackUpdate_Click(object sender, RoutedEventArgs e)

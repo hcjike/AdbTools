@@ -20,9 +20,8 @@ namespace AdbTools.AccessInterface
     /// </summary>
     public static class RequestJson
     {
-        public const string ApiUrl = @"https://api.github.com/repos/zsjy/AdbTools/releases";
+        public const string ApiUrl = @"https://api.github.com/repos/hcjike/AdbTools/releases";
         public const string ApiUrlMirror = @"https://code.hcjike.com/api/v1/repos/hcjike/AdbTools/releases";
-        public const string ApiUrlMirrorGitee = @"https://gitee.com/api/v5/repos/hcjike/AdbTools/releases";
 
         public const string UpdateFileName = "update.zip";
         private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();

@@ -1,9 +1,9 @@
 name: Sync to Gitee
 
-# 显式声明最小化权限
+# 仅授予推送所需的最小权限
 permissions:
-  contents: write  # 必须的写入权限（用于push）
-  actions: read    # 可选监控权限
+  contents: write
+  actions: read
 
 on:
   schedule:
@@ -18,50 +18,75 @@ on:
 env:
   GITEE_REPO: "https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/hcjike/AdbTools.git"
   GITEA_REPO: "https://${{ secrets.GITEA_USERNAME }}:${{ secrets.GITEA_TOKEN }}@code.hcjike.com/hcjike/AdbTools.git"
+  MAX_RETRIES: "3"
 
 jobs:
-  sync-to-gitee:
+  sync:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write  # 仅保留必要的写入权限
-
+      contents: write
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # 推送目标远端自带凭据，无需保留 GitHub token
 
-      - name: Setup Git config
+      - name: Configure Git
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          # 调大 HTTP 缓冲区，降低大仓库推送中途断开的概率
+          git config --global http.postBuffer 524288000
 
-      - name: Force mirror to Gitee
-        run: |
-          # 删除所有现有的远程引用（避免引用冲突）
-          git ls-remote --heads ${{ env.GITEE_REPO }} | awk '{print ":"$2}' | xargs -r git push ${{ env.GITEE_REPO }} --delete || true
-          
-          # 添加远程并强制推送所有内容
-          git remote add gitee ${{ env.GITEE_REPO }}
-          git push gitee --mirror --force
+      # 把 GitHub 上的所有分支拉到本地，保证后面 --all 能完整镜像
+      - name: Fetch all branches
+        run: git fetch origin '+refs/heads/*:refs/heads/*' --prune || true
 
-      - name: Force mirror to Gitea
+      # 把“同步到某个远端”封装成脚本，Gitee / Gitea 复用，逻辑统一、便于重试
+      - name: Prepare sync helper
         run: |
-          # 设置变量
-          GITEA_REPO_URL="${{ env.GITEA_REPO }}"
-          REMOTE_NAME="gitea"  # 使用更具描述性的远程名称
-          
-          # 移除可能已存在的远程
-          git remote remove $REMOTE_NAME 2>/dev/null || true
-          
-          # 添加Gitea远程仓库
-          git remote add $REMOTE_NAME $GITEA_REPO_URL
-          
-          # 删除远程已有的引用（避免冲突）
-          git ls-remote --heads $REMOTE_NAME | awk '{print ":"$2}' | xargs -r git push $REMOTE_NAME --delete 2>/dev/null || true
-          
-          # 强制推送所有内容（镜像推送）
-          git push $REMOTE_NAME --mirror --force
-          
-          echo "Successfully mirrored to Gitea repository"
+          cat > "$GITHUB_WORKSPACE/sync-remote.sh" <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          REMOTE_NAME="$1"
+          REMOTE_URL="$2"
+          MAX_TRIES="${3:-3}"
+
+          # 先清掉可能残留的同名远端，避免 `remote add` 重复报错
+          git remote remove "$REMOTE_NAME" 2>/dev/null || true
+          git remote add "$REMOTE_NAME" "$REMOTE_URL"
+
+          # 推送全部分支与标签（强制覆盖本地版本）
+          attempt=0
+          until git push "$REMOTE_NAME" --force --all && git push "$REMOTE_NAME" --force --tags; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge "$MAX_TRIES" ]; then
+              echo "::error::Push to $REMOTE_NAME failed after $MAX_TRIES attempts"
+              exit 1
+            fi
+            echo "Push to $REMOTE_NAME failed (attempt $attempt), retry in 15s..."
+            sleep 15
+          done
+
+          # 清理远端已被删除的本地分支：使用正确的 `git push --delete <分支名>` 语法。
+          # 旧写法 `git push --delete :refs/heads/xxx`（带冒号 refspec）会报
+          # “--delete only accepts plain target ref names”，此处已修正。
+          for ref in $(git ls-remote --heads "$REMOTE_NAME" | awk '{print $2}'); do
+            branch="${ref#refs/heads/}"
+            if ! git show-ref --verify --quiet "refs/heads/$branch"; then
+              git push "$REMOTE_NAME" --delete "$branch" || true
+            fi
+          done
+
+          echo "Successfully synced to $REMOTE_NAME"
+          SCRIPT
+          chmod +x "$GITHUB_WORKSPACE/sync-remote.sh"
+
+      # Gitee 网络偶发不稳定，允许失败而不阻断后续 Gitea 同步
+      - name: Mirror to Gitee
+        continue-on-error: true
+        run: '"$GITHUB_WORKSPACE/sync-remote.sh" gitee "${{ env.GITEE_REPO }}" "${{ env.MAX_RETRIES }}"'
+
+      - name: Mirror to Gitea
+        run: '"$GITHUB_WORKSPACE/sync-remote.sh" gitea "${{ env.GITEA_REPO }}" "${{ env.MAX_RETRIES }}"'
