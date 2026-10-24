@@ -1,3 +1,11 @@
+<p align="center">
+<a href="https://github.com/hcjike/AdbTools/releases"><img alt="releases" src="https://img.shields.io/github/release/hcjike/AdbTools.svg?style=flat-square"/></a>
+<a href="https://github.com/hcjike/AdbTools/blob/master/LICENSE"><img alt="license" src="https://img.shields.io/github/license/hcjike/AdbTools?style=flat-square"/></a>
+<a href="https://github.com/hcjike/AdbTools/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/hcjike/AdbTools/total.svg?style=flat-square"/></a>
+<a href="https://github.com/hcjike/AdbTools/commits"><img alt="commits" src="https://img.shields.io/github/last-commit/hcjike/AdbTools.svg?style=flat-square"/></a>
+</p>
+
+
 ### 开发环境
 > 使用VS2022开发
 > 
