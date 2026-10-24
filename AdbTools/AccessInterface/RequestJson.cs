@@ -86,7 +86,7 @@ namespace AdbTools.AccessInterface
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(ApiUrlMirrorGitee);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(ApiUrlMirror);
                 request.UserAgent = "User-Agent:Mozilla/5.0 (Windows NT 5.1) AppleWebKit/535.1 (KHTML, like Gecko) Chrome/14.0.835.202 Safari/535.1";
                 request.ContentType = "application/x-www-form-urlencoded";
                 request.Credentials = CredentialCache.DefaultCredentials;
