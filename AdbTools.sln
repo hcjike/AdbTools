@@ -1,11 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35806.99 d17.13
+VisualStudioVersion = 17.13.35806.99
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdbTools", "AdbTools\AdbTools.csproj", "{D80557CC-6756-4A53-BE06-2A0B21224607}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Update", "Update\Update.csproj", "{F22C4131-D4CC-426E-8FC4-5C2E60C6B0CE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdbToolsInstaller", "AdbToolsInstaller\AdbToolsInstaller.csproj", "{A1B2C3D4-0000-0000-0000-0000000000A1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdbToolsUninstaller", "AdbToolsUninstaller\AdbToolsUninstaller.csproj", "{073E808E-7082-459E-9FDF-F20052F3CAA8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,6 +35,22 @@ Global
 		{F22C4131-D4CC-426E-8FC4-5C2E60C6B0CE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{F22C4131-D4CC-426E-8FC4-5C2E60C6B0CE}.Release|x64.ActiveCfg = Release|Any CPU
 		{F22C4131-D4CC-426E-8FC4-5C2E60C6B0CE}.Release|x64.Build.0 = Release|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Debug|x64.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Release|x64.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0000-0000-0000-0000000000A1}.Release|x64.Build.0 = Release|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Debug|x64.Build.0 = Debug|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|x64.ActiveCfg = Release|Any CPU
+		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

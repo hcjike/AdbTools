@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- 独立卸载程序：复用安装器源码，但不含 payload，体积小 -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net46</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>AdbToolsInstaller</RootNamespace>
+    <AssemblyName>AdbToolsUninstaller</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <DefineConstants>$(DefineConstants);UNINSTALLER_ONLY</DefineConstants>
+    <ApplicationManifest>..\AdbToolsInstaller\app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\AdbToolsInstaller\appicon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="..\AdbToolsInstaller\App.xaml"><Link>App.xaml</Link></ApplicationDefinition>
+    <Page Include="..\AdbToolsInstaller\MainWindow.xaml"><Link>MainWindow.xaml</Link></Page>
+    <Compile Include="..\AdbToolsInstaller\App.xaml.cs"><Link>App.xaml.cs</Link></Compile>
+    <Compile Include="..\AdbToolsInstaller\MainWindow.xaml.cs"><Link>MainWindow.xaml.cs</Link></Compile>
+    <Compile Include="..\AdbToolsInstaller\InstallEngine.cs"><Link>InstallEngine.cs</Link></Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="..\AdbToolsInstaller\appicon.ico"><Link>appicon.ico</Link></Resource>
+  </ItemGroup>
+</Project>
