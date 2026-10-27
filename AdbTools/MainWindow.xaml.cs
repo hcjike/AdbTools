@@ -105,6 +105,18 @@ namespace AdbTools
 
             adbPath = $"\"{adbFilePath}\"";
 
+            // adb 31.0.2+ 默认禁用 mDNS 发现，而扫码配对依赖 mDNS 发现手机广播的配对服务。
+            // 仅设置环境变量（仅影响本进程之后启动的 adb server，不触碰已在运行的可用 server，避免破坏原环境）。
+            // 旧版 adb 忽略此变量，安全。
+            try
+            {
+                Environment.SetEnvironmentVariable("ADB_MDNS_OPENSCREEN", "1");
+            }
+            catch
+            {
+                // 设置失败不影响其它功能
+            }
+
             deviceAddress.Text = Globals.AppSettings.LAST_DEVICE_ADDRESS;
             deviceAddress.ItemsSource = deviceAddressHistory;
             refreshDeviceAddressHistory();
@@ -238,6 +250,11 @@ namespace AdbTools
             };
             pairWindow.Owner = this;
             pairWindow.ShowDialog();
+            if (pairWindow.PairSucceeded)
+            {
+                // 配对成功后自动连接设备并刷新列表
+                refreshList_Click(null, null);
+            }
         }
 
         private string[] SelectApkFile()

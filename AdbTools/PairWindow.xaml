@@ -5,33 +5,104 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools" xmlns:customcontrol="clr-namespace:AdbTools.CustomControl"
         mc:Ignorable="d"
-        Title="使用配对码配对设备" Width="360" SizeToContent="Height" FontSize="14" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
+        Title="配对设备" Width="360" SizeToContent="Height" FontSize="14" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" Closing="Window_Closing" PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <Style x:Key="TabToggle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="120"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#FF2A9FFF"/>
+            <Setter Property="BorderBrush" Value="#FF2A9FFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="#FF2A9FFF"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 圆角描边按钮（扫码面板「重新生成二维码」使用） -->
+        <Style x:Key="OutlineButton" TargetType="Button">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="#FF2A9FFF"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#FF2A9FFF" BorderThickness="1" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FFEFF6FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FFDCEBFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid>
-        <Grid Margin="0">
-            <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="16,16">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
-                </Border.Effect>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <!-- 配对地址 -->
-                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+        <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="14,14,14,12">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
+            </Border.Effect>
+            <StackPanel>
+                <!-- 切换条：扫码配对 / 配对码（默认扫码） -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,14">
+                    <ToggleButton x:Name="tabQr" Content="二维码配对" IsChecked="True" Style="{StaticResource TabToggle}" Checked="Tab_Checked"/>
+                    <ToggleButton x:Name="tabCode" Content="配对码" Style="{StaticResource TabToggle}" Margin="8,0,0,0" Checked="Tab_Checked"/>
+                </StackPanel>
+
+                <!-- 配对码面板 -->
+                <StackPanel x:Name="codePanel" Visibility="Collapsed">
+                    <StackPanel Margin="0,0,0,10">
                         <TextBlock Text="配对地址" FontSize="12" Foreground="Black" Margin="2,0,0,4"/>
                         <TextBox x:Name="deviceAddress" Style="{StaticResource UserTextBox}" ToolTip="示例：192.168.0.1:5555，使用英文【:】连接IP和端口" Height="36" TabIndex="0" HorizontalContentAlignment="Center"/>
                     </StackPanel>
-                    <!-- 配对码 -->
-                    <StackPanel Grid.Row="1" Margin="0,0,0,14">
+                    <StackPanel Margin="0,0,0,14">
                         <TextBlock Text="配对码" FontSize="12" Foreground="Black" Margin="2,0,0,4"/>
                         <TextBox x:Name="pairCode" Style="{StaticResource UserTextBox}" ToolTip="输入配对码" Height="36" MaxLength="10" TabIndex="1" HorizontalContentAlignment="Center"/>
                     </StackPanel>
-                    <Button Grid.Row="2" x:Name="pairDevice" IsDefault="True" Content="配对 (Enter)" ToolTip="输入配对的IP端口和配对码进行配对" Foreground="White" Background="#FF2A9FFF" Height="34" Width="120" Cursor="Hand" TabIndex="2" Click="pairDevice_Click" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-        </Grid>
+                    <Button x:Name="pairDevice" Content="配对 (Enter)" ToolTip="输入配对的IP端口和配对码进行配对" Foreground="White" Background="#FF2A9FFF" Height="34" Width="120" Cursor="Hand" TabIndex="2" Click="pairCode_Click" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- 扫码面板（默认显示） -->
+                <StackPanel x:Name="qrPanel">
+                    <Border Background="#FFEFF6FF" CornerRadius="8" Padding="10,8" Margin="0,0,0,10">
+                        <TextBlock Text="手机「无线调试 → 使用二维码配对设备」扫码" TextWrapping="Wrap" TextAlignment="Center" Foreground="#FF1F2937" FontWeight="Bold" FontSize="13"/>
+                    </Border>
+                    <Border Background="#FFF9FAFB" CornerRadius="12" BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="4" HorizontalAlignment="Center" Margin="0,0,0,8">
+                        <Image x:Name="qrImage" Width="184" Height="184" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                        <TextBlock Text="配对码" Foreground="#FF6B7280" FontSize="12" VerticalAlignment="Center"/>
+                        <Border Background="#FFEFF6FF" CornerRadius="6" Padding="8,2" Margin="6,0,0,0">
+                            <TextBlock x:Name="pairCodeText" Foreground="#FF2A9FFF" FontWeight="Bold" FontSize="15" FontFamily="Consolas, 'Courier New'"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock x:Name="statusText" Text="等待手机扫码…" Foreground="#FF2A9FFF" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,10"/>
+                    <Button x:Name="regenerate" Content="重新生成二维码" ToolTip="重新生成配对码与二维码，手机需重新扫码" Style="{StaticResource OutlineButton}" Width="120" Cursor="Hand" Click="regenerate_Click" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
         <Grid Visibility="Collapsed" x:Name="processBarGrid" Background="#7F000000" >
             <customcontrol:RoundProcessBarLoading x:Name="waitProcessBar" Height="130" Width="130"/>
