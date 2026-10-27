@@ -14,6 +14,8 @@ on:
     types: [ closed ]
     branches: [ master ]
   workflow_dispatch:
+  release:
+    types: [ published ]
 
 env:
   GITEE_REPO: "https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/hcjike/AdbTools.git"
@@ -39,9 +41,9 @@ jobs:
           # 调大 HTTP 缓冲区，降低大仓库推送中途断开的概率
           git config --global http.postBuffer 524288000
 
-      # 把 GitHub 上的所有分支拉到本地，保证后面 --all 能完整镜像
-      - name: Fetch all branches
-        run: git fetch origin '+refs/heads/*:refs/heads/*' --prune || true
+      # 把 GitHub 上的所有分支与标签拉到本地，保证后面 --all / --tags 能完整镜像
+      - name: Fetch all branches and tags
+        run: git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' --prune || true
 
       # 把“同步到某个远端”封装成脚本，Gitee / Gitea 复用，逻辑统一、便于重试
       - name: Prepare sync helper

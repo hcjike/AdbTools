@@ -2,12 +2,23 @@
 <a href="https://github.com/hcjike/AdbTools/releases"><img alt="releases" src="https://img.shields.io/github/release/hcjike/AdbTools.svg?style=flat-square"/></a>
 <a href="https://github.com/hcjike/AdbTools/blob/master/LICENSE"><img alt="license" src="https://img.shields.io/github/license/hcjike/AdbTools?style=flat-square"/></a>
 <a href="https://github.com/hcjike/AdbTools/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/hcjike/AdbTools/total.svg?style=flat-square"/></a>
-<a href="https://github.com/hcjike/AdbTools/commits"><img alt="commits" src="https://img.shields.io/github/last-commit/hcjike/AdbTools.svg?style=flat-square"/></a>
+<a href="https://github.com/hcjike/AdbTools/commits"><img alt="last-commit" src="https://img.shields.io/github/last-commit/hcjike/AdbTools.svg?style=flat-square"/></a>
 </p>
 
 # AdbTools
 
-一款基于 WPF（C#）开发的 Windows 桌面工具，封装了 ADB（Android Debug Bridge）常用命令，提供图形化界面实现 Android 设备的**无线连接、配对、设备管理与应用调试**，无需记忆命令行。内置 `adb.exe` 及依赖，开箱即用。
+一款基于 WPF（C#）开发的 Windows 桌面工具，封装 ADB（Android Debug Bridge）常用命令，提供图形化界面实现 Android 设备的**无线连接、配对、设备管理与应用调试**，无需记忆命令行。内置 `adb.exe` 及依赖，开箱即用。
+
+## 目录
+
+- [功能特性](#功能特性)
+- [开发环境](#开发环境)
+- [运行环境](#运行环境)
+- [连接准备](#连接准备)
+- [安装和使用](#安装和使用)
+- [使用说明](#使用说明)
+- [常见问题](#常见问题)
+- [说明](#说明)
 
 ## 功能特性
 
@@ -55,12 +66,7 @@
 
 ## 安装和使用
 
-- 解压到 **不含空格和中文** 的目录；
-- 运行 `AdbTools.exe` 即可使用。
-
-### 使用安装程序（推荐）
-
-仓库提供自包含的单文件安装程序 `AdbToolsInstaller.exe`（由 `build_installer.ps1` 生成），具备以下特性：
+提供自包含的单文件安装程序 `AdbToolsInstaller.exe`（由 `build_installer.ps1` 生成），具备以下特性：
 
 - **单个 exe 直接安装**，无需先解压；
 - 在「程序和功能」中始终保持**唯一条目**，不同版本不会重复出现；
@@ -135,6 +141,7 @@
 - **连接失败**：确认设备与电脑在同一局域网，开发者选项与无线调试已开启，且 IP/端口正确。
 - **无法识别设备**：Android 11+ 需先完成配对再连接；旧版本系统可能不支持无线连接。
 - **程序无法启动**：请确认已安装 `.NET Framework 4.6` 运行时。
+- **找不到程序入口**：安装完成后，可从桌面或开始菜单的 **`Adb连接工具`** 快捷方式启动。
 
 ## 说明
 
