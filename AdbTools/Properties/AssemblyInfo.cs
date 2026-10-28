@@ -10,9 +10,9 @@ using System.Windows;
 [assembly: AssemblyTitle("AdbTools")]
 [assembly: AssemblyDescription("Adb无线连接工具")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("宏尘极客")]
+[assembly: AssemblyCompany("宏尘")]
 [assembly: AssemblyProduct("AdbTools")]
-[assembly: AssemblyCopyright("Copyright © 宏尘极客 2025")]
+[assembly: AssemblyCopyright("Copyright © 宏尘 (www.hcjike.com)")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

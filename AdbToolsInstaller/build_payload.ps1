@@ -1,6 +1,7 @@
 param(
     [string]$Configuration = "Release",
-    [string]$ProjectDir
+    [string]$ProjectDir,
+    [string]$Version = ""
 )
 $ErrorActionPreference = "Stop"
 if (-not $ProjectDir) { $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Definition }
@@ -25,15 +26,20 @@ if (-not $MSBUILD) {
 if (-not $MSBUILD -or -not (Test-Path $MSBUILD)) { throw "MSBuild not found. Please install Visual Studio or Build Tools with the MSBuild component." }
 Write-Host ("Using MSBuild: " + $MSBUILD)
 
-# 1) Build the main app (AdbTools, Release/AnyCPU -> x64 binaries). The Update dependency is built alongside it.
-& $MSBUILD (Join-Path $ROOT "AdbTools\AdbTools.csproj") /p:Configuration=Release /p:Platform=AnyCPU /t:Build /nologo /v:minimal
+# 1) Build the main app (AdbTools, Release/AnyCPU).
+$MAIN_PROJ = Join-Path $ROOT "AdbTools\AdbTools.csproj"
+# 还原（CI 下需要拉取 NuGet 参考程序集包；本地通常为 no-op）
+& $MSBUILD $MAIN_PROJ /t:Restore /nologo /v:quiet
+& $MSBUILD $MAIN_PROJ /p:Configuration=Release /p:Platform=AnyCPU /t:Build /nologo /v:minimal
 if ($LASTEXITCODE -ne 0) { throw "Main app build failed." }
 
 # 1.1) Build the standalone uninstaller (small, no payload) -> becomes uninstall.exe in the install dir
 $UNINST_PROJ = Join-Path $ROOT "AdbToolsUninstaller\AdbToolsUninstaller.csproj"
 # Restore 用 quiet 级别：避免打印本地化中文（中文消息在管道中被按 GBK 解码会乱码）
 & $MSBUILD $UNINST_PROJ /t:Restore /nologo /v:quiet
-& $MSBUILD $UNINST_PROJ /p:Configuration=Release /t:Build /nologo /v:minimal
+$verArgs = @()
+if ($Version) { $verArgs = @("/p:Version=$Version", "/p:FileVersion=$Version", "/p:AssemblyVersion=$Version") }
+& $MSBUILD $UNINST_PROJ /p:Configuration=Release /t:Build /nologo /v:minimal @verArgs
 if ($LASTEXITCODE -ne 0) { throw "Uninstaller build failed." }
 $UNINST_EXE = Join-Path $ROOT "AdbToolsUninstaller\bin\Release\AdbToolsUninstaller.exe"
 if (-not (Test-Path $UNINST_EXE)) { throw ("Uninstaller output not found: " + $UNINST_EXE) }

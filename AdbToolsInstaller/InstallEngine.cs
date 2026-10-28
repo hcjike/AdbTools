@@ -157,8 +157,12 @@ namespace AdbToolsInstaller
             // 升级时先关闭可能正在运行的旧程序，避免文件被占用导致覆盖失败
             TryCloseRunningApps(path);
 
+            // 按“执行项”统计总进度：payload 每个条目 + 2 个快捷方式 + 1 个注册表项
+            int entryCount = CountPayloadEntries();
+            var tracker = new ProgressTracker(entryCount + 3, progress);
+
             log("正在解压文件...");
-            ExtractPayload(path, log, progress);
+            ExtractPayload(path, () => tracker.Step());
 
             // 以实际安装后的主程序版本号作为“程序和功能”中显示的版本
             string appExe = Path.Combine(path, InstallConsts.AppExe);
@@ -175,9 +179,11 @@ namespace AdbToolsInstaller
 
             log("正在创建快捷方式...");
             CreateShortcuts(path);
+            tracker.Step(2);
 
             log("正在写入注册表...");
             WriteUninstallEntry(path, version);
+            tracker.Step(1);
 
             // 迁移：移除旧版遗留条目
             CleanupOldEntries();
@@ -207,16 +213,13 @@ namespace AdbToolsInstaller
             System.Threading.Thread.Sleep(500);
         }
 
-        private static void ExtractPayload(string path, Action<string> log, Action<int> progress)
+        private static void ExtractPayload(string path, Action step)
         {
             using (var ms = GetPayloadStream())
             using (var archive = new ZipArchive(ms, ZipArchiveMode.Read))
             {
-                var entries = archive.Entries;
-                int total = entries.Count, i = 0;
-                foreach (var entry in entries)
+                foreach (var entry in archive.Entries)
                 {
-                    i++;
                     string dest = Path.Combine(path, entry.FullName);
                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                     {
@@ -227,7 +230,50 @@ namespace AdbToolsInstaller
                         Directory.CreateDirectory(Path.GetDirectoryName(dest));
                         entry.ExtractToFile(dest, overwrite: true);
                     }
-                    if (i % 20 == 0) progress((int)(i * 100.0 / total));
+                    step?.Invoke();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 统计 payload 中的条目数（用于把安装进度按真实执行项划分）。
+        /// </summary>
+        private static int CountPayloadEntries()
+        {
+            try
+            {
+                using (var ms = GetPayloadStream())
+                using (var zip = new ZipArchive(ms, ZipArchiveMode.Read))
+                    return zip.Entries.Count;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>
+        /// 按“执行项”推进的进度：百分比 = 已完成项 / 总项数。安装与卸载共用同一模型。
+        /// </summary>
+        private sealed class ProgressTracker
+        {
+            private readonly Action<int> _report;
+            private readonly int _total;
+            private int _done;
+            private int _last = -1;
+
+            public ProgressTracker(int total, Action<int> report)
+            {
+                _total = total < 1 ? 1 : total;
+                _report = report;
+            }
+
+            public void Step(int count = 1)
+            {
+                _done += count;
+                int p = (int)(_done * 100.0 / _total);
+                if (p > 100) p = 100;
+                if (p != _last)
+                {
+                    _last = p;
+                    _report?.Invoke(p);
                 }
             }
         }
@@ -313,9 +359,18 @@ namespace AdbToolsInstaller
             // 让当前进程的工作目录离开安装目录，避免 CWD 锁住安装目录导致无法删除
             try { Environment.CurrentDirectory = Path.GetTempPath(); } catch { }
 
+            // 统计卸载执行项：注册表(1) + 快捷方式(2) + 文件 + 目录 + 配置(可选)
+            int fileCount = 0, dirCount = 0;
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+            {
+                try { fileCount = Directory.GetFiles(path).Length; } catch { }
+                try { dirCount = Directory.GetDirectories(path).Length; } catch { }
+            }
+            var tracker = new ProgressTracker(1 + 2 + fileCount + dirCount + (deleteConfig ? 1 : 0), progress);
+
             // 先清理注册表：即使随后文件因占用删不掉，也保证从“程序和功能”中移除
             log("正在清理注册表...");
-            // 用 HKLM 根键 + 完整子键路径删除（之前误在 ...\Uninstall 下再拼完整路径，键不存在导致静默失败）
+            // 用 HKLM 根键 + 完整子键路径删除
             try
             {
                 var baseKey64 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
@@ -328,18 +383,17 @@ namespace AdbToolsInstaller
                 baseKey32.DeleteSubKeyTree(InstallConsts.UninstallSubKey, false);
             }
             catch { }
+            tracker.Step();
 
-            progress(25);
             log("正在移除快捷方式...");
             RemoveShortcuts();
-            progress(45);
+            tracker.Step(2);
 
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             {
                 // 先结束占用安装目录的正在运行程序，尽量让文件可删
                 log("正在关闭正在运行的程序...");
                 TryCloseRunningApps(path);
-                progress(60);
 
                 log("正在删除文件...");
                 try
@@ -347,16 +401,17 @@ namespace AdbToolsInstaller
                     foreach (var dir in Directory.GetDirectories(path))
                     {
                         try { Directory.Delete(dir, true); } catch { }
+                        tracker.Step();
                     }
                     foreach (var file in Directory.GetFiles(path))
                     {
                         try { File.Delete(file); } catch { }
+                        tracker.Step();
                     }
                 }
                 catch { }
             }
 
-            progress(75);
             if (deleteConfig)
             {
                 log("正在删除用户配置...");
@@ -366,8 +421,9 @@ namespace AdbToolsInstaller
                     if (Directory.Exists(cfgDir)) Directory.Delete(cfgDir, true);
                 }
                 catch { }
-                progress(90);
+                tracker.Step();
             }
+
             progress(100);
             log("卸载完成。");
 

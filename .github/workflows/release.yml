@@ -1,0 +1,83 @@
+name: Release Build
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # 可选：若未把 AdbTools.snk 提交到仓库，可用该 Secret(base64) 在 CI 中还原强名称密钥
+      SNK_BASE64: ${{ secrets.SNK_BASE64 }}
+      # 可选：Authenticode 代码签名证书（base64 的 .pfx 与密码）；留空则跳过签名
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $v = $tag.TrimStart('v', 'V')
+          if ([string]::IsNullOrWhiteSpace($v)) { throw "无法从 tag 解析版本号：$tag" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version = $v"
+
+      - name: Restore strong-name key (optional)
+        if: ${{ env.SNK_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$PWD/AdbTools.snk", [Convert]::FromBase64String($env:SNK_BASE64))
+          Write-Host "已从 Secret 还原 AdbTools.snk"
+
+      - name: Bump assembly versions
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          # 主程序：直接改写 AssemblyInfo.cs 的版本特性
+          $f = Join-Path $PWD "AdbTools/Properties/AssemblyInfo.cs"
+          $c = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+          $c = [regex]::Replace($c, 'AssemblyVersion\("[^"]*"\)', ('AssemblyVersion("' + $v + '")'))
+          $c = [regex]::Replace($c, 'AssemblyFileVersion\("[^"]*"\)', ('AssemblyFileVersion("' + $v + '")'))
+          [IO.File]::WriteAllText($f, $c, (New-Object Text.UTF8Encoding($true)))
+          Write-Host "AdbTools/Properties/AssemblyInfo.cs -> $v"
+          # 安装器/卸载器为 SDK 项目，版本通过构建参数 /p:Version 注入（见下方构建步骤）
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build installer (single-file exe)
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          msbuild "AdbToolsInstaller/AdbToolsInstaller.csproj" `
+            /restore `
+            /p:Configuration=Release /p:Platform=AnyCPU `
+            /p:Version=$v /p:FileVersion=$v /p:AssemblyVersion=$v `
+            /t:Build /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "构建失败" }
+
+      - name: Authenticode sign (optional)
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          & signtool sign /fd SHA256 /f $pfx /p $env:SIGN_PFX_PASSWORD /tr http://timestamp.digicert.com /td SHA256 "AdbToolsInstaller/bin/Release/AdbToolsInstaller.exe"
+          if ($LASTEXITCODE -ne 0) { throw "代码签名失败" }
+
+      - name: Upload installer to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 仅上传安装包 exe，不上传签名文件
+          gh release upload "${{ github.event.release.tag_name }}" "AdbToolsInstaller/bin/Release/AdbToolsInstaller.exe" --clobber

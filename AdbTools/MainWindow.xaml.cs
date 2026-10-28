@@ -466,10 +466,13 @@ namespace AdbTools
             {
                 return;
             }
+
+            // 升级改为下载 Releases 中名为 AdbToolsInstaller.exe 的安装程序附件
             GithubReleasesAssets asset = githubReleases.Assets?
                 .FirstOrDefault(a => RequestJson.UpdateFileName.Equals(a.Name, StringComparison.OrdinalIgnoreCase));
-            if (asset == null)
+            if (asset == null || string.IsNullOrEmpty(asset.browser_download_url))
             {
+                MessageBox.Show("该版本未提供安装程序附件，无法自动更新。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -481,16 +484,59 @@ namespace AdbTools
                 return;
             }
 
-            List<string> cmdArges = new List<string>
+            string targetPath = Path.Combine(Path.GetTempPath(), "AdbToolsInstaller_" + githubReleases.tag_name + ".exe");
+            string originalTitle = Title;
+
+            IsEnabled = false;
+            Cursor = Cursors.Wait;
+            Title = "正在下载更新… 0%";
+
+            WebClient client = new WebClient();
+            client.Headers.Add("User-Agent", "AdbTools");
+
+            client.DownloadProgressChanged += (s, e) =>
             {
-                asset.browser_download_url,
-                AppDomain.CurrentDomain.BaseDirectory,
-                $"{AppDomain.CurrentDomain.BaseDirectory}{AppDomain.CurrentDomain.FriendlyName}"
+                Title = "正在下载更新… " + e.ProgressPercentage + "%";
             };
 
-            if (CmdExecutor.StartExe($"{AppDomain.CurrentDomain.BaseDirectory}Update.exe", cmdArges))
+            client.DownloadFileCompleted += (s, e) =>
             {
+                client.Dispose();
+                IsEnabled = true;
+                Cursor = null;
+                Title = originalTitle;
+
+                if (e.Error != null)
+                {
+                    MessageBox.Show("下载更新失败：" + e.Error.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                try
+                {
+                    // 启动安装程序；安装程序会主动结束正在运行的 AdbTools/Update 进程后再覆盖安装
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(targetPath) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("启动安装程序失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
                 Application.Current.Shutdown();
+            };
+
+            try
+            {
+                client.DownloadFileAsync(new Uri(asset.browser_download_url), targetPath);
+            }
+            catch (Exception ex)
+            {
+                client.Dispose();
+                IsEnabled = true;
+                Cursor = null;
+                Title = originalTitle;
+                MessageBox.Show("下载更新失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

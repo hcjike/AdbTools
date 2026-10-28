@@ -365,3 +365,4 @@ MigrationBackup/
 FodyWeavers.xsd
 /AdbToolsInstaller/payload.zip
 /AdbToolsInstaller/payload_stage
+AdbTools.snk

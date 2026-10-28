@@ -26,7 +26,7 @@
         <!-- 主体卡片 -->
         <Border Grid.Row="1" Background="White" Margin="8" CornerRadius="10" Padding="14,14,14,8">
             <StackPanel>
-                <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="13" Foreground="#374151" Margin="0,0,0,10"/>
+                <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="13" Foreground="#374151" Margin="0,0,0,8"/>
                 <Border x:Name="DeleteConfigPanel" Background="#EEF4FF" BorderBrush="#D6E4FF" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10" Visibility="Collapsed">
                     <CheckBox x:Name="DeleteConfigCheck" Content="同时删除用户配置" IsChecked="False"
                               FontSize="13" FontWeight="SemiBold" Foreground="#1F2937" VerticalContentAlignment="Center"/>
@@ -41,15 +41,15 @@
                         <TextBox x:Name="PathBox" Grid.Column="0" Height="32" VerticalContentAlignment="Center" Padding="8,0" BorderBrush="#D1D5DB" BorderThickness="1"/>
                         <Button x:Name="BrowseButton" Grid.Column="1" Content="浏览" Width="72" Height="32" Margin="8,0,0,0" Click="Browse_Click" Style="{StaticResource GhostButton}"/>
                     </Grid>
-                    <Border Background="#EEF4FF" BorderBrush="#D6E4FF" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,12">
+                    <Border Background="#EEF4FF" BorderBrush="#D6E4FF" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
                         <CheckBox x:Name="LaunchCheck" Content="安装完成后启动 Adb连接工具" IsChecked="True"
                                   FontSize="13" FontWeight="SemiBold" Foreground="#1F2937"
                                   VerticalContentAlignment="Center"/>
                     </Border>
                 </StackPanel>
                 <!-- 进度条、百分比与日志放在 InstallPanel 之外，安装与卸载两种模式都显示 -->
-                <ProgressBar x:Name="Progress" Height="8" Foreground="#2F80ED" Background="#E5E7EB" Value="0" Margin="0,0,0,2"/>
-                <TextBlock x:Name="PercentText" Text="" FontSize="11" Foreground="#6B7280" HorizontalAlignment="Right" Margin="0,2,0,8"/>
+                <ProgressBar x:Name="Progress" Height="12" Value="0" Margin="0,0,0,8" Style="{StaticResource RoundedProgressBar}"/>
+                <TextBlock x:Name="PercentText" Text="" FontSize="11" Foreground="#6B7280" HorizontalAlignment="Right" Margin="0,0,0,8" Visibility="Collapsed"/>
                 <TextBox x:Name="LogBox" Height="116" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" Background="#F9FAFB" BorderBrush="#E5E7EB" BorderThickness="1" Padding="8,6"/>
             </StackPanel>
         </Border>

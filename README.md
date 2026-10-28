@@ -66,7 +66,7 @@
 
 ## 安装和使用
 
-提供自包含的单文件安装程序 `AdbToolsInstaller.exe`（由 `build_installer.ps1` 生成），具备以下特性：
+提供自包含的单文件安装程序 `AdbToolsInstaller.exe`，具备以下特性：
 
 - **单个 exe 直接安装**，无需先解压；
 - 在「程序和功能」中始终保持**唯一条目**，不同版本不会重复出现；
@@ -74,7 +74,7 @@
 - 在桌面与开始菜单创建名为 **`Adb连接工具`** 的快捷方式；
 - 通过安装目录下的 `uninstall.exe`（或「程序和功能」）即可**干净卸载**。
 
-重新生成安装包：在仓库根目录执行 `powershell -ExecutionPolicy Bypass -File .\build_installer.ps1`。
+重新生成安装包：在 Visual Studio 中直接生成 `AdbToolsInstaller` 项目（会自动编译主程序与卸载器、打包并嵌入 payload）。
 
 ## 使用说明
 

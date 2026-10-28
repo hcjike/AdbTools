@@ -15,6 +15,11 @@
     <DefineConstants>$(DefineConstants);UNINSTALLER_ONLY</DefineConstants>
     <ApplicationManifest>..\AdbToolsInstaller\app.manifest</ApplicationManifest>
     <ApplicationIcon>..\AdbToolsInstaller\appicon.ico</ApplicationIcon>
+    <!-- 强名称签名（与主程序共用同一密钥） -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\AdbTools.snk</AssemblyOriginatorKeyFile>
+    <Company>宏尘</Company>
+    <Copyright>Copyright © 宏尘 (www.hcjike.com)</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.IO.Compression" />

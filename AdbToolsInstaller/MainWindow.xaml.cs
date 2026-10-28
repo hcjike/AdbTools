@@ -136,8 +136,11 @@ namespace AdbToolsInstaller
             PathBox.IsEnabled = !busy;
             if (busy)
             {
-                Progress.IsIndeterminate = true;
+                // 统一使用确定态进度（按执行项推进），避免出现不确定的无限滑动动画
+                Progress.IsIndeterminate = false;
+                Progress.Value = 0;
                 PercentText.Text = "";
+                PercentText.Visibility = Visibility.Collapsed;
             }
             else
             {
@@ -160,6 +163,7 @@ namespace AdbToolsInstaller
                     Progress.IsIndeterminate = false;
                     Progress.Value = Math.Max(0, Math.Min(100, p));
                     PercentText.Text = p + "%";
+                    PercentText.Visibility = Visibility.Visible;
                 }
             });
         }

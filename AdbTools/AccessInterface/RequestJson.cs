@@ -23,7 +23,8 @@ namespace AdbTools.AccessInterface
         public const string ApiUrl = @"https://api.github.com/repos/hcjike/AdbTools/releases";
         public const string ApiUrlMirror = @"https://code.hcjike.com/api/v1/repos/hcjike/AdbTools/releases";
 
-        public const string UpdateFileName = "update.zip";
+        // 升级改为下载 Releases 中的安装程序附件（单文件 exe 安装器）
+        public const string UpdateFileName = "AdbToolsInstaller.exe";
         private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
 
         /// <summary>
