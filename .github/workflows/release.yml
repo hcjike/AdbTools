@@ -20,6 +20,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 构建“默认分支”的最新代码（tag 仅用于取版本号），
+          # 避免 Release 的 tag 指向旧提交、不包含最新修复。
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Resolve version from tag
         id: ver
