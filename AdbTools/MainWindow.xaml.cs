@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace AdbTools
 {
@@ -26,6 +27,18 @@ namespace AdbTools
         public static string adbPath = "";
         private ObservableCollection<string> deviceAddressHistory;
         private ObservableCollection<Device> deviceAddressList;
+
+        /// <summary>定时刷新设备列表的计时器（间隔为0时不运行）</summary>
+        private DispatcherTimer refreshTimer;
+
+        /// <summary>当前定时刷新间隔（秒），0表示关闭</summary>
+        private int refreshIntervalSeconds;
+
+        /// <summary>是否有刷新命令正在执行，避免定时刷新与手动刷新叠加</summary>
+        private bool refreshRunning;
+
+        /// <summary>定时刷新选项的延迟收起计时器（避免鼠标经过间隙时误收起）</summary>
+        private DispatcherTimer hideIntervalTimer;
 
         public MainWindow()
         {
@@ -123,20 +136,63 @@ namespace AdbTools
 
             deviceList.ItemsSource = deviceAddressList;
 
+            // 定时刷新计时器：恢复上次设置的间隔（配置缺失或非法时默认关闭）
+            refreshTimer = new DispatcherTimer();
+            refreshTimer.Tick += AutoRefresh_Tick;
+
+            // 选项卡片的延迟收起计时器
+            hideIntervalTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+            hideIntervalTimer.Tick += hideIntervalTimer_Tick;
+            refreshIntervalSeconds = Globals.AppSettings.REFRESH_INTERVAL;
+            if (!IsValidRefreshInterval(refreshIntervalSeconds))
+            {
+                refreshIntervalSeconds = 0;
+            }
+            ApplyRefreshInterval(false);
+            UpdateTopmostUi();
+
             Timer_Tick(null, null);
         }
 
         private void Window_Unloaded(object sender, RoutedEventArgs e)
         {
+            refreshTimer?.Stop();
         }
 
         private void Timer_Tick(object sender, EventArgs e)
         {
-            waitAnimation(true);
+            RefreshDevices(true);
+        }
+
+        /// <summary>定时刷新触发（静默刷新，不显示加载动画）</summary>
+        private void AutoRefresh_Tick(object sender, EventArgs e)
+        {
+            RefreshDevices(false);
+        }
+
+        /// <summary>
+        /// 执行一次设备列表刷新；上一次刷新未结束时跳过，避免命令堆积
+        /// </summary>
+        /// <param name="showAnimation">是否显示加载动画（定时刷新不显示，避免频繁闪烁）</param>
+        private void RefreshDevices(bool showAnimation)
+        {
+            if (refreshRunning)
+            {
+                return;
+            }
+            refreshRunning = true;
+            if (showAnimation)
+            {
+                waitAnimation(true);
+            }
             CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} devices", content =>
             {
+                refreshRunning = false;
                 RefreshDeviceList(content);
-                waitAnimation(false);
+                if (showAnimation)
+                {
+                    waitAnimation(false);
+                }
             });
         }
 
@@ -173,7 +229,9 @@ namespace AdbTools
                     {
                         IsWifiConnect = Globals.IsValidIPEndPoint(address),
                         DeviceMark = address,
-                        ShowDeviceName = address
+                        // 品牌型号读取完成前先显示默认名称
+                        DeviceInfo = Device.UnknownName,
+                        ShowDeviceName = Device.UnknownName
                     });
                 }
                 else
@@ -577,13 +635,116 @@ namespace AdbTools
 
         private void setup_Click(object sender, RoutedEventArgs e)
         {
+            // 每次打开都回到默认状态：右侧选项栏收起
+            HideRefreshIntervalColumn();
             setup_popup.IsOpen = true;
         }
 
-        private void topmastCB_Click(object sender, RoutedEventArgs e)
+        /// <summary>关闭设置菜单时收起右侧的定时刷新选项栏，下次打开回到默认状态</summary>
+        private void setup_popup_Closed(object sender, EventArgs e)
         {
-            this.Topmost = (bool)topmastCB.IsChecked;
+            HideRefreshIntervalColumn();
+        }
+
+        /// <summary>切换窗口置顶（菜单项以对号表示当前状态）</summary>
+        private void topmostItem_Click(object sender, RoutedEventArgs e)
+        {
+            this.Topmost = !this.Topmost;
+            UpdateTopmostUi();
             setup_popup.IsOpen = false;
+        }
+
+        /// <summary>同步「置顶显示」的对号显示</summary>
+        private void UpdateTopmostUi()
+        {
+            topmostCheck.Visibility = this.Topmost ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>鼠标进入「定时刷新」项或右侧选项卡片时展开选项</summary>
+        private void refreshInterval_MouseEnter(object sender, MouseEventArgs e)
+        {
+            hideIntervalTimer?.Stop();
+            refreshIntervalColumn.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>鼠标离开时延迟判断，避免在菜单与选项卡片之间的间隙被误收起</summary>
+        private void refreshInterval_MouseLeave(object sender, MouseEventArgs e)
+        {
+            hideIntervalTimer?.Stop();
+            hideIntervalTimer?.Start();
+        }
+
+        /// <summary>延迟收起：鼠标已不在菜单项和选项卡片上时才真正收起</summary>
+        private void hideIntervalTimer_Tick(object sender, EventArgs e)
+        {
+            hideIntervalTimer.Stop();
+            if (!refreshIntervalBtn.IsMouseOver && !refreshIntervalColumn.IsMouseOver)
+            {
+                HideRefreshIntervalColumn();
+            }
+        }
+
+        /// <summary>收起右侧的定时刷新选项栏</summary>
+        private void HideRefreshIntervalColumn()
+        {
+            hideIntervalTimer?.Stop();
+            refreshIntervalColumn.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>选择定时刷新间隔</summary>
+        private void refreshInterval_Click(object sender, RoutedEventArgs e)
+        {
+            Button item = (Button)sender;
+            refreshIntervalSeconds = int.Parse(item.Tag.ToString());
+
+            // 持久化到配置文件，下次启动沿用
+            Globals.AppSettings.REFRESH_INTERVAL = refreshIntervalSeconds;
+
+            // 选择后立即刷新一次，无需等待第一个周期
+            ApplyRefreshInterval(refreshIntervalSeconds > 0);
+
+            HideRefreshIntervalColumn();
+            setup_popup.IsOpen = false;
+        }
+
+        /// <summary>合法的定时刷新间隔（秒），0表示关闭</summary>
+        private static bool IsValidRefreshInterval(int seconds)
+        {
+            return seconds == 0 || seconds == 3 || seconds == 5 || seconds == 10
+                || seconds == 15 || seconds == 20 || seconds == 30 || seconds == 60;
+        }
+
+        /// <summary>按当前间隔设置启停计时器并同步界面</summary>
+        /// <param name="refreshNow">是否立即刷新一次</param>
+        private void ApplyRefreshInterval(bool refreshNow)
+        {
+            if (refreshIntervalSeconds <= 0)
+            {
+                refreshTimer.Stop();
+            }
+            else
+            {
+                refreshTimer.Interval = TimeSpan.FromSeconds(refreshIntervalSeconds);
+                refreshTimer.Stop();
+                refreshTimer.Start();
+                if (refreshNow)
+                {
+                    RefreshDevices(false);
+                }
+            }
+            UpdateRefreshIntervalUi();
+        }
+
+        /// <summary>同步定时刷新菜单的显示状态（选中项勾选）</summary>
+        private void UpdateRefreshIntervalUi()
+        {
+            Button[] items = { refreshOffItem, refresh3sItem, refresh5sItem, refresh10sItem, refresh15sItem, refresh20sItem, refresh30sItem, refresh60sItem };
+            foreach (Button item in items)
+            {
+                bool selected = int.Parse(item.Tag.ToString()) == refreshIntervalSeconds;
+                string label = item.Content.ToString().TrimStart('✓', ' ');
+                item.Content = selected ? $"✓ {label}" : label;
+            }
         }
         #endregion
 

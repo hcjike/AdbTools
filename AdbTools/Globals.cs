@@ -73,6 +73,7 @@ namespace AdbTools
             private static string _LAST_DEVICE_ADDRESS;
             private static List<string> _DEVICE_ADDRESS_HISTORY;
             private static string _GITHUB_PROXY;
+            private static string _REFRESH_INTERVAL;
 
             /// <summary>
             /// 最近连接的设备地址
@@ -115,6 +116,19 @@ namespace AdbTools
             /// 配置文件中是否已设置 GitHub 代理
             /// </summary>
             public static bool IS_GITHUB_PROXY => GetKeyValue("GITHUB_PROXY") != null;
+
+            /// <summary>
+            /// 设备列表定时刷新间隔（秒），0 表示关闭；默认关闭
+            /// </summary>
+            public static int REFRESH_INTERVAL
+            {
+                get
+                {
+                    string value = GetString(ref _REFRESH_INTERVAL, "REFRESH_INTERVAL", "0");
+                    return int.TryParse(value, out int seconds) && seconds > 0 ? seconds : 0;
+                }
+                set => SetValue("REFRESH_INTERVAL", value.ToString(), v => _REFRESH_INTERVAL = v);
+            }
 
             /// <summary>
             /// 获取配置的值

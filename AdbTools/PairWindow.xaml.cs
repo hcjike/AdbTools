@@ -123,8 +123,8 @@ namespace AdbTools
                 waitAnimation(false);
                 if (Globals.ContainsAny(result, "Successfully"))
                 {
+                    // 配对成功直接关闭窗口，不弹提示（失败情况仍正常提示）
                     PairSucceeded = true;
-                    MessageBox.Show("设备配对成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
                     this.Close();
                 }
                 else
@@ -216,7 +216,7 @@ namespace AdbTools
             }
         }
 
-        /// <summary>配对成功后立即反馈用户，自动连接在后台异步进行，不阻塞"配对成功"提示</summary>
+        /// <summary>配对成功后直接关闭窗口，自动连接在后台异步进行</summary>
         private void OnPairSuccess(string pairAddress)
         {
             PairSucceeded = true;
@@ -231,7 +231,7 @@ namespace AdbTools
                 {
                     return;
                 }
-                MessageBox.Show("设备配对成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                // 配对成功直接关闭窗口，不弹提示（失败情况仍正常提示）
                 Close();
             }));
         }

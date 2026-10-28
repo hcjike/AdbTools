@@ -6,6 +6,10 @@ namespace AdbTools.bean
 {
     public class Device : INotifyPropertyChanged
     {
+        /// <summary>
+        /// 品牌型号未读取到时列表显示的默认名称
+        /// </summary>
+        public const string UnknownName = "unknown";
 
         public string DeviceMark { get; set; }
 
@@ -94,8 +98,8 @@ namespace AdbTools.bean
         private void UpdateShow()
         {
             string info = $"{DeviceBrand} {DeviceModel}".Trim();
-            // 品牌型号未取到时用序列号占位，避免列表首行为空
-            DeviceInfo = string.IsNullOrEmpty(info) ? DeviceMark : info;
+            // 品牌型号未取到时先显示默认名称，读取完成后由QueryProp回调再次刷新
+            DeviceInfo = string.IsNullOrEmpty(info) ? UnknownName : info;
             // 两行内容相同时隐藏第二行，避免重复显示
             DeviceMarkVisible = !string.Equals(DeviceInfo, DeviceMark, StringComparison.Ordinal);
 

@@ -66,6 +66,8 @@
             <Setter Property="Foreground" Value="Black"/>
             <Setter Property="Padding" Value="10,7"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <!-- 去掉键盘焦点的虚线框，保持菜单外观干净 -->
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -88,6 +90,7 @@
         <Style x:Key="PopupCheckBoxStyle" TargetType="{x:Type CheckBox}">
             <Setter Property="Foreground" Value="Black"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type CheckBox}">
@@ -196,16 +199,61 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="setup" Content="设置" Cursor="Hand" Style="{StaticResource MenuButtonStyle}" Margin="14,0,0,0" Click="setup_Click"/>
-                <Popup x:Name="setup_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=setup}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True" PopupAnimation="Fade">
+                <Popup x:Name="setup_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=setup}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True" PopupAnimation="Fade" Closed="setup_popup_Closed">
                     <!-- 外层Grid留出阴影空间，避免投影被弹窗边缘裁剪 -->
                     <Grid Margin="0,0,14,14">
-                        <Border Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFE5E7EB" BorderThickness="0,0,1,1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- 设置主菜单卡片（展开选项中不改变自身尺寸） -->
+                        <Border Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFE5E7EB" BorderThickness="0,0,1,1">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
                             </Border.Effect>
                             <StackPanel>
-                                <CheckBox x:Name="topmastCB" Content="置顶显示" Style="{StaticResource PopupCheckBoxStyle}" Click="topmastCB_Click"/>
+                                <!-- 置顶显示：用对号表示选中，与定时刷新选项保持一致的菜单样式 -->
+                                <Button x:Name="topmostItem" Style="{StaticResource PopupButtonStyle}" Click="topmostItem_Click">
+                                    <Grid MinWidth="96">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="16"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="topmostCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                        <TextBlock Grid.Column="1" Text="置顶显示" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <!-- 定时刷新：鼠标划过即在右侧展开刷新间隔选项，离开即收起 -->
+                                <Button x:Name="refreshIntervalBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" MouseEnter="refreshInterval_MouseEnter" MouseLeave="refreshInterval_MouseLeave">
+                                    <Grid MinWidth="96">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="16"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="1" Text="定时刷新" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
                             </StackPanel>
+                        </Border>
+                        <!-- 右侧浮动选项卡片：与主菜单分离，主菜单不会被撑开 -->
+                        <Border x:Name="refreshIntervalColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFE5E7EB" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="10" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                            </Border.Effect>
+                            <Border MouseEnter="refreshInterval_MouseEnter" MouseLeave="refreshInterval_MouseLeave">
+                                <StackPanel x:Name="refreshIntervalPanel" MinWidth="96">
+                                    <Button x:Name="refreshOffItem" Tag="0" Content="关闭" Style="{StaticResource PopupButtonStyle}" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh3sItem" Tag="3" Content="3秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh5sItem" Tag="5" Content="5秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh10sItem" Tag="10" Content="10秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh15sItem" Tag="15" Content="15秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh20sItem" Tag="20" Content="20秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh30sItem" Tag="30" Content="30秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <Button x:Name="refresh60sItem" Tag="60" Content="60秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                </StackPanel>
+                            </Border>
                         </Border>
                     </Grid>
                 </Popup>
