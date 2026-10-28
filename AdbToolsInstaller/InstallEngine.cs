@@ -215,12 +215,23 @@ namespace AdbToolsInstaller
 
         private static void ExtractPayload(string path, Action step)
         {
+            // 归一化目标根目录，末尾补分隔符，避免前缀误判（如 C:\app 与 C:\app-evil）
+            string targetRoot = Path.GetFullPath(path);
+            if (!targetRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                targetRoot += Path.DirectorySeparatorChar;
+
             using (var ms = GetPayloadStream())
             using (var archive = new ZipArchive(ms, ZipArchiveMode.Read))
             {
                 foreach (var entry in archive.Entries)
                 {
-                    string dest = Path.Combine(path, entry.FullName);
+                    // 防 Zip Slip：解析为完整路径并校验必须位于目标目录内，否则跳过
+                    string dest = Path.GetFullPath(Path.Combine(targetRoot, entry.FullName));
+                    if (!dest.StartsWith(targetRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                     {
                         Directory.CreateDirectory(dest);
