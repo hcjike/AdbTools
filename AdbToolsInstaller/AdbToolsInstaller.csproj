@@ -26,7 +26,7 @@
   </PropertyGroup>
   <PropertyGroup>
     <!-- 生成前把主程序运行文件打包成 payload.zip，编译期作为资源嵌入，形成单文件 exe -->
-    <PreBuildEvent>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)build_payload.ps1" -Configuration "$(Configuration)" -Version "$(Version)"</PreBuildEvent>
+    <PreBuildEvent>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)build_payload.ps1" -Configuration "$(Configuration)" -Version "$(Version)" -MSBuildPath "$(MSBuildBinPath)\MSBuild.exe"</PreBuildEvent>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.IO.Compression" />

@@ -1,21 +1,33 @@
 param(
     [string]$Configuration = "Release",
     [string]$ProjectDir,
-    [string]$Version = ""
+    [string]$Version = "",
+    [string]$MSBuildPath = ""
 )
 $ErrorActionPreference = "Stop"
 if (-not $ProjectDir) { $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $ROOT = Split-Path -Parent $ProjectDir.TrimEnd('\')
 
-# Prefer VS2022 MSBuild (handles both classic and SDK-style projects).
+# 优先使用调用方传入的 MSBuild（$(MSBuildBinPath)，即当前正在构建的 MSBuild），
+# 其次 PATH 中的 msbuild，再其次常见安装路径 / vswhere。
 $MSBUILD = ""
-$cands = @(
-    "C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
-    "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
-    "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
-    "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-)
-foreach ($c in $cands) { if (Test-Path $c) { $MSBUILD = $c; break } }
+if ($MSBuildPath -and (Test-Path $MSBuildPath)) { $MSBUILD = $MSBuildPath }
+if (-not $MSBUILD) {
+    $cmd = Get-Command msbuild.exe -ErrorAction SilentlyContinue
+    if ($cmd) { $MSBUILD = $cmd.Source }
+}
+if (-not $MSBUILD) {
+    $cands = @(
+        "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\18\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+    )
+    foreach ($c in $cands) { if (Test-Path $c) { $MSBUILD = $c; break } }
+}
 if (-not $MSBUILD) {
     $VSWHERE = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $VSWHERE) {
