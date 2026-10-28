@@ -70,7 +70,7 @@ namespace AdbToolsInstaller
         {
             try
             {
-                InstallEngine.Uninstall(m => { if (!silent) Console.WriteLine(m); }, p => { });
+                InstallEngine.Uninstall(false, m => { if (!silent) Console.WriteLine(m); }, p => { });
             }
             catch (Exception ex)
             {

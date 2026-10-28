@@ -25,6 +25,8 @@ namespace AdbToolsInstaller
         public const string UninstallSubKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AdbTools";
         // 旧版 Setup Factory 安装留下的显示名，用于迁移清理，避免系统中出现多个条目
         public const string OldProductDisplayName = "AdbTools";
+        // 用户配置目录名（位于 %APPDATA% 下，内含 AdbTools.config）
+        public const string ConfigFolderName = "AdbTools";
     }
 
     internal static class InstallEngine
@@ -33,6 +35,16 @@ namespace AdbToolsInstaller
         {
             string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             return Path.Combine(pf, InstallConsts.ProductName);
+        }
+
+        /// <summary>
+        /// 用户配置目录：%APPDATA%\AdbTools（内含 AdbTools.config）。
+        /// </summary>
+        public static string ConfigDir()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                InstallConsts.ConfigFolderName);
         }
 
         public static string GetInstalledPath()
@@ -294,9 +306,12 @@ namespace AdbToolsInstaller
             }
         }
 
-        public static void Uninstall(Action<string> log, Action<int> progress)
+        public static void Uninstall(bool deleteConfig, Action<string> log, Action<int> progress)
         {
             string path = GetInstalledPath();
+
+            // 让当前进程的工作目录离开安装目录，避免 CWD 锁住安装目录导致无法删除
+            try { Environment.CurrentDirectory = Path.GetTempPath(); } catch { }
 
             // 先清理注册表：即使随后文件因占用删不掉，也保证从“程序和功能”中移除
             log("正在清理注册表...");
@@ -341,7 +356,18 @@ namespace AdbToolsInstaller
                 catch { }
             }
 
-            progress(85);
+            progress(75);
+            if (deleteConfig)
+            {
+                log("正在删除用户配置...");
+                try
+                {
+                    string cfgDir = ConfigDir();
+                    if (Directory.Exists(cfgDir)) Directory.Delete(cfgDir, true);
+                }
+                catch { }
+                progress(90);
+            }
             progress(100);
             log("卸载完成。");
 
@@ -358,16 +384,18 @@ namespace AdbToolsInstaller
                     string ps =
                         "-NoProfile -NonInteractive -WindowStyle Hidden -Command \"" +
                         "$t=$env:ADB_UNINSTALL_TARGET;" +
-                        "for($i=0;$i -lt 60;$i++){" +
+                        "for($i=0;$i -lt 150;$i++){" +
                         "if(-not (Test-Path -LiteralPath $t)){break};" +
                         "Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue;" +
-                        "Start-Sleep -Seconds 2}\"";
+                        "Start-Sleep -Milliseconds 800}\"";
 
                     var psi = new ProcessStartInfo(psExe, ps)
                     {
                         CreateNoWindow = true,
                         UseShellExecute = false,
-                        WindowStyle = ProcessWindowStyle.Hidden
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        // 关键：工作目录设在临时目录，避免子进程以安装目录为 CWD 而锁住该目录
+                        WorkingDirectory = Path.GetTempPath()
                     };
                     psi.EnvironmentVariables["ADB_UNINSTALL_TARGET"] = path;
                     Process.Start(psi);

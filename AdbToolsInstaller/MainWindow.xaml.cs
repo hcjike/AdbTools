@@ -24,11 +24,17 @@ namespace AdbToolsInstaller
 
         private void SetupUninstallMode()
         {
+            // 安装/卸载为两个独立窗口：卸载窗口的标题与顶部文案单独区分
+            Title = "Adb连接工具 卸载程序";
+            HeaderTitle.Text = "Adb连接工具 卸载程序";
+            HeaderSubtitle.Text = "安全卸载 · 可选择是否保留用户配置";
+
             InstallPanel.Visibility = Visibility.Collapsed;
             string installed = InstallEngine.GetInstalledPath();
             StatusText.Text = "确定要卸载 " + InstallConsts.ProductName + " 吗？"
                 + (string.IsNullOrEmpty(installed) ? "" : ("\n安装位置：" + installed));
             LogBox.Text = "点击“确定”开始卸载…";
+            DeleteConfigPanel.Visibility = Visibility.Visible;
             InstallButton.Visibility = Visibility.Collapsed;
             // “确定”用主按钮（蓝色）样式，“取消”保持幽灵样式，两者大小一致
             UninstallButton.Visibility = Visibility.Visible;
@@ -204,24 +210,57 @@ namespace AdbToolsInstaller
 
         private void Uninstall_Click(object sender, RoutedEventArgs e)
         {
-            if (!_uninstallMode && System.Windows.MessageBox.Show("确定要卸载 " + InstallConsts.ProductName + " 吗？", "卸载", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            if (!_uninstallMode)
+            {
+                // 安装/升级窗口里的“卸载”：先确认，再关闭本窗口，并以 /uninstall 参数重新打开专属卸载窗口
+                if (System.Windows.MessageBox.Show("确定要卸载 " + InstallConsts.ProductName + " 吗？", "卸载",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    return;
+
+                try
+                {
+                    string exe = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    Process.Start(new ProcessStartInfo(exe, "/uninstall") { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    System.Windows.MessageBox.Show("无法打开卸载窗口：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                Close();
                 return;
+            }
+
+            // 专属卸载窗口：确认已在上一步完成，这里直接执行（勾选框决定是否删除配置）
+            // 注意：必须在 UI 线程先读取 CheckBox 状态，不能放到后台线程里访问 UI 对象
+            bool deleteConfig = DeleteConfigCheck.IsChecked == true;
             SetBusy(true);
             LogBox.Clear();
             Task.Run(() =>
             {
+                string err = null;
                 try
                 {
-                    InstallEngine.Uninstall(Log, SetProgress);
+                    InstallEngine.Uninstall(deleteConfig, Log, SetProgress);
                 }
                 catch (Exception ex)
                 {
+                    err = ex.Message;
                     Log("错误：" + ex.Message);
                 }
                 Dispatcher.Invoke(() =>
                 {
-                    System.Windows.MessageBox.Show("卸载完成。", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
-                    Environment.Exit(0);
+                    if (err == null)
+                    {
+                        System.Windows.MessageBox.Show("卸载完成。", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
+                        Environment.Exit(0);
+                    }
+                    else
+                    {
+                        System.Windows.MessageBox.Show("卸载失败：" + err, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        SetBusy(false);
+                    }
                 });
             });
         }
