@@ -24,8 +24,22 @@ namespace AdbTools.AccessInterface
         public const string ApiUrlMirror = @"https://code.hcjike.com/api/v1/repos/hcjike/AdbTools/releases";
 
         // 升级改为下载 Releases 中的安装程序附件（单文件 exe 安装器）
-        public const string UpdateFileName = "AdbToolsInstaller.exe";
+        // 兼容附件名带版本号（如 AdbToolsInstaller-1.5.2.exe）与旧的无版本名（AdbToolsInstaller.exe）
+        public const string UpdateFilePrefix = "AdbToolsInstaller";
         private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
+
+        /// <summary>
+        /// 判断发布附件是否为安装程序：文件名以 AdbToolsInstaller 开头且以 .exe 结尾
+        /// </summary>
+        public static bool IsInstallerAsset(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+            return name.StartsWith(UpdateFilePrefix, StringComparison.OrdinalIgnoreCase)
+                && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// 检查更新，发现新版本时显示更新图标
@@ -52,7 +66,7 @@ namespace AdbTools.AccessInterface
                     return;
                 }
                 if (githubReleases.Assets == null
-                    || !githubReleases.Assets.Any(a => UpdateFileName.Equals(a.Name, StringComparison.OrdinalIgnoreCase)))
+                    || !githubReleases.Assets.Any(a => IsInstallerAsset(a.Name)))
                 {
                     // 没有可供更新的安装包
                     return;

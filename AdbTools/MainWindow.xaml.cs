@@ -525,9 +525,9 @@ namespace AdbTools
                 return;
             }
 
-            // 升级改为下载 Releases 中名为 AdbToolsInstaller.exe 的安装程序附件
+            // 升级改为下载 Releases 中的安装程序附件（兼容 AdbToolsInstaller.exe 与 AdbToolsInstaller-1.5.2.exe）
             GithubReleasesAssets asset = githubReleases.Assets?
-                .FirstOrDefault(a => RequestJson.UpdateFileName.Equals(a.Name, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(a => RequestJson.IsInstallerAsset(a.Name));
             if (asset == null || string.IsNullOrEmpty(asset.browser_download_url))
             {
                 MessageBox.Show("该版本未提供安装程序附件，无法自动更新。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
