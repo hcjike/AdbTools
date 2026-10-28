@@ -50,9 +50,9 @@
                                Placement="Right" PopupAnimation="Fade" SnapsToDevicePixels="True">
                             <!-- 外层留出投影空间，避免阴影被弹窗边缘裁剪 -->
                             <Grid Margin="0,0,16,16">
-                                <Border Background="White" CornerRadius="8" BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="4" SnapsToDevicePixels="True">
+                                <Border Background="White" CornerRadius="8" BorderBrush="#FFD5D9DF" BorderThickness="1" Padding="4" SnapsToDevicePixels="True">
                                     <Border.Effect>
-                                        <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                        <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                                     </Border.Effect>
                                     <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
                                 </Border>
@@ -85,9 +85,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ContextMenu}">
                     <Grid Margin="0,0,16,16">
-                        <Border Background="White" CornerRadius="8" BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="4" SnapsToDevicePixels="True">
+                        <Border Background="White" CornerRadius="8" BorderBrush="#FFD5D9DF" BorderThickness="1" Padding="4" SnapsToDevicePixels="True">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
                         </Border>
@@ -233,9 +233,9 @@
                             <!--Popup 可显示 ComboBox 中的项列表。IsOpen 已数据绑定到通过 ComboBoxToggleButton 来切换的 IsDropDownOpen-->
                             <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" x:Name="Popup" Focusable="False" AllowsTransparency="True" PopupAnimation="Fade">
                                 <Grid Margin="0,2,16,16" MinWidth="{TemplateBinding ActualWidth}" x:Name="DropDown" SnapsToDevicePixels="True">
-                                    <Border x:Name="DropDownBorder" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8" Background="White">
+                                    <Border x:Name="DropDownBorder" BorderBrush="#FFD5D9DF" BorderThickness="1" CornerRadius="8" Background="White">
                                         <Border.Effect>
-                                            <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                            <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                                         </Border.Effect>
                                     </Border>
                                     <ScrollViewer Margin="4"  SnapsToDevicePixels="True" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="True">

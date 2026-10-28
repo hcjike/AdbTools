@@ -40,6 +40,15 @@ namespace AdbTools
         /// <summary>定时刷新选项的延迟收起计时器（避免鼠标经过间隙时误收起）</summary>
         private DispatcherTimer hideIntervalTimer;
 
+        /// <summary>关于菜单中仓库入口卡片的延迟收起计时器</summary>
+        private DispatcherTimer hideRepoMenuTimer;
+
+        /// <summary>是否正在后台下载更新（避免重复触发下载）</summary>
+        private bool updateDownloading;
+
+        /// <summary>更新包下载进度（百分比）</summary>
+        private int updateDownloadPercent;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -143,6 +152,10 @@ namespace AdbTools
             // 选项卡片的延迟收起计时器
             hideIntervalTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
             hideIntervalTimer.Tick += hideIntervalTimer_Tick;
+
+            // 关于菜单中仓库入口卡片的延迟收起计时器
+            hideRepoMenuTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+            hideRepoMenuTimer.Tick += hideRepoMenuTimer_Tick;
             refreshIntervalSeconds = Globals.AppSettings.REFRESH_INTERVAL;
             if (!IsValidRefreshInterval(refreshIntervalSeconds))
             {
@@ -537,32 +550,47 @@ namespace AdbTools
             updateVersion.Visibility = Visibility.Visible;
             updateVersion.Tag = githubReleases;
 
-            if (MessageBoxResult.OK != MessageBox.Show($"发现新版本【V{githubReleases.tag_name}】是否更新？", "新版本", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            // 已在后台下载中：不弹更新窗口，直接提示进度即可
+            if (updateDownloading)
+            {
+                MessageBox.Show($"正在后台下载更新… {updateDownloadPercent}%，请稍候。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            updateVersion.ToolTip = "发现新版本，点击更新";
+
+            // 新版本提示：可立即更新，也可直接打开该版本的 Release 页面查看更新说明
+            UpdateWindow dialog = new UpdateWindow(githubReleases.tag_name,
+                RequestJson.GetReleasePageUrl(githubReleases.tag_name))
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() != true || !dialog.StartUpdate)
             {
                 return;
             }
 
             string targetPath = Path.Combine(Path.GetTempPath(), "AdbToolsInstaller_" + githubReleases.tag_name + ".exe");
-            string originalTitle = Title;
 
-            IsEnabled = false;
-            Cursor = Cursors.Wait;
-            Title = "正在下载更新… 0%";
+            // 后台下载：不禁用窗口、不改光标、不占用标题，仅在更新图标上提示进度，
+            // 避免网络较差时界面看起来像卡死。下载完成后的启动安装流程保持不变。
+            updateDownloading = true;
+            updateDownloadPercent = 0;
+            updateVersion.ToolTip = "正在下载更新… 0%";
 
             WebClient client = new WebClient();
             client.Headers.Add("User-Agent", "AdbTools");
 
             client.DownloadProgressChanged += (s, e) =>
             {
-                Title = "正在下载更新… " + e.ProgressPercentage + "%";
+                updateDownloadPercent = e.ProgressPercentage;
+                updateVersion.ToolTip = "正在下载更新… " + e.ProgressPercentage + "%";
             };
 
             client.DownloadFileCompleted += (s, e) =>
             {
                 client.Dispose();
-                IsEnabled = true;
-                Cursor = null;
-                Title = originalTitle;
+                updateDownloading = false;
+                updateVersion.ToolTip = "发现新版本，点击更新";
 
                 if (e.Error != null)
                 {
@@ -586,14 +614,13 @@ namespace AdbTools
 
             try
             {
-                client.DownloadFileAsync(new Uri(asset.browser_download_url), targetPath);
+                client.DownloadFileAsync(new Uri(RequestJson.GetDownloadUrl(asset.browser_download_url)), targetPath);
             }
             catch (Exception ex)
             {
                 client.Dispose();
-                IsEnabled = true;
-                Cursor = null;
-                Title = originalTitle;
+                updateDownloading = false;
+                updateVersion.ToolTip = null;
                 MessageBox.Show("下载更新失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -604,7 +631,46 @@ namespace AdbTools
 
         private void about_Click(object sender, RoutedEventArgs e)
         {
+            // 每次打开都回到默认状态：右侧仓库入口收起
+            HideRepoMenuColumn();
             about_popup.IsOpen = true;
+        }
+
+        /// <summary>关闭关于菜单时收起右侧仓库入口，下次打开回到默认状态</summary>
+        private void about_popup_Closed(object sender, EventArgs e)
+        {
+            HideRepoMenuColumn();
+        }
+
+        /// <summary>鼠标进入「开源仓库」项或右侧仓库卡片时展开仓库入口</summary>
+        private void repoMenu_MouseEnter(object sender, MouseEventArgs e)
+        {
+            hideRepoMenuTimer?.Stop();
+            repoMenuColumn.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>鼠标离开时延迟判断，避免在菜单与卡片之间的间隙被误收起</summary>
+        private void repoMenu_MouseLeave(object sender, MouseEventArgs e)
+        {
+            hideRepoMenuTimer?.Stop();
+            hideRepoMenuTimer?.Start();
+        }
+
+        /// <summary>延迟收起：鼠标已不在菜单项和仓库卡片上时才真正收起</summary>
+        private void hideRepoMenuTimer_Tick(object sender, EventArgs e)
+        {
+            hideRepoMenuTimer.Stop();
+            if (!repoMenuBtn.IsMouseOver && !repoMenuColumn.IsMouseOver)
+            {
+                HideRepoMenuColumn();
+            }
+        }
+
+        /// <summary>收起右侧的仓库入口卡片</summary>
+        private void HideRepoMenuColumn()
+        {
+            hideRepoMenuTimer?.Stop();
+            repoMenuColumn.Visibility = Visibility.Collapsed;
         }
 
         private void projectAddress_Click(object sender, RoutedEventArgs e)

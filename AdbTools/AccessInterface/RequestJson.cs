@@ -20,8 +20,11 @@ namespace AdbTools.AccessInterface
     /// </summary>
     public static class RequestJson
     {
-        public const string ApiUrl = @"https://api.github.com/repos/hcjike/AdbTools/releases";
-        public const string ApiUrlMirror = @"https://code.hcjike.com/api/v1/repos/hcjike/AdbTools/releases";
+        // 更新相关地址统一以 code.hcjike.com（自建 Gitea 镜像站）为准
+        public const string SiteRoot = @"https://code.hcjike.com";
+        public const string ReleasesApiUrl = SiteRoot + @"/api/v1/repos/hcjike/AdbTools/releases";
+        // 发布页面地址（用于在浏览器查看指定版本的更新说明与附件）
+        public const string ReleasesPageUrl = SiteRoot + @"/hcjike/AdbTools/releases";
 
         // 升级改为下载 Releases 中的安装程序附件（单文件 exe 安装器）
         // 兼容附件名带版本号（如 AdbToolsInstaller-1.5.2.exe）与旧的无版本名（AdbToolsInstaller.exe）
@@ -39,6 +42,35 @@ namespace AdbTools.AccessInterface
             }
             return name.StartsWith(UpdateFilePrefix, StringComparison.OrdinalIgnoreCase)
                 && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 获取指定版本（tag）的发布页面地址，如 https://code.hcjike.com/hcjike/AdbTools/releases/tag/v1.5.2
+        /// </summary>
+        public static string GetReleasePageUrl(string tagName)
+        {
+            if (string.IsNullOrWhiteSpace(tagName))
+            {
+                return ReleasesPageUrl;
+            }
+            return ReleasesPageUrl + "/tag/" + Uri.EscapeDataString(tagName.Trim());
+        }
+
+        /// <summary>
+        /// 下载地址统一以 code.hcjike.com 为准：接口若返回 GitHub 域名，替换为镜像站域名
+        /// </summary>
+        public static string GetDownloadUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+            {
+                return url;
+            }
+            const string githubRepo = @"https://github.com/hcjike/AdbTools";
+            if (url.StartsWith(githubRepo, StringComparison.OrdinalIgnoreCase))
+            {
+                return SiteRoot + "/hcjike/AdbTools" + url.Substring(githubRepo.Length);
+            }
+            return url;
         }
 
         /// <summary>
@@ -100,7 +132,7 @@ namespace AdbTools.AccessInterface
         {
             try
             {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(ApiUrlMirror);
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(ReleasesApiUrl);
                 request.UserAgent = "User-Agent:Mozilla/5.0 (Windows NT 5.1) AppleWebKit/535.1 (KHTML, like Gecko) Chrome/14.0.835.202 Safari/535.1";
                 request.ContentType = "application/x-www-form-urlencoded";
                 request.Credentials = CredentialCache.DefaultCredentials;

@@ -199,7 +199,8 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="setup" Content="设置" Cursor="Hand" Style="{StaticResource MenuButtonStyle}" Margin="14,0,0,0" Click="setup_Click"/>
-                <Popup x:Name="setup_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=setup}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True" PopupAnimation="Fade" Closed="setup_popup_Closed">
+                <!-- VerticalOffset=5：让菜单顶边正好落在顶部通栏的分割线上 -->
+                <Popup x:Name="setup_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=setup}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="5" AllowsTransparency="True" PopupAnimation="Fade" Closed="setup_popup_Closed">
                     <!-- 外层Grid留出阴影空间，避免投影被弹窗边缘裁剪 -->
                     <Grid Margin="0,0,14,14">
                         <Grid.ColumnDefinitions>
@@ -207,9 +208,9 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <!-- 设置主菜单卡片（展开选项中不改变自身尺寸） -->
-                        <Border Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFE5E7EB" BorderThickness="0,0,1,1">
+                        <Border Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFD5D9DF" BorderThickness="0,1,1,1">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
                             <StackPanel>
                                 <!-- 置顶显示：用对号表示选中，与定时刷新选项保持一致的菜单样式 -->
@@ -238,9 +239,9 @@
                             </StackPanel>
                         </Border>
                         <!-- 右侧浮动选项卡片：与主菜单分离，主菜单不会被撑开 -->
-                        <Border x:Name="refreshIntervalColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFE5E7EB" BorderThickness="1">
+                        <Border x:Name="refreshIntervalColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="10" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
                             <Border MouseEnter="refreshInterval_MouseEnter" MouseLeave="refreshInterval_MouseLeave">
                                 <StackPanel x:Name="refreshIntervalPanel" MinWidth="96">
@@ -259,17 +260,44 @@
                 </Popup>
 
                 <Button x:Name="about" Content="关于" Cursor="Hand" Style="{StaticResource MenuButtonStyle}" Margin="6,0,0,0" Click="about_Click"/>
-                <Popup x:Name="about_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=about}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="0" AllowsTransparency="True" PopupAnimation="Fade">
+                <!-- VerticalOffset=5：让菜单顶边正好落在顶部通栏的分割线上 -->
+                <Popup x:Name="about_popup" Placement="Bottom" PlacementTarget="{Binding ElementName=about}" StaysOpen="False" HorizontalOffset="0" VerticalOffset="5" AllowsTransparency="True" PopupAnimation="Fade" Closed="about_popup_Closed">
                     <Grid Margin="0,0,14,14">
-                        <Border Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFE5E7EB" BorderThickness="0,0,1,1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- 关于主菜单卡片（右侧展开仓库入口时不改变自身尺寸） -->
+                        <Border Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFD5D9DF" BorderThickness="0,1,1,1">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.16"/>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
                             <StackPanel>
-                                <Button x:Name="projectAddress" Content="项目地址" Style="{StaticResource PopupButtonStyle}" Click="projectAddress_Click"/>
-                                <Button x:Name="projectAddressMirror" Content="项目地址(镜像)" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" Click="projectAddressMirror_Click"/>
+                                <!-- 开源仓库：鼠标划过即在右侧展开 GitHub / 镜像仓库入口 -->
+                                <Button x:Name="repoMenuBtn" Style="{StaticResource PopupButtonStyle}" MouseEnter="repoMenu_MouseEnter" MouseLeave="repoMenu_MouseLeave">
+                                    <Grid MinWidth="96">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="开源仓库" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
                                 <Button x:Name="cheackUpdate" Content="检查更新" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" Click="cheackUpdate_Click"/>
                             </StackPanel>
+                        </Border>
+                        <!-- 右侧浮动的仓库入口卡片：与主菜单分离，主菜单不会被撑开 -->
+                        <Border x:Name="repoMenuColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,4,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
+                            </Border.Effect>
+                            <Border MouseEnter="repoMenu_MouseEnter" MouseLeave="repoMenu_MouseLeave">
+                                <StackPanel MinWidth="150">
+                                    <Button x:Name="repoGithubItem" Content="GitHub 仓库" Style="{StaticResource PopupButtonStyle}" Click="projectAddress_Click"/>
+                                    <Button x:Name="repoMirrorItem" Content="Gitea 仓库" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="projectAddressMirror_Click"/>
+                                </StackPanel>
+                            </Border>
                         </Border>
                     </Grid>
                 </Popup>
