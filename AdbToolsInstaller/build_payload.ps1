@@ -59,7 +59,8 @@ $UNINST_PROJ = Join-Path $ROOT "AdbToolsUninstaller\AdbToolsUninstaller.csproj"
 # Restore 用 quiet 级别：避免打印本地化中文（中文消息在管道中被按 GBK 解码会乱码）
 & $MSBUILD $UNINST_PROJ /t:Restore /nologo /v:quiet
 $verArgs = @()
-if ($Version) { $verArgs = @("/p:Version=$Version", "/p:FileVersion=$Version", "/p:AssemblyVersion=$Version") }
+# 只传 Version：SDK 会派生出 4 段 AssemblyVersion，避免与 BAML 自引用不一致导致启动崩溃
+if ($Version) { $verArgs = @("/p:Version=$Version") }
 $uninstArgs = @("/p:Configuration=Release", "/t:Build", "/nologo", "/v:minimal") + $verArgs + $tfmArgs
 & $MSBUILD $UNINST_PROJ @uninstArgs
 if ($LASTEXITCODE -ne 0) { throw "Uninstaller build failed." }

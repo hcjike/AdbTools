@@ -81,7 +81,7 @@ jobs:
           msbuild "AdbToolsInstaller/AdbToolsInstaller.csproj" `
             /restore `
             /p:Configuration=Release /p:Platform=AnyCPU `
-            /p:Version=$v /p:FileVersion=$v /p:AssemblyVersion=$v `
+            /p:Version=$v `
             "/p:TargetFrameworkRootPath=$env:TFM_ROOT" `
             /t:Build /nologo /v:minimal
           if ($LASTEXITCODE -ne 0) { throw "构建失败" }
