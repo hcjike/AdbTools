@@ -2,7 +2,8 @@ param(
     [string]$Configuration = "Release",
     [string]$ProjectDir,
     [string]$Version = "",
-    [string]$MSBuildPath = ""
+    [string]$MSBuildPath = "",
+    [string]$TargetFrameworkRootPath = ""
 )
 $ErrorActionPreference = "Stop"
 if (-not $ProjectDir) { $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Definition }
@@ -38,11 +39,19 @@ if (-not $MSBUILD) {
 if (-not $MSBUILD -or -not (Test-Path $MSBUILD)) { throw "MSBuild not found. Please install Visual Studio or Build Tools with the MSBuild component." }
 Write-Host ("Using MSBuild: " + $MSBUILD)
 
+# CI 缺少 .NET Framework 4.6 目标包时，用全局属性指向 NuGet 参考程序集（对 WPF 临时工程也生效）
+$tfmArgs = @()
+if ($TargetFrameworkRootPath -and (Test-Path $TargetFrameworkRootPath)) {
+    $tfmArgs = @("/p:TargetFrameworkRootPath=$TargetFrameworkRootPath")
+    Write-Host ("Using TargetFrameworkRootPath: " + $TargetFrameworkRootPath)
+}
+
 # 1) Build the main app (AdbTools, Release/AnyCPU).
 $MAIN_PROJ = Join-Path $ROOT "AdbTools\AdbTools.csproj"
 # 还原（CI 下需要拉取 NuGet 参考程序集包；本地通常为 no-op）
 & $MSBUILD $MAIN_PROJ /t:Restore /nologo /v:quiet
-& $MSBUILD $MAIN_PROJ /p:Configuration=Release /p:Platform=AnyCPU /t:Build /nologo /v:minimal
+$mainArgs = @("/p:Configuration=Release", "/p:Platform=AnyCPU", "/t:Build", "/nologo", "/v:minimal") + $tfmArgs
+& $MSBUILD $MAIN_PROJ @mainArgs
 if ($LASTEXITCODE -ne 0) { throw "Main app build failed." }
 
 # 1.1) Build the standalone uninstaller (small, no payload) -> becomes uninstall.exe in the install dir
@@ -51,7 +60,8 @@ $UNINST_PROJ = Join-Path $ROOT "AdbToolsUninstaller\AdbToolsUninstaller.csproj"
 & $MSBUILD $UNINST_PROJ /t:Restore /nologo /v:quiet
 $verArgs = @()
 if ($Version) { $verArgs = @("/p:Version=$Version", "/p:FileVersion=$Version", "/p:AssemblyVersion=$Version") }
-& $MSBUILD $UNINST_PROJ /p:Configuration=Release /t:Build /nologo /v:minimal @verArgs
+$uninstArgs = @("/p:Configuration=Release", "/t:Build", "/nologo", "/v:minimal") + $verArgs + $tfmArgs
+& $MSBUILD $UNINST_PROJ @uninstArgs
 if ($LASTEXITCODE -ne 0) { throw "Uninstaller build failed." }
 $UNINST_EXE = Join-Path $ROOT "AdbToolsUninstaller\bin\Release\AdbToolsUninstaller.exe"
 if (-not (Test-Path $UNINST_EXE)) { throw ("Uninstaller output not found: " + $UNINST_EXE) }

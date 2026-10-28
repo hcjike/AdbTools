@@ -58,6 +58,22 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+
+      - name: Fetch .NET Framework 4.6 reference assemblies
+        shell: pwsh
+        run: |
+          # CI 运行器缺少 .NET Framework 4.6 目标包：下载 NuGet 参考程序集，用 TargetFrameworkRootPath 指过去
+          $out = Join-Path $env:RUNNER_TEMP "refpkgs"
+          nuget install Microsoft.NETFramework.ReferenceAssemblies.net46 -Version 1.0.3 -OutputDirectory $out -NonInteractive
+          $v46 = Get-ChildItem $out -Recurse -Directory -Filter "v4.6" |
+                   Where-Object { $_.Parent.Name -eq ".NETFramework" } | Select-Object -First 1
+          if (-not $v46) { throw "未找到 .NET Framework 4.6 参考程序集" }
+          $ref = $v46.Parent.Parent.FullName   # ...\build
+          "TFM_ROOT=$ref" >> $env:GITHUB_ENV
+          Write-Host "TFM_ROOT=$ref"
+
       - name: Build installer (single-file exe)
         shell: pwsh
         run: |
@@ -66,6 +82,7 @@ jobs:
             /restore `
             /p:Configuration=Release /p:Platform=AnyCPU `
             /p:Version=$v /p:FileVersion=$v /p:AssemblyVersion=$v `
+            "/p:TargetFrameworkRootPath=$env:TFM_ROOT" `
             /t:Build /nologo /v:minimal
           if ($LASTEXITCODE -ne 0) { throw "构建失败" }
 
