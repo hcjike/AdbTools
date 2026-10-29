@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -154,8 +155,8 @@ namespace AdbToolsInstaller
             path = path.Trim().TrimEnd('\\');
             Directory.CreateDirectory(path);
 
-            // 升级时先关闭可能正在运行的旧程序，避免文件被占用导致覆盖失败
-            TryCloseRunningApps(path);
+            // 升级时先解除安装目录内所有 exe 的占用，避免文件被占用导致覆盖失败
+            ReleaseFileLocks(path, log);
 
             // 按“执行项”统计总进度：payload 每个条目 + 2 个快捷方式 + 1 个注册表项
             int entryCount = CountPayloadEntries();
@@ -193,24 +194,141 @@ namespace AdbToolsInstaller
         }
 
         /// <summary>
-        /// 升级时先关闭安装目录下正在运行的旧程序，避免文件被占用导致覆盖失败。
+        /// 安装/卸载前解除安装目录内所有 exe 文件的占用：
+        /// 1) 结束一切从该目录启动的进程（主程序、旧的卸载程序、adb 服务进程、目录内的安装程序等）；
+        /// 2) 等待文件句柄真正释放（进程退出后句柄释放可能有延迟），必要时重试。
+        /// 当前正在运行的安装/卸载程序自身会被跳过，避免自我结束。
         /// </summary>
-        private static void TryCloseRunningApps(string installPath)
+        private static void ReleaseFileLocks(string installPath, Action<string> log)
         {
-            foreach (var name in new[] { "AdbTools", "Update" })
+            if (string.IsNullOrEmpty(installPath) || !Directory.Exists(installPath)) return;
+
+            log?.Invoke("正在解除文件占用...");
+
+            int selfId = Process.GetCurrentProcess().Id;
+            string selfFile = null;
+            try { selfFile = Path.GetFullPath(Assembly.GetExecutingAssembly().Location); } catch { }
+
+            foreach (var process in Process.GetProcesses())
             {
-                foreach (var p in Process.GetProcessesByName(name))
+                try
                 {
-                    try
+                    if (process.Id == selfId) continue;
+
+                    string file = GetProcessFilePath(process);
+                    if (string.IsNullOrEmpty(file))
                     {
-                        if (p.MainModule != null && p.MainModule.FileName.StartsWith(installPath, StringComparison.OrdinalIgnoreCase))
-                            p.Kill();
+                        // 读不到模块路径（权限/位数差异）时，仅对自家程序按名字兜底
+                        if (IsOwnAppProcess(process.ProcessName))
+                        {
+                            process.Kill();
+                            process.WaitForExit(3000);
+                        }
+                        continue;
                     }
-                    catch { }
-                    finally { p.Dispose(); }
+                    if (!IsUnderPath(file, installPath)) continue;
+                    if (!file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    process.Kill();
+                    process.WaitForExit(3000);
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+
+            if (!WaitFileHandlesReleased(installPath, selfFile, TimeSpan.FromSeconds(5)))
+            {
+                log?.Invoke("仍有文件被占用，解压时会自动重试...");
+            }
+        }
+
+        /// <summary>是否为 AdbTools 自身的进程名（用于无法读取路径时的兜底结束）。</summary>
+        private static bool IsOwnAppProcess(string processName)
+        {
+            return string.Equals(processName, "AdbTools", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(processName, "Update", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>读取进程可执行文件路径（无权限或进程已退出时返回 null）。</summary>
+        private static string GetProcessFilePath(Process process)
+        {
+            try { return process.MainModule?.FileName; }
+            catch { return null; }
+        }
+
+        /// <summary>判断文件是否位于指定目录（按目录归一化比较，避免 C:\app 与 C:\app-evil 误判）。</summary>
+        private static bool IsUnderPath(string file, string dir)
+        {
+            try
+            {
+                string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                return Path.GetFullPath(file).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>轮询等待目录内 exe/dll 的句柄释放，超时后继续（后续解压仍会重试）。</summary>
+        private static bool WaitFileHandlesReleased(string installPath, string skipFile, TimeSpan timeout)
+        {
+            DateTime deadline = DateTime.UtcNow + timeout;
+            while (true)
+            {
+                if (AreFilesReleased(installPath, skipFile)) return true;
+                if (DateTime.UtcNow >= deadline) return false;
+                System.Threading.Thread.Sleep(200);
+            }
+        }
+
+        /// <summary>检查目录内 exe/dll 是否都已可独占写入（即无人占用）。</summary>
+        private static bool AreFilesReleased(string installPath, string skipFile)
+        {
+            try
+            {
+                foreach (var pattern in new[] { "*.exe", "*.dll" })
+                {
+                    foreach (var file in Directory.GetFiles(installPath, pattern, SearchOption.AllDirectories))
+                    {
+                        // 跳过当前正在运行的安装/卸载程序自身
+                        if (!string.IsNullOrEmpty(skipFile)
+                            && string.Equals(Path.GetFullPath(file), skipFile, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        if (!CanWriteExclusive(file)) return false;
+                    }
                 }
             }
-            System.Threading.Thread.Sleep(500);
+            catch { }
+            return true;
+        }
+
+        /// <summary>尝试以独占方式打开文件，判断是否还有进程占用。</summary>
+        private static bool CanWriteExclusive(string file)
+        {
+            try
+            {
+                using (new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>解压单个条目，遇到占用/权限导致的失败时短暂等待后重试。</summary>
+        private static void ExtractEntryWithRetry(ZipArchiveEntry entry, string dest)
+        {
+            const int maxAttempts = 6;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    entry.ExtractToFile(dest, overwrite: true);
+                    return;
+                }
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < maxAttempts)
+                {
+                    System.Threading.Thread.Sleep(300);
+                }
+            }
         }
 
         private static void ExtractPayload(string path, Action step)
@@ -239,7 +357,7 @@ namespace AdbToolsInstaller
                     else
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                        entry.ExtractToFile(dest, overwrite: true);
+                        ExtractEntryWithRetry(entry, dest);
                     }
                     step?.Invoke();
                 }
@@ -402,25 +520,11 @@ namespace AdbToolsInstaller
 
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             {
-                // 先结束占用安装目录的正在运行程序，尽量让文件可删
-                log("正在关闭正在运行的程序...");
-                TryCloseRunningApps(path);
+                // 先解除占用安装目录的进程（主程序、adb 服务、目录内的其他 exe），尽量让文件可删
+                ReleaseFileLocks(path, log);
 
                 log("正在删除文件...");
-                try
-                {
-                    foreach (var dir in Directory.GetDirectories(path))
-                    {
-                        try { Directory.Delete(dir, true); } catch { }
-                        tracker.Step();
-                    }
-                    foreach (var file in Directory.GetFiles(path))
-                    {
-                        try { File.Delete(file); } catch { }
-                        tracker.Step();
-                    }
-                }
-                catch { }
+                DeleteInstallFiles(path, log, tracker);
             }
 
             if (deleteConfig)
@@ -469,6 +573,63 @@ namespace AdbToolsInstaller
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// 删除安装目录内容：删除失败（仍被占用）时重新解除占用并重试，最多 3 轮；
+        /// 仍无法删除的文件（如正在运行的本卸载程序自身）由退出后的独立清理进程兜底。
+        /// </summary>
+        private static void DeleteInstallFiles(string installPath, Action<string> log, ProgressTracker tracker)
+        {
+            List<string> remainingDirs;
+            List<string> remainingFiles;
+            try
+            {
+                remainingDirs = new List<string>(Directory.GetDirectories(installPath));
+                remainingFiles = new List<string>(Directory.GetFiles(installPath));
+            }
+            catch { return; }
+
+            const int maxRounds = 3;
+            for (int round = 1; round <= maxRounds && (remainingDirs.Count > 0 || remainingFiles.Count > 0); round++)
+            {
+                if (round > 1)
+                {
+                    // 上一轮仍有文件删不掉：再次结束占用进程并等待句柄释放
+                    ReleaseFileLocks(installPath, log);
+                }
+
+                bool firstRound = round == 1;
+
+                foreach (var dir in remainingDirs.ToArray())
+                {
+                    if (TryDelete(() => Directory.Delete(dir, true))) remainingDirs.Remove(dir);
+                    if (firstRound) tracker.Step();
+                }
+
+                foreach (var file in remainingFiles.ToArray())
+                {
+                    if (TryDelete(() => File.Delete(file))) remainingFiles.Remove(file);
+                    if (firstRound) tracker.Step();
+                }
+            }
+
+            int left = remainingDirs.Count + remainingFiles.Count;
+            if (left > 0)
+            {
+                log($"有 {left} 个文件/目录仍被占用，将在程序退出后自动清理。");
+            }
+        }
+
+        /// <summary>执行删除操作，失败返回 false（不抛出异常）。</summary>
+        private static bool TryDelete(Action deleteAction)
+        {
+            try
+            {
+                deleteAction();
+                return true;
+            }
+            catch { return false; }
         }
 
         private static void RemoveShortcuts()
