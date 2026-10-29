@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Reflection;
 using System.Security.AccessControl;
+using System.Text;
 using Microsoft.Win32;
 
 namespace AdbToolsInstaller
@@ -22,6 +24,19 @@ namespace AdbToolsInstaller
         public const string Publisher = "宏尘极客";
         public const string AppExe = "AdbTools.exe";
         public const string UninstallExeName = "uninstall.exe";
+        // 安装清单：记录本次安装写入的文件（相对路径），卸载时按清单删除，避免误删目录内的其他程序文件
+        public const string ManifestFileName = "install.manifest";
+        // 旧版本安装（没有清单文件）卸载时允许删除的已知文件名，除此之外一律不动
+        public static readonly string[] LegacyFileNames =
+        {
+            AppExe,
+            "adb.exe",
+            "AdbWinApi.dll",
+            "AdbWinUsbApi.dll",
+            "QRCoder.dll",
+            UninstallExeName,
+            ManifestFileName
+        };
         // 固定子键：不随版本变化，因此系统中只会出现一个“程序和功能”条目
         public const string UninstallSubKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AdbTools";
         // 旧版 Setup Factory 安装留下的显示名，用于迁移清理，避免系统中出现多个条目
@@ -74,6 +89,89 @@ namespace AdbToolsInstaller
                 catch { }
             }
             return best;
+        }
+
+        /// <summary>
+        /// 安装路径安全校验：首次安装禁止直接落到盘符根目录或系统目录本身，必须使用专属子目录；
+        /// 升级到历史遗留的不合规位置时仅告警，避免用户无法升级。
+        /// </summary>
+        private static void EnsureSafeInstallPath(string path, bool upgrading, Action<string> log)
+        {
+            string normalized = NormalizeDir(path);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                throw new InvalidOperationException("安装目录无效，请重新选择。");
+            }
+            if (!IsProtectedDirectory(normalized)) return;
+
+            if (upgrading)
+            {
+                log?.Invoke("提示：当前安装位置为系统目录或磁盘根目录，建议卸载后重装到专属文件夹。");
+                return;
+            }
+
+            throw new InvalidOperationException(
+                "不能直接安装到磁盘根目录或系统目录，请在其下新建专属文件夹后再安装（例如 D:\\Program Files\\"
+                + InstallConsts.ProductName + "）。");
+        }
+
+        /// <summary>判断是否为不允许直接使用的系统目录（盘符根、Windows、Program Files、Users 等本身）。</summary>
+        private static bool IsProtectedDirectory(string path)
+        {
+            string p = NormalizeDir(path);
+            if (string.IsNullOrEmpty(p)) return true;
+            if (p.Length <= 2) return true; // 盘符根，如 "C:"
+
+            foreach (var special in new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                Environment.GetFolderPath(Environment.SpecialFolder.SystemX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+            })
+            {
+                if (string.IsNullOrEmpty(special)) continue;
+                string s = NormalizeDir(special);
+                if (!string.IsNullOrEmpty(s) && string.Equals(p, s, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>归一化目录路径：完整路径 + 去掉末尾分隔符（失败返回 null）。</summary>
+        private static string NormalizeDir(string path)
+        {
+            try
+            {
+                return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>写入安装清单：每行一个相对路径，卸载时据此精确删除。</summary>
+        private static void WriteInstallManifest(string installPath, ICollection<string> relativeFiles)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var lines = new List<string>();
+
+            if (relativeFiles != null)
+            {
+                foreach (var rel in relativeFiles)
+                {
+                    if (string.IsNullOrWhiteSpace(rel)) continue;
+                    string name = rel.Replace('\\', '/').Trim();
+                    if (seen.Add(name)) lines.Add(name);
+                }
+            }
+            if (seen.Add(InstallConsts.ManifestFileName)) lines.Add(InstallConsts.ManifestFileName);
+
+            File.WriteAllLines(Path.Combine(installPath, InstallConsts.ManifestFileName), lines, new UTF8Encoding(false));
         }
 
         /// <summary>
@@ -191,6 +289,11 @@ namespace AdbToolsInstaller
         public static void Install(string path, Action<string> log, Action<int> progress)
         {
             path = path.Trim().TrimEnd('\\');
+
+            // 目录中已有本程序（主程序或安装清单）视为升级，沿用原位置以免破坏已安装环境
+            bool upgrading = File.Exists(Path.Combine(path, InstallConsts.AppExe))
+                || File.Exists(Path.Combine(path, InstallConsts.ManifestFileName));
+            EnsureSafeInstallPath(path, upgrading, log);
             Directory.CreateDirectory(path);
 
             // 升级时先解除安装目录内所有 exe 的占用，避免文件被占用导致覆盖失败
@@ -201,7 +304,8 @@ namespace AdbToolsInstaller
             var tracker = new ProgressTracker(entryCount + 3, progress);
 
             log("正在解压文件...");
-            ExtractPayload(path, () => tracker.Step());
+            var installedFiles = new List<string>();
+            ExtractPayload(path, installedFiles, () => tracker.Step());
 
             // 以实际安装后的主程序版本号作为“程序和功能”中显示的版本
             string appExe = Path.Combine(path, InstallConsts.AppExe);
@@ -215,6 +319,10 @@ namespace AdbToolsInstaller
                 log("正在写入卸载程序...");
                 File.Copy(Assembly.GetExecutingAssembly().Location, uninstallExe, true);
             }
+            installedFiles.Add(InstallConsts.UninstallExeName);
+
+            // 写入安装清单：卸载时只删除清单内的文件，绝不按目录整体删除
+            WriteInstallManifest(path, installedFiles);
 
             log("正在创建快捷方式...");
             CreateShortcuts(path);
@@ -369,7 +477,7 @@ namespace AdbToolsInstaller
             }
         }
 
-        private static void ExtractPayload(string path, Action step)
+        private static void ExtractPayload(string path, ICollection<string> extractedFiles, Action step)
         {
             // 归一化目标根目录，末尾补分隔符，避免前缀误判（如 C:\app 与 C:\app-evil）
             string targetRoot = Path.GetFullPath(path);
@@ -396,6 +504,8 @@ namespace AdbToolsInstaller
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(dest));
                         ExtractEntryWithRetry(entry, dest);
+                        // 记录相对路径，供写入安装清单使用
+                        extractedFiles?.Add(entry.FullName.Replace('\\', '/'));
                     }
                     step?.Invoke();
                 }
@@ -526,14 +636,13 @@ namespace AdbToolsInstaller
             // 让当前进程的工作目录离开安装目录，避免 CWD 锁住安装目录导致无法删除
             try { Environment.CurrentDirectory = Path.GetTempPath(); } catch { }
 
-            // 统计卸载执行项：注册表(1) + 快捷方式(2) + 文件 + 目录 + 配置(可选)
-            int fileCount = 0, dirCount = 0;
-            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
-            {
-                try { fileCount = Directory.GetFiles(path).Length; } catch { }
-                try { dirCount = Directory.GetDirectories(path).Length; } catch { }
-            }
-            var tracker = new ProgressTracker(1 + 2 + fileCount + dirCount + (deleteConfig ? 1 : 0), progress);
+            // 卸载目标：优先使用安装时写入的清单；旧版本无清单时仅处理已知文件名
+            List<string> targets = (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                ? BuildUninstallTargets(path, log)
+                : new List<string>();
+
+            // 统计卸载执行项：注册表(1) + 快捷方式(2) + 待删除文件 + 配置(可选)
+            var tracker = new ProgressTracker(1 + 2 + targets.Count + (deleteConfig ? 1 : 0), progress);
 
             // 先清理注册表：即使随后文件因占用删不掉，也保证从“程序和功能”中移除
             log("正在清理注册表...");
@@ -558,11 +667,19 @@ namespace AdbToolsInstaller
 
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             {
-                // 先解除占用安装目录的进程（主程序、adb 服务、目录内的其他 exe），尽量让文件可删
-                ReleaseFileLocks(path, log);
+                if (IsProtectedDirectory(path))
+                {
+                    // 极端情况：注册表中的安装位置被改成系统目录或盘符根，绝不删除任何文件
+                    log("安装位置为系统目录或磁盘根目录，已跳过文件删除，请手动清理残留文件。");
+                }
+                else
+                {
+                    // 先解除占用安装目录的进程（主程序、adb 服务等），再按清单精确删除
+                    ReleaseFileLocks(path, log);
 
-                log("正在删除文件...");
-                DeleteInstallFiles(path, log, tracker);
+                    log("正在删除文件...");
+                    DeleteInstalledFiles(path, targets, log, tracker);
+                }
             }
 
             if (deleteConfig)
@@ -580,8 +697,9 @@ namespace AdbToolsInstaller
             progress(100);
             log("卸载完成。");
 
-            // uninstall.exe 自身运行时被占用、无法自删：启动独立进程，等本进程退出后重试删除整个安装目录
-            if (!string.IsNullOrEmpty(path))
+            // 本卸载程序自身运行时无法自删：启动独立进程，等本进程退出后删除自身并移除空目录。
+            // 注意：只删除自身文件与空目录（不加 -Recurse），避免在公共目录里误删其他程序的文件。
+            if (!string.IsNullOrEmpty(path) && !IsProtectedDirectory(path))
             {
                 try
                 {
@@ -592,11 +710,12 @@ namespace AdbToolsInstaller
 
                     string ps =
                         "-NoProfile -NonInteractive -WindowStyle Hidden -Command \"" +
-                        "$t=$env:ADB_UNINSTALL_TARGET;" +
-                        "for($i=0;$i -lt 150;$i++){" +
+                        "$t=$env:ADB_UNINSTALL_TARGET;$f=$env:ADB_UNINSTALL_SELF;" +
+                        "for($i=0;$i -lt 120;$i++){" +
                         "if(-not (Test-Path -LiteralPath $t)){break};" +
-                        "Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue;" +
-                        "Start-Sleep -Milliseconds 800}\"";
+                        "if($f -and (Test-Path -LiteralPath $f)){Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue};" +
+                        "Remove-Item -LiteralPath $t -Force -ErrorAction SilentlyContinue;" +
+                        "Start-Sleep -Milliseconds 500}\"";
 
                     var psi = new ProcessStartInfo(psExe, ps)
                     {
@@ -607,6 +726,7 @@ namespace AdbToolsInstaller
                         WorkingDirectory = Path.GetTempPath()
                     };
                     psi.EnvironmentVariables["ADB_UNINSTALL_TARGET"] = path;
+                    psi.EnvironmentVariables["ADB_UNINSTALL_SELF"] = Assembly.GetExecutingAssembly().Location;
                     Process.Start(psi);
                 }
                 catch { }
@@ -614,22 +734,21 @@ namespace AdbToolsInstaller
         }
 
         /// <summary>
-        /// 删除安装目录内容：删除失败（仍被占用）时重新解除占用并重试，最多 3 轮；
-        /// 仍无法删除的文件（如正在运行的本卸载程序自身）由退出后的独立清理进程兜底。
+        /// 按清单删除安装的文件：只删除清单中列出的相对路径（且必须位于安装目录内），
+        /// 不递归删除未知内容；目录只有在完全变空后才会被移除。
+        /// 删除失败（仍被占用）时重新解除占用并重试，最多 3 轮。
         /// </summary>
-        private static void DeleteInstallFiles(string installPath, Action<string> log, ProgressTracker tracker)
+        private static void DeleteInstalledFiles(string installPath, List<string> relativeFiles, Action<string> log, ProgressTracker tracker)
         {
-            List<string> remainingDirs;
-            List<string> remainingFiles;
-            try
+            var pending = new List<string>();
+            foreach (var rel in relativeFiles.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                remainingDirs = new List<string>(Directory.GetDirectories(installPath));
-                remainingFiles = new List<string>(Directory.GetFiles(installPath));
+                string dest = SafeCombine(installPath, rel);
+                if (dest != null && File.Exists(dest)) pending.Add(dest);
             }
-            catch { return; }
 
             const int maxRounds = 3;
-            for (int round = 1; round <= maxRounds && (remainingDirs.Count > 0 || remainingFiles.Count > 0); round++)
+            for (int round = 1; round <= maxRounds && pending.Count > 0; round++)
             {
                 if (round > 1)
                 {
@@ -638,25 +757,102 @@ namespace AdbToolsInstaller
                 }
 
                 bool firstRound = round == 1;
+                var still = new List<string>();
 
-                foreach (var dir in remainingDirs.ToArray())
+                foreach (var file in pending)
                 {
-                    if (TryDelete(() => Directory.Delete(dir, true))) remainingDirs.Remove(dir);
-                    if (firstRound) tracker.Step();
+                    bool removed = TryDelete(() => File.Delete(file));
+                    if (removed) continue;
+                    if (File.Exists(file)) still.Add(file);
                 }
+                if (firstRound) tracker.Step(pending.Count);
 
-                foreach (var file in remainingFiles.ToArray())
-                {
-                    if (TryDelete(() => File.Delete(file))) remainingFiles.Remove(file);
-                    if (firstRound) tracker.Step();
-                }
+                pending = still;
             }
 
-            int left = remainingDirs.Count + remainingFiles.Count;
-            if (left > 0)
+            if (pending.Count > 0)
             {
-                log($"有 {left} 个文件/目录仍被占用，将在程序退出后自动清理。");
+                log($"有 {pending.Count} 个文件仍被占用，将在程序退出后自动清理。");
             }
+
+            // 自底向上清理空目录：只删除空目录，绝不递归删除内容
+            RemoveEmptyDirectories(installPath);
+        }
+
+        /// <summary>构造卸载文件清单：优先读取安装清单，缺失时回退到已知文件名（旧版本安装）。</summary>
+        private static List<string> BuildUninstallTargets(string installPath, Action<string> log)
+        {
+            var targets = new List<string>();
+            string manifest = Path.Combine(installPath, InstallConsts.ManifestFileName);
+
+            if (File.Exists(manifest))
+            {
+                try
+                {
+                    foreach (var line in File.ReadAllLines(manifest))
+                    {
+                        string rel = line?.Trim();
+                        if (!string.IsNullOrEmpty(rel)) targets.Add(rel);
+                    }
+                }
+                catch { }
+            }
+
+            if (targets.Count == 0)
+            {
+                log?.Invoke("未找到安装清单，按已知文件名卸载。");
+                targets.AddRange(InstallConsts.LegacyFileNames);
+            }
+
+            // 清单自身与卸载程序（可能来自旧版本安装）始终纳入删除范围
+            AddTargetIfMissing(targets, InstallConsts.ManifestFileName);
+            AddTargetIfMissing(targets, InstallConsts.UninstallExeName);
+            return targets;
+        }
+
+        private static void AddTargetIfMissing(List<string> targets, string name)
+        {
+            if (targets.Any(t => string.Equals(t.Replace('\\', '/').Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+            targets.Add(name);
+        }
+
+        /// <summary>把清单中的相对路径解析为安装目录内的完整路径；越界或非法返回 null。</summary>
+        private static string SafeCombine(string installPath, string relative)
+        {
+            if (string.IsNullOrWhiteSpace(relative)) return null;
+            try
+            {
+                string dest = Path.GetFullPath(Path.Combine(installPath, relative.Replace('/', Path.DirectorySeparatorChar)));
+                return IsUnderPath(dest, installPath) ? dest : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>自底向上删除安装目录下的空子目录（非空目录一律保留）。</summary>
+        private static void RemoveEmptyDirectories(string installPath)
+        {
+            try
+            {
+                var dirs = Directory.GetDirectories(installPath, "*", SearchOption.AllDirectories)
+                    .OrderByDescending(d => d.Length)
+                    .ToList();
+
+                foreach (var dir in dirs)
+                {
+                    try
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                        {
+                            Directory.Delete(dir, false);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
 
         /// <summary>执行删除操作，失败返回 false（不抛出异常）。</summary>
