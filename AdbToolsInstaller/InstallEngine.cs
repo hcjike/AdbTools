@@ -32,10 +32,48 @@ namespace AdbToolsInstaller
 
     internal static class InstallEngine
     {
+        /// <summary>
+        /// 首次安装的默认位置：
+        /// 1) 若存在系统盘以外的本地固定磁盘，取盘符顺序最靠前的一个，使用其 Program Files 目录；
+        /// 2) 只有系统盘时，使用系统盘的 Program Files 目录。
+        /// 最终路径都追加程序目录名。
+        /// </summary>
         public static string DefaultInstallPath()
         {
-            string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            return Path.Combine(pf, InstallConsts.ProductName);
+            string extraDrive = FindPreferredExtraDrive();
+            string programFiles = string.IsNullOrEmpty(extraDrive)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                : Path.Combine(extraDrive, "Program Files");
+
+            return Path.Combine(programFiles, InstallConsts.ProductName);
+        }
+
+        /// <summary>
+        /// 查找系统盘以外、盘符顺序最靠前的本地固定磁盘（如 "D:\"）；没有则返回 null。
+        /// </summary>
+        private static string FindPreferredExtraDrive()
+        {
+            string systemRoot;
+            try { systemRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)); }
+            catch { systemRoot = @"C:\"; }
+            if (string.IsNullOrEmpty(systemRoot)) systemRoot = @"C:\";
+
+            string best = null;
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    // 仅考虑本地固定磁盘，跳过 U 盘、光驱、网络盘等
+                    if (drive.DriveType != DriveType.Fixed || !drive.IsReady) continue;
+                    if (string.Equals(drive.Name, systemRoot, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (best == null || string.Compare(drive.Name, best, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        best = drive.Name;
+                    }
+                }
+                catch { }
+            }
+            return best;
         }
 
         /// <summary>

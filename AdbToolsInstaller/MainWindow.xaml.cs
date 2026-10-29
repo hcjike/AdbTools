@@ -121,10 +121,31 @@ namespace AdbToolsInstaller
             using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
             {
                 dlg.SelectedPath = PathBox.Text;
-                dlg.Description = "选择安装目录";
+                dlg.Description = "选择安装目录（将自动创建 " + InstallConsts.ProductName + " 文件夹）";
                 if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                    PathBox.Text = dlg.SelectedPath;
+                    PathBox.Text = AppendProductFolder(dlg.SelectedPath);
             }
+        }
+
+        /// <summary>
+        /// 选择的目录末尾自动补上本程序目录名；若已以该目录名结尾则不重复追加。
+        /// 例：选择 D:\Apps → D:\Apps\Adb连接工具；选择 D:\Apps\Adb连接工具 → 保持不变。
+        /// </summary>
+        private static string AppendProductFolder(string selected)
+        {
+            if (string.IsNullOrWhiteSpace(selected)) return selected;
+
+            string full;
+            try { full = Path.GetFullPath(selected.Trim()); }
+            catch { return selected; }
+
+            string name = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(name, InstallConsts.ProductName, StringComparison.OrdinalIgnoreCase))
+            {
+                return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+
+            return Path.Combine(full, InstallConsts.ProductName);
         }
 
         private void SetBusy(bool busy)
