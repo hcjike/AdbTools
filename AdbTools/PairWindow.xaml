@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools" xmlns:customcontrol="clr-namespace:AdbTools.CustomControl"
         mc:Ignorable="d"
-        Title="配对设备" Width="360" SizeToContent="Height" FontSize="14" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" Closing="Window_Closing" PreviewKeyDown="Window_PreviewKeyDown">
+        Title="配对设备" Width="360" SizeToContent="Height" FontSize="14" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" Closing="Window_Closing" PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <Style x:Key="TabToggle" TargetType="ToggleButton">
             <Setter Property="Width" Value="120"/>
