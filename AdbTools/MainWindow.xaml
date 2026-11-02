@@ -10,6 +10,7 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <ContextMenu x:Key="ListBoxItemContextMenu"  FontSize="13">
             <MenuItem x:Name="installApkItem" Header="安装应用" Click="installApkItem_Click" Cursor="Hand"   Margin="0,2" />
+            <MenuItem x:Name="remoteControlItem" Header="远程控制" Click="remoteControlItem_Click" Cursor="Hand" Margin="0,2" />
             <MenuItem x:Name="disconnectDeviceItem" Header="断开设备" Click="disconnectDeviceItem_Click"  Cursor="Hand" Margin="0,2"/>
             <Separator/>
             <MenuItem Header="查看日志" Cursor="Hand"   Margin="0,2" >
