@@ -188,7 +188,26 @@ namespace AdbTools.RemoteControl
 
         private int _decodedFrames;
         private int _lastDecodedFrames;
-        private double _fps;
+
+        /// <summary>真正写进位图、画面变化的帧数（眼睛看到的帧率）。</summary>
+        private int _presentedFrames;
+        private int _lastPresentedFrames;
+
+        /// <summary>上一次帧率采样的时刻，用真实经过时间计算，避免计时器被推迟时算出虚高的帧率。</summary>
+        private DateTime _lastFpsSample = DateTime.UtcNow;
+
+        /// <summary>上屏帧率与解码帧率（平滑后）。</summary>
+        private double _displayFps = -1;
+        private double _decodeFps = -1;
+
+        /// <summary>
+        /// 上屏延迟（毫秒，指数平滑）：从解码输出一帧到真正写进位图的耗时，
+        /// 包含 UI 线程排队与像素拷贝。-1 表示还没测到。
+        /// </summary>
+        private double _latencyMs = -1;
+
+        /// <summary>最近一帧解码完成的时刻，供上屏延迟计算使用。</summary>
+        private long _decodedAtTicks;
 
         /// <summary>最近一次注入的命令，显示在状态栏便于确认点击是否落点正确。</summary>
         private string _lastInject = "";
@@ -599,6 +618,7 @@ namespace AdbTools.RemoteControl
                 _frameWidth = width;
                 _frameHeight = height;
                 _framePending = true;
+                Interlocked.Exchange(ref _decodedAtTicks, DateTime.UtcNow.Ticks);
             }
 
             // 只在没有待渲染任务时排一次渲染：渲染跟不上时自动丢中间帧，
@@ -654,6 +674,20 @@ namespace AdbTools.RemoteControl
                 }
 
                 _bitmap.WritePixels(new Int32Rect(0, 0, width, height), frame, width * 4, 0);
+
+                Interlocked.Increment(ref _presentedFrames);
+
+                // 上屏延迟：解码完成 → 真正写进位图，反映 UI 排队与像素拷贝的耗时
+                long decodedAt = Interlocked.Read(ref _decodedAtTicks);
+                if (decodedAt > 0)
+                {
+                    double ms = (DateTime.UtcNow.Ticks - decodedAt) / 10000.0;
+                    // 忽略刚重连等异常值，避免一次尖刺把显示带跑偏
+                    if (ms >= 0 && ms < 5000)
+                    {
+                        _latencyMs = _latencyMs < 0 ? ms : _latencyMs * 0.8 + ms * 0.2;
+                    }
+                }
             }
 
             Interlocked.Exchange(ref _renderQueued, 0);
@@ -669,9 +703,23 @@ namespace AdbTools.RemoteControl
 
         private void UpdateStatus()
         {
-            int now = _decodedFrames;
-            _fps = (now - _lastDecodedFrames) * 2.0; // 500ms 采样
-            _lastDecodedFrames = now;
+            // 按真实经过时间计算帧率：DispatcherTimer 在 UI 繁忙时会被推迟，
+            // 若仍按固定的 500ms 换算，界面越卡、算出来的帧率反而越高。
+            DateTime now = DateTime.UtcNow;
+            double elapsed = (now - _lastFpsSample).TotalSeconds;
+            _lastFpsSample = now;
+
+            int decoded = _decodedFrames;
+            int presented = _presentedFrames;
+            if (elapsed >= 0.05)
+            {
+                double rawDecode = (decoded - _lastDecodedFrames) / elapsed;
+                double rawDisplay = (presented - _lastPresentedFrames) / elapsed;
+                _decodeFps = _decodeFps < 0 ? rawDecode : _decodeFps * 0.6 + rawDecode * 0.4;
+                _displayFps = _displayFps < 0 ? rawDisplay : _displayFps * 0.6 + rawDisplay * 0.4;
+            }
+            _lastDecodedFrames = decoded;
+            _lastPresentedFrames = presented;
 
             // 锁屏/熄屏时在状态栏最前面提示，方便判断“画面没变”是不是设备休眠了
             string state = _locked ? "已锁屏 · " : (_screenOff ? "已息屏 · " : "");
@@ -701,8 +749,23 @@ namespace AdbTools.RemoteControl
             string size = _bitmap == null ? "-" : _bitmap.PixelWidth + "x" + _bitmap.PixelHeight;
             string device = _deviceWidth > 0 ? _deviceWidth + "x" + _deviceHeight : "-";
 
-            // 只保留单行指标，避免顶栏高度随文本变化而与下拉框错位
-            _status.Text = state + string.Format("{0} → {1}   {2:F1} fps", size, device, _fps);
+            // 只保留单行指标，避免顶栏高度随文本变化而与下拉框错位。
+            // 显示的是真正上屏的帧率（眼睛看到的），延迟是“卡顿感”的直接来源。
+            string perf = string.Format("{0:F0} fps", Math.Max(0, _displayFps));
+            // 延迟只在明显积压时显示：正常情况下不到 1ms，没必要占状态栏
+            if (_latencyMs >= 1.0) perf += string.Format(" · 延迟 {0:F0} ms", _latencyMs);
+
+            _status.Text = state + string.Format("{0} → {1}   {2}", size, device, perf);
+
+            // 详细指标放悬停提示：解码帧率高于上屏帧率说明画面被丢了，是卡顿的主要原因
+            _status.ToolTip = string.Format(
+                "上屏 {0:F0} fps：真正写到画面上的帧数，即你眼睛看到的流畅度\n" +
+                "解码 {1:F0} fps：解码器输出的帧数，明显高于上屏说明电脑跟不上、中间帧被丢弃\n" +
+                "上屏延迟 {2}：解码完成到画面更新，只含电脑端排队与像素拷贝；\n" +
+                "    另有设备端采集编码约 30~80 ms 与传输耗时，不计入此值\n" +
+                "帧率偏低或延迟偏大时，建议把分辨率调低一档",
+                Math.Max(0, _displayFps), Math.Max(0, _decodeFps),
+                _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-");
 
             // 每 10 秒把当前状态写进日志，便于事后排查“画面没恢复”这类问题
             if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 10)
