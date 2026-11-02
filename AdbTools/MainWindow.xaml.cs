@@ -1,5 +1,6 @@
 using AdbTools.AccessInterface;
 using AdbTools.bean;
+using AdbTools.RemoteControl;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -48,6 +49,9 @@ namespace AdbTools
 
         /// <summary>更新包下载进度（百分比）</summary>
         private int updateDownloadPercent;
+
+        /// <summary>已打开的远程控制窗口（按设备序列号索引，重复点击时激活同一窗口）</summary>
+        private readonly Dictionary<string, RemoteControlWindow> remoteWindows = new Dictionary<string, RemoteControlWindow>();
 
         public MainWindow()
         {
@@ -165,11 +169,29 @@ namespace AdbTools
             UpdateTopmostUi();
 
             Timer_Tick(null, null);
+
+            // 调试入口：命令行带 --remote=<序列号> 时直接打开远程控制窗口
+            foreach (string arg in Environment.GetCommandLineArgs())
+            {
+                const string remoteFlag = "--remote=";
+                if (arg.StartsWith(remoteFlag, StringComparison.OrdinalIgnoreCase))
+                {
+                    OpenRemoteControl(arg.Substring(remoteFlag.Length));
+                    break;
+                }
+            }
         }
 
         private void Window_Unloaded(object sender, RoutedEventArgs e)
         {
             refreshTimer?.Stop();
+
+            // 关闭所有远程控制窗口，释放 adb 取流与解码资源
+            foreach (var window in remoteWindows.Values.ToList())
+            {
+                try { window.Close(); } catch { }
+            }
+            remoteWindows.Clear();
         }
 
         private void Timer_Tick(object sender, EventArgs e)
@@ -359,6 +381,78 @@ namespace AdbTools
                 return;
             }
             HandleApkInstallation(new List<string>(paths), 0, device);
+        }
+
+        /// <summary>
+        /// 远程控制：打开独立窗口实时显示设备画面，并把鼠标/键盘操作注入设备。
+        /// Android 7.0（SDK 24）以下不支持 screenrecord 输出到 stdout，直接提示。
+        /// </summary>
+        private void remoteControlItem_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
+            OpenRemoteControl(device.DeviceMark);
+        }
+
+        /// <summary>按设备序列号打开（或激活）远程控制窗口。</summary>
+        private void OpenRemoteControl(string deviceMark)
+        {
+            if (string.IsNullOrEmpty(deviceMark))
+            {
+                return;
+            }
+
+            RemoteControlWindow opened;
+            if (remoteWindows.TryGetValue(deviceMark, out opened) && opened.IsLoaded)
+            {
+                opened.Activate();
+                return;
+            }
+
+            string adbExe = adbPath.Trim('"');
+
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} -s {deviceMark} shell getprop ro.build.version.sdk", result =>
+            {
+                int sdk = ParseSdkVersion(result);
+                if (sdk > 0 && sdk < 24)
+                {
+                    MessageBox.Show("当前设备系统版本过低（需要 Android 7.0 及以上），暂不支持远程控制。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                RemoteControlWindow window;
+                if (remoteWindows.TryGetValue(deviceMark, out window) && window.IsLoaded)
+                {
+                    window.Activate();
+                    return;
+                }
+
+                window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000);
+                window.Closed += (s, args) => remoteWindows.Remove(deviceMark);
+                remoteWindows[deviceMark] = window;
+                window.Show();
+            });
+        }
+
+        /// <summary>从 cmd 回显中解析 SDK 版本号（取第一行可解析为整数的内容）。</summary>
+        private static int ParseSdkVersion(string output)
+        {
+            if (string.IsNullOrEmpty(output))
+            {
+                return 0;
+            }
+            foreach (string line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int value;
+                if (int.TryParse(line.Trim(), out value))
+                {
+                    return value;
+                }
+            }
+            return 0;
         }
 
         private void disconnectDeviceItem_Click(object sender, RoutedEventArgs e)

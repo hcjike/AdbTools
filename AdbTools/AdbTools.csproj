@@ -15,6 +15,8 @@
     <Deterministic>true</Deterministic>
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <TargetFrameworkProfile />
+    <!-- NV12→BGRA 颜色转换使用指针以降低开销 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Disk</InstallFrom>
@@ -206,6 +208,14 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="RemoteControl\AccessUnitSplitter.cs" />
+    <Compile Include="RemoteControl\AdbVideoStream.cs" />
+    <Compile Include="RemoteControl\H264DecoderMft.cs" />
+    <Compile Include="RemoteControl\InputInjector.cs" />
+    <Compile Include="RemoteControl\MfInterfaces.cs" />
+    <Compile Include="RemoteControl\MfInterop.cs" />
+    <Compile Include="RemoteControl\Nv12Converter.cs" />
+    <Compile Include="RemoteControl\RemoteControlWindow.cs" />
     <Page Include="PairWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

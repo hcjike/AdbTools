@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdbToolsInstaller", "AdbToo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdbToolsUninstaller", "AdbToolsUninstaller\AdbToolsUninstaller.csproj", "{073E808E-7082-459E-9FDF-F20052F3CAA8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamProbe", "tools\StreamProbe\StreamProbe.csproj", "{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoteProbe", "tools\RemoteProbe\RemoteProbe.csproj", "{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +45,22 @@ Global
 		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|x64.ActiveCfg = Release|Any CPU
 		{073E808E-7082-459E-9FDF-F20052F3CAA8}.Release|x64.Build.0 = Release|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Debug|x64.Build.0 = Debug|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Release|x64.ActiveCfg = Release|Any CPU
+		{B7C4E5A1-3F2D-4A6B-9C8E-1D2F3A4B5C6D}.Release|x64.Build.0 = Release|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Debug|x64.Build.0 = Debug|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Release|x64.ActiveCfg = Release|Any CPU
+		{C1D2E3F4-5A6B-4C7D-8E9F-0A1B2C3D4E5F}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
