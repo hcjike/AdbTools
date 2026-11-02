@@ -17,9 +17,10 @@ namespace AdbTools.RemoteControl
         private readonly string _adbPath;
         private readonly string _serial;
         private volatile string _size;
-        private readonly int _bitRate;
+        private volatile int _bitRate;
         private readonly int _timeLimitSeconds;
         private volatile bool _stopped;
+        private volatile bool _restartRequested;
         private Process _currentProcess;
 
         public AdbVideoStream(string adbPath, string serial, string size, int bitRate, int timeLimitSeconds = 175)
@@ -38,9 +39,33 @@ namespace AdbTools.RemoteControl
             set { if (!string.IsNullOrEmpty(value)) _size = value; }
         }
 
-        /// <summary>强制结束当前片段，Pump 会用新尺寸重建取流（用于横竖屏切换）。</summary>
+        /// <summary>
+        /// 暂停看门狗的“无数据”判定：设备锁屏/息屏时本来就几乎不产帧，
+        /// 此时不应反复重连（否则日志刷屏且白白占用编码器）。
+        /// </summary>
+        public volatile bool SuppressWatchdog;
+
+        /// <summary>
+        /// 暂停取流：设备锁屏/息屏期间 screenrecord 往往直接退出，
+        /// 置为 true 后不再重启片段，等方法结束或设备唤醒后继续。
+        /// </summary>
+        public volatile bool Paused;
+
+        /// <summary>码率（bps），切换分辨率时同步调整，下一次片段生效。</summary>
+        public int BitRate
+        {
+            get { return _bitRate; }
+            set { if (value > 0) _bitRate = value; }
+        }
+
+        /// <summary>
+        /// 强制结束当前片段，Pump 会用新尺寸重建取流（用于横竖屏切换）。
+        /// 若此刻恰好没有进程（片段刚结束/尚未启动），也会记下待重启标记，
+        /// 由 Pump 立即开新片段，避免改尺寸后要等到下一次自然重连才生效。
+        /// </summary>
         public void Restart()
         {
+            _restartRequested = true;
             Process process = _currentProcess;
             if (process == null) return;
             try { process.Kill(); } catch { }
@@ -85,7 +110,16 @@ namespace AdbTools.RemoteControl
         {
             while (!_stopped)
             {
+                // 锁屏/息屏期间不重启片段：避免“取流结束→准备重连”无限循环
+                if (Paused)
+                {
+                    Thread.Sleep(200);
+                    continue;
+                }
+
+                _restartRequested = false;
                 SegmentCount++;
+                DateTime segmentStarted = DateTime.UtcNow;
                 Process process = null;
                 Thread watchdog = null;
                 int[] watchdogStop = null;
@@ -125,6 +159,12 @@ namespace AdbTools.RemoteControl
                             int timeout = Volatile.Read(ref receivedFlag) == 0
                                 ? (SegmentCount <= 1 ? 8000 : 4000)
                                 : 60000;
+                            if (SuppressWatchdog)
+                            {
+                                // 设备锁屏/息屏期间不判超时，避免无意义的重连
+                                Interlocked.Exchange(ref lastDataTick[0], Environment.TickCount);
+                                continue;
+                            }
                             if (unchecked(Environment.TickCount - Interlocked.Read(ref lastDataTick[0])) > timeout)
                             {
                                 Log?.Invoke("取流停滞（" + timeout + "ms 无数据），正在重连…");
@@ -150,7 +190,21 @@ namespace AdbTools.RemoteControl
                         }
                     }
 
-                    if (!_stopped) Log?.Invoke("取流结束，准备重连");
+                    // 锁屏/息屏暂停导致的中断不提示“准备重连”
+                    if (!_stopped && !Paused)
+                    {
+                        // 正常码流一秒就有几十 KB；只有几十字节说明 screenrecord 直接报错退出
+                        // （尺寸不支持/编码器不可用），明确报“取流失败”供上层降档
+                        if (totalBytes < 8192)
+                        {
+                            Log?.Invoke("取流失败：本片段仅收到 " + totalBytes + " 字节（用时 "
+                                + (int)heartbeat.Elapsed.TotalMilliseconds + "ms）");
+                        }
+                        else
+                        {
+                            Log?.Invoke("取流结束，准备重连");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -176,12 +230,23 @@ namespace AdbTools.RemoteControl
                 }
 
                 if (_stopped) break;
-                Thread.Sleep(300); // 片段间短暂停顿，避免 adb 端 socket 未释放
+                if (_restartRequested) continue; // 有明确的重新取流请求，立刻重建
+
+                // 片段很快就结束（尺寸不支持时 screenrecord 直接退出）：把间隔拉长，
+                // 避免在设备上疯狂重启 screenrecord
+                Thread.Sleep((DateTime.UtcNow - segmentStarted).TotalMilliseconds < 1000 ? 1200 : 300);
             }
         }
 
         private Process StartProcess()
         {
+            // 上一个片段被强制结束时，设备端的 screenrecord 可能还占着硬件编码器，
+            // 不清掉会让新片段长时间拿不到编码器（表现为旋转后画面迟迟不回来）
+            if (SegmentCount > 1)
+            {
+                RunAdb("shell pkill -f screenrecord");
+            }
+
             string args = string.Format(CultureInfo.InvariantCulture,
                 "-s {0} exec-out screenrecord --size {1} --bit-rate {2} --time-limit {3} --output-format=h264 -",
                 _serial, _size, _bitRate, _timeLimitSeconds);
