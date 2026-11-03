@@ -1139,7 +1139,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell wm size")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell wm size")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,

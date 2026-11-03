@@ -21,6 +21,17 @@ namespace AdbTools
         }
 
         /// <summary>
+        /// 把设备序列号包裹成 adb -s 参数可用的形式：含空格（如 mDNS/TLS 连接名
+        /// `adb-xxxx._adb-tls-connect._tcp`）时用双引号括起，避免命令被空格截断；
+        /// 序列号内若含双引号则转义为 ""（cmd 规则）。
+        /// </summary>
+        public static string QuoteSerial(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return "\"\"";
+            return "\"" + serial.Replace("\"", "\"\"") + "\"";
+        }
+
+        /// <summary>
         /// 校验是否为合法的设备连接地址（IP、IP:端口，或 mDNS 服务名）
         /// </summary>
         public static bool IsValidIPEndPoint(string ipPort)
