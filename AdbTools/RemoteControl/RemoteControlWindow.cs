@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -110,8 +112,23 @@ namespace AdbTools.RemoteControl
         /// <summary>仿手机外框：包裹画面并按窗口大小等比缩放。</summary>
         private readonly Border _phoneFrame = new Border();
 
-        /// <summary>锁屏/息屏暂停时叠在画面上的提示文字。</summary>
-        private readonly TextBlock _pausedHint = new TextBlock();
+        /// <summary>画面区域中央的状态卡片：启动过程、锁屏/息屏、异常说明共用一套样式。</summary>
+        private readonly Border _startupPanel = new Border();
+        private readonly TextBlock _startupTitle = new TextBlock();
+        private readonly TextBlock _startupSteps = new TextBlock();
+        private readonly List<string> _startupLines = new List<string>();
+
+        /// <summary>首帧已上屏，不再显示/更新启动过程。</summary>
+        private bool _startupHidden;
+
+        /// <summary>已进入关闭流程：中央卡片显示提示，暂时阻止窗口真正关闭。</summary>
+        private bool _closing;
+
+        /// <summary>后台清理已完成，允许窗口真正关闭。</summary>
+        private bool _cleanupDone;
+
+        /// <summary>关闭清理的超时兜底，避免清理卡住导致窗口永远关不掉。</summary>
+        private DispatcherTimer _closeGuard;
 
         /// <summary>画面宿主区域（占满可用空间），用于计算外框尺寸。</summary>
         private Grid _screenHost;
@@ -130,10 +147,6 @@ namespace AdbTools.RemoteControl
 
         /// <summary>同一档位连续取流失败的次数，达到 2 次才认定该档不可用。</summary>
         private int _failureCount;
-
-        /// <summary>已确认不可用、并从下拉菜单移除的档位索引。</summary>
-        private readonly System.Collections.Generic.List<int> _failedPresets =
-            new System.Collections.Generic.List<int>();
 
         /// <summary>是否已记录过一次方向查询结果（用于确认轮询链路正常）。</summary>
         private bool _orientationProbeLogged;
@@ -172,7 +185,7 @@ namespace AdbTools.RemoteControl
         /// <summary>是否已按首帧画面比例自动调整过窗口尺寸。</summary>
         private bool _autoFitted;
 
-        private AdbVideoStream _stream;
+        private IVideoStream _stream;
         private H264DecoderMft _decoder;
         private InputInjector _injector;
         private AccessUnitSplitter _splitter;
@@ -221,7 +234,7 @@ namespace AdbTools.RemoteControl
         /// <summary>窗口创建到首帧显示的耗时（毫秒）。</summary>
         private double _firstFrameMs = -1;
 
-        /// <summary>本次取流开始时间；暂停/恢复后重新计时，使“首帧”指标反映真实等待。</summary>
+        /// <summary>本次取流开始时间；暂停/恢复后重新计时，使"首帧"指标反映真实等待。</summary>
         private DateTime _createdTime = DateTime.UtcNow;
 
         /// <summary>最近一条取流/解码日志；未出首帧时显示在状态栏，便于定位问题。</summary>
@@ -268,7 +281,8 @@ namespace AdbTools.RemoteControl
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            _status.Text = "正在连接…";
+            // 与运行时格式一致，避免首帧前闪一下别的文案
+            _status.Text = "- → -   0 fps";
             _status.Foreground = System.Windows.Media.Brushes.White;
             _status.Background = System.Windows.Media.Brushes.Black;
             _status.Padding = new Thickness(0);
@@ -346,19 +360,41 @@ namespace AdbTools.RemoteControl
                 Opacity = 0.75
             };
 
-            // 暂停（锁屏/息屏）时在画面区域居中提示，避免只剩一片黑的空白区
-            _pausedHint.Text = "设备已锁屏，解锁后自动恢复画面";
-            _pausedHint.Foreground = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xB9, 0xB9, 0xC2));
-            _pausedHint.FontSize = 13;
-            _pausedHint.TextAlignment = TextAlignment.Center;
-            _pausedHint.HorizontalAlignment = HorizontalAlignment.Center;
-            _pausedHint.VerticalAlignment = VerticalAlignment.Center;
-            _pausedHint.Visibility = Visibility.Collapsed;
+            // 画面中央卡片：启动过程、锁屏/息屏、异常说明都在这里，
+            // 只显示简化的阶段文案，不把 scrcpy/adb 的详细日志刷到画面上
+            _startupTitle.Text = "正在连接设备";
+            _startupTitle.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
+            _startupTitle.FontSize = 16;
+            _startupTitle.FontWeight = FontWeights.SemiBold;
+            _startupTitle.TextAlignment = TextAlignment.Center;
+
+            _startupSteps.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
+            _startupSteps.FontSize = 12;
+            _startupSteps.TextAlignment = TextAlignment.Center;
+            _startupSteps.TextWrapping = TextWrapping.Wrap;
+            _startupSteps.Margin = new Thickness(0, 10, 0, 0);
+
+            var startupStack = new StackPanel();
+            startupStack.Children.Add(_startupTitle);
+            startupStack.Children.Add(_startupSteps);
+
+            _startupPanel.Child = startupStack;
+            _startupPanel.Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(0xEE, 0x1A, 0x1A, 0x22));
+            _startupPanel.BorderBrush = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x3F, 0x3F, 0x46));
+            _startupPanel.BorderThickness = new Thickness(1);
+            _startupPanel.CornerRadius = new CornerRadius(10);
+            _startupPanel.Padding = new Thickness(26, 20, 26, 20);
+            _startupPanel.HorizontalAlignment = HorizontalAlignment.Center;
+            _startupPanel.VerticalAlignment = VerticalAlignment.Center;
+            _startupPanel.MaxWidth = 360;
 
             _screenHost = new Grid();
             _screenHost.Children.Add(_phoneFrame);
-            _screenHost.Children.Add(_pausedHint);
+            _screenHost.Children.Add(_startupPanel);
             _screenHost.SizeChanged += (s, e) => UpdatePhoneFrame();
             _image.SizeChanged += (s, e) => UpdatePhoneFrame();
             Grid.SetRow(_screenHost, 1);
@@ -405,6 +441,7 @@ namespace AdbTools.RemoteControl
             Content = root;
 
             Loaded += Window_Loaded;
+            Closing += Window_Closing;
             Closed += Window_Closed;
             PreviewKeyDown += Window_PreviewKeyDown;
 
@@ -462,6 +499,83 @@ namespace AdbTools.RemoteControl
         }
 
         /// <summary>
+        /// 更新首帧前画面中央的启动过程（可从后台线程调用）。
+        /// 只保留简化文案，同一条步骤不重复追加，最多显示 4 行。
+        /// </summary>
+        private void SetStartupStep(string title, string step = null)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_startupHidden) return;
+                if (!string.IsNullOrEmpty(title)) _startupTitle.Text = title;
+                if (!string.IsNullOrEmpty(step) && !_startupLines.Contains(step))
+                {
+                    _startupLines.Add(step);
+                    if (_startupLines.Count > 4) _startupLines.RemoveAt(0);
+                    _startupSteps.Text = string.Join("\n", _startupLines.ToArray());
+                }
+            }));
+        }
+
+        /// <summary>把取流日志压成少量阶段文案，避免把详细调试输出刷到界面上。</summary>
+        private void UpdateStartupFromLog(string msg)
+        {
+            if (_connected || string.IsNullOrEmpty(msg)) return;
+            if (msg.StartsWith("取流片段", StringComparison.Ordinal))
+                SetStartupStep("正在等待首帧", "视频通道已建立");
+            else if (msg.StartsWith("已接收", StringComparison.Ordinal))
+                SetStartupStep(null, "正在接收画面数据");
+            else if (msg.StartsWith("档位不兼容", StringComparison.Ordinal))
+                SetStartupStep("正在匹配分辨率", "当前档位不兼容，自动切换");
+            else if (msg.StartsWith("设备不支持 scrcpy server", StringComparison.Ordinal))
+                SetStartupStep("正在切换取流方式", "已回退兼容模式");
+            else if (msg.StartsWith("取流停滞", StringComparison.Ordinal)
+                || msg.StartsWith("取流失败", StringComparison.Ordinal)
+                || msg.StartsWith("scrcpy 连接失败", StringComparison.Ordinal))
+                SetStartupStep("正在重新连接", "取流中断，正在重试");
+            else if (msg.StartsWith("scrcpy: [server]", StringComparison.Ordinal))
+                SetStartupStep(null, "设备端编码服务启动中");
+        }
+
+        /// <summary>首帧真正上屏后收起启动过程卡片（在 UI 线程调用）。</summary>
+        private void HideStartupHint()
+        {
+            // 关闭流程中卡片要一直显示到清理完成，不能被首帧收起
+            if (_closing || _startupHidden) return;
+            _startupHidden = true;
+            _startupPanel.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// 统一决定画面中央卡片的内容：息屏/暂停提示优先，其次是首帧前的启动过程。
+        /// 状态栏只保留尺寸与帧率，其它说明一律落在中央卡片里。
+        /// </summary>
+        private void UpdateNotice()
+        {
+            // 关闭流程的卡片由 ShowClosingNotice 维护，500ms 定时器不要覆盖它
+            if (_closing)
+            {
+                _startupPanel.Visibility = Visibility.Visible;
+                _phoneFrame.Visibility = Visibility.Visible;
+                return;
+            }
+
+            if (_paused)
+            {
+                _startupTitle.Text = "设备已息屏";
+                _startupSteps.Text = "亮屏后自动恢复画面\n也可点下方「电源」键唤醒";
+                _startupPanel.Visibility = Visibility.Visible;
+                // 画面已清空，隐藏空的机身外框，让提示落在深色背景上
+                _phoneFrame.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            _phoneFrame.Visibility = Visibility.Visible;
+            // 首帧前由 SetStartupStep 维护启动过程；首帧上屏后收起
+            _startupPanel.Visibility = _startupHidden ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>
         /// 后台完成取流前的准备工作并启动：分辨率/方向/锁屏查询 + 唤醒设备 + 建立解码通道。
         /// 这些都会阻塞（多次 adb 调用），放在构造里会明显卡顿。
         /// </summary>
@@ -469,6 +583,8 @@ namespace AdbTools.RemoteControl
         {
             try
             {
+                SetStartupStep("正在连接设备", "查询分辨率与屏幕方向");
+
                 if (_deviceWidth <= 0 || _deviceHeight <= 0)
                 {
                     QueryPhysicalSize();
@@ -476,6 +592,7 @@ namespace AdbTools.RemoteControl
 
                 // 启动时设备可能已经是横屏，按实际方向取尺寸，避免先用竖屏尺寸再纠正
                 bool landscapeAtStart = QueryStartupLandscape();
+                SetStartupStep("正在准备取流", "唤醒设备");
                 string captureSize = ComputeCaptureSize(landscapeAtStart, size);
                 // 原生分辨率像素多，码率按像素数估算；调用方给的值作为下限
                 int effectiveBitRate = Math.Max(bitRate, SuggestBitRate(captureSize));
@@ -486,7 +603,7 @@ namespace AdbTools.RemoteControl
 
                 StartPipeline(captureSize, effectiveBitRate);
 
-                AdbVideoStream stream = _stream;
+                IVideoStream stream = _stream;
                 if (_paused && stream != null)
                 {
                     // 开始时就是锁屏状态：新流直接挂起，等解锁再启动
@@ -497,7 +614,7 @@ namespace AdbTools.RemoteControl
             catch (Exception ex)
             {
                 LogToFile("启动取流失败：" + ex.Message);
-                Dispatcher.BeginInvoke(new Action(() => _status.Text = "启动失败：" + ex.Message));
+                SetStartupStep("启动取流失败", "请检查设备连接后重试");
             }
         }
 
@@ -505,7 +622,10 @@ namespace AdbTools.RemoteControl
         {
             // 注意：Media Foundation 在取流线程里初始化（见下方 _pumpThread），
             // 避免 MFStartup 阻塞调用线程
-            _stream = new AdbVideoStream(_adbPath, _serial, size, bitRate);
+            // 优先使用设备端 MediaCodec 主动编码（scrcpy server）；设备不支持时
+            // ScrcpyVideoStream 会在连续两次连不上后自动回退到 screenrecord。
+            _stream = new ScrcpyVideoStream(_adbPath, _serial, size, bitRate);
+            SetStartupStep("正在启动设备端编码服务", "建立视频通道");
             _stream.Log += msg =>
             {
                 _lastLog = msg;
@@ -520,15 +640,19 @@ namespace AdbTools.RemoteControl
                     // 整个片段一个字节都没有：当前尺寸基本不可用，直接降一档
                     Dispatcher.BeginInvoke(new Action(HandleStreamFailure));
                 }
+                if (!string.IsNullOrEmpty(msg) && msg.StartsWith("档位不兼容", StringComparison.Ordinal))
+                {
+                    // scrcpy server 报编码器不支持后由自身 downsize 兜底，不会走"取流失败"；
+                    // 但降低 max_size 能让它原生编码、画面反而更清晰，这里同样依次向下找兼容档位
+                    Dispatcher.BeginInvoke(new Action(() => DowngradeResolution("设备编码器不支持当前档位")));
+                }
                 if (!string.IsNullOrEmpty(msg) && msg.StartsWith("取流片段", StringComparison.Ordinal))
                 {
                     // 片段重建常由旋转触发：顺便确认一次方向
                     RequestOrientationCheck();
                 }
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (!_connected) _status.Text = "等待首帧… " + msg;
-                }));
+                // 画面中央与顶栏都只显示压缩后的阶段文案，不再堆完整日志
+                UpdateStartupFromLog(msg);
             };
 
             _decoder = new H264DecoderMft { Verbose = false, LogSink = LogToFile };
@@ -555,13 +679,13 @@ namespace AdbTools.RemoteControl
                 {
                     _lastLog = "解码错误：" + ex.Message;
                     LogToFile(_lastLog);
-                    Dispatcher.BeginInvoke(new Action(() => _status.Text = _lastLog));
+                    SetStartupStep("解码出错", "正在重试…");
                 }
             };
 
             // 先唤醒设备再取流：息屏状态下 screenrecord 可能完全不产帧，
             // 会白白等看门狗超时，反而拖慢首帧。
-            // 唤醒与解锁必须在取流前完成：与取流并发执行 adb 命令会导致首个 screenrecord 空跑。
+            // 唤醒与解锁必须在取流前完成：与取流并发执行 adb 命令会拖慢取流启动。
             // 已合并为单次 adb 调用，耗时约 0.3~0.5 秒。
             try { _stream.WakeUpDevice(); } catch { }
 
@@ -576,6 +700,7 @@ namespace AdbTools.RemoteControl
                 Name = "adb-stream"
             };
             _pumpThread.Start();
+            SetStartupStep("正在等待首帧", "等待设备端首帧");
 
             // 查询分辨率、创建输入通道放后台，避免拖慢首帧
             ThreadPool.QueueUserWorkItem(_ =>
@@ -666,6 +791,13 @@ namespace AdbTools.RemoteControl
             {
                 if (_bitmap == null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
                 {
+                    // scrcpy 的 server 会自己跟随设备旋转改变输出尺寸，不经过取流重建；
+                    // 宽高比变化时必须立刻重新自适应窗口，不能等方向轮询去重置标记
+                    // （轮询重置往往晚于这一帧，之后尺寸不再变化就再也没机会自适应）。
+                    bool aspectChanged = _bitmap == null
+                        || Math.Abs((double)_bitmap.PixelWidth / _bitmap.PixelHeight - (double)width / height) > 0.02;
+                    if (aspectChanged) _autoFitted = false;
+
                     _bitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
                     _image.Source = _bitmap;
                     UpdatePhoneFrame();
@@ -674,6 +806,8 @@ namespace AdbTools.RemoteControl
                 }
 
                 _bitmap.WritePixels(new Int32Rect(0, 0, width, height), frame, width * 4, 0);
+                // 首帧真正显示出来，收起居中的启动过程提示
+                HideStartupHint();
 
                 Interlocked.Increment(ref _presentedFrames);
 
@@ -721,41 +855,16 @@ namespace AdbTools.RemoteControl
             _lastDecodedFrames = decoded;
             _lastPresentedFrames = presented;
 
-            // 锁屏/熄屏时在状态栏最前面提示，方便判断“画面没变”是不是设备休眠了
-            string state = _locked ? "已锁屏 · " : (_screenOff ? "已息屏 · " : "");
-
-            if (_paused)
-            {
-                _status.Text = "已息屏 · 取流已暂停，亮屏后自动恢复（可点下方「电源」键唤醒）";
-                _pausedHint.Text = "设备已息屏，亮屏后自动恢复画面";
-                _pausedHint.Visibility = Visibility.Visible;
-                // 隐藏机身外框，让提示直接落在深色背景上，避免与空机身叠在一起显脏
-                _phoneFrame.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            _pausedHint.Visibility = Visibility.Collapsed;
-            _phoneFrame.Visibility = Visibility.Visible;
-
-            if (!_connected)
-            {
-                string waiting = string.IsNullOrEmpty(_lastLog)
-                    ? "正在连接设备，等待首帧…"
-                    : "等待首帧… " + _lastLog;
-                _status.Text = state + waiting;
-                return;
-            }
+            // 锁屏/熄屏时在状态栏最前面提示，方便判断"画面没变"是不是设备休眠了
+            // 中央卡片负责息屏/启动过程等说明；状态栏只保留三项指标
+            UpdateNotice();
 
             string size = _bitmap == null ? "-" : _bitmap.PixelWidth + "x" + _bitmap.PixelHeight;
             string device = _deviceWidth > 0 ? _deviceWidth + "x" + _deviceHeight : "-";
 
-            // 只保留单行指标，避免顶栏高度随文本变化而与下拉框错位。
-            // 显示的是真正上屏的帧率（眼睛看到的），延迟是“卡顿感”的直接来源。
-            string perf = string.Format("{0:F0} fps", Math.Max(0, _displayFps));
-            // 延迟只在明显积压时显示：正常情况下不到 1ms，没必要占状态栏
-            if (_latencyMs >= 1.0) perf += string.Format(" · 延迟 {0:F0} ms", _latencyMs);
-
-            _status.Text = state + string.Format("{0} → {1}   {2}", size, device, perf);
+            // 左上角固定为：画面分辨率 → 设备物理分辨率、真实上屏帧率；
+            // 延迟、解码帧率等放悬停提示，其它说明一律在中央卡片里
+            _status.Text = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
 
             // 详细指标放悬停提示：解码帧率高于上屏帧率说明画面被丢了，是卡顿的主要原因
             _status.ToolTip = string.Format(
@@ -767,7 +876,7 @@ namespace AdbTools.RemoteControl
                 Math.Max(0, _displayFps), Math.Max(0, _decodeFps),
                 _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-");
 
-            // 每 10 秒把当前状态写进日志，便于事后排查“画面没恢复”这类问题
+            // 每 10 秒把当前状态写进日志，便于事后排查"画面没恢复"这类问题
             if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 10)
             {
                 _lastStatusLog = DateTime.UtcNow;
@@ -776,7 +885,7 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>把运行日志写到临时目录，便于排查“等待首帧”卡住的问题。</summary>
+        /// <summary>把运行日志写到临时目录，便于排查"等待首帧"卡住的问题。</summary>
         private static void LogToFile(string message)
         {
             try
@@ -942,6 +1051,8 @@ namespace AdbTools.RemoteControl
                             {
                                 _deviceWidth = w;
                                 _deviceHeight = h;
+                                // 拿到真实分辨率后，把设备根本达不到的高档位从菜单移除
+                                TrimUnreachablePresets();
                             }
                         }
                     }
@@ -950,7 +1061,42 @@ namespace AdbTools.RemoteControl
             catch { }
         }
 
-        /// <summary>关闭窗口后取消“保持常亮”，恢复设备原有行为。</summary>
+        /// <summary>
+        /// 采集尺寸只会缩小、不会放大；档位长边超过设备原生分辨率长边时，
+        /// 该档位永远达不到（选了也等同于「原始分辨率」），启动时直接从菜单移除。
+        /// 例如 720P 屏就不该列出「1080P 高清」。
+        /// 用 Invoke 同步执行，确保裁剪先于后续任何降档操作。
+        /// </summary>
+        private void TrimUnreachablePresets()
+        {
+            int width = _deviceWidth;
+            int height = _deviceHeight;
+            if (width <= 0 || height <= 0) return;
+            int nativeLongSide = Math.Max(width, height);
+
+            try
+            {
+                Dispatcher.Invoke(new Action(() =>
+                {
+                    if (_resolutionBox == null) return;
+                    for (int i = _resolutionBox.Items.Count - 1; i >= 0; i--)
+                    {
+                        ResolutionPreset preset = _resolutionBox.Items[i] as ResolutionPreset;
+                        // 第 0 档「原始分辨率」LongSide=0，始终保留
+                        if (preset == null || preset.LongSide == 0) continue;
+                        if (preset.LongSide > nativeLongSide)
+                        {
+                            _resolutionBox.Items.RemoveAt(i);
+                            LogToFile("隐藏设备达不到的档位：" + preset.Name
+                                + "（设备原始长边 " + nativeLongSide + "）");
+                        }
+                    }
+                }));
+            }
+            catch { }
+        }
+
+        /// <summary>关闭窗口后取消"保持常亮"，恢复设备原有行为。</summary>
         private void RestoreDeviceState()
         {
             try
@@ -1123,7 +1269,7 @@ namespace AdbTools.RemoteControl
         /// <summary>用当前档位重建取流，尺寸与码率一起更新。</summary>
         private void ApplyResolutionChange()
         {
-            AdbVideoStream stream = _stream;
+            IVideoStream stream = _stream;
             if (stream == null) return;
 
             bool landscape = _bitmap != null
@@ -1131,10 +1277,21 @@ namespace AdbTools.RemoteControl
                 : _logicalWidth > _logicalHeight;
 
             string newSize = ComputeCaptureSize(landscape);
-            if (string.Equals(stream.Size, newSize, StringComparison.OrdinalIgnoreCase)) return;
-
             int index = IndexOfPreset(_presetLongSide);
-            LogToFile("分辨率切换为 " + newSize + "（" + (index >= 0 ? ResolutionPresets[index].Name : "自定义") + "）");
+            string name = index >= 0 ? ResolutionPresets[index].Name : "自定义";
+
+            if (string.Equals(stream.Size, newSize, StringComparison.OrdinalIgnoreCase))
+            {
+                // 档位变了但采集尺寸相同（设备长边本就是 1920 时，
+                // 「原始分辨率」与「1080P 高清」都得到同样的 max_size）。
+                // 仍需重建取流让这一档真正跑一遍：不兼容时 server 会再次报错，
+                // 才能依次向下找兼容；否则降级会卡在这一档，看起来像被越级跳过。
+                LogToFile("分辨率档位切换为 " + name + "（采集尺寸不变），重建取流以验证该档位");
+                stream.Restart();
+                return;
+            }
+
+            LogToFile("分辨率切换为 " + newSize + "（" + name + "）");
             stream.BitRate = SuggestBitRate(newSize);
             stream.Size = newSize;
             stream.Restart();
@@ -1177,53 +1334,28 @@ namespace AdbTools.RemoteControl
         /// </summary>
         private void DowngradeResolution(string reason)
         {
-            int index = IndexOfPreset(_presetLongSide);
-            if (index < 0 || index + 1 >= ResolutionPresets.Length)
+            // 基于菜单里实际存在的档位找下一档：启动裁剪可能已移除设备达不到的高档位，
+            // 不能再按静态数组 index+1 去找，否则找不到目标会卡住降级。
+            if (_resolutionBox == null) return;
+
+            int current = _resolutionBox.SelectedIndex;
+            if (current < 0) return;
+            if (current + 1 >= _resolutionBox.Items.Count)
             {
-                LogToFile(reason + "，但已是最低档：" + ResolutionPresets[ResolutionPresets.Length - 1].Name);
+                var lastPreset = _resolutionBox.Items[_resolutionBox.Items.Count - 1] as ResolutionPreset;
+                LogToFile(reason + "，但已是最低档：" + (lastPreset != null ? lastPreset.Name : "-"));
                 return;
             }
 
-            // 这一档已经被证明不可用：从菜单里去掉，用户也就选不到它了
-            MarkPresetUnavailable(index);
+            var currentPreset = _resolutionBox.Items[current] as ResolutionPreset;
+            var nextPreset = _resolutionBox.Items[current + 1] as ResolutionPreset;
+            if (nextPreset == null) return;
 
-            LogToFile(reason + "，分辨率降级为 " + ResolutionPresets[index + 1].Name);
-            SelectPresetByLongSide(ResolutionPresets[index + 1].LongSide);
-        }
-
-        /// <summary>把指定档位从下拉菜单中移除（已确认设备不支持）。</summary>
-        private void MarkPresetUnavailable(int index)
-        {
-            if (_failedPresets.Contains(index)) return;
-            _failedPresets.Add(index);
-
-            if (_resolutionBox == null) return;
-
-            ResolutionPreset target = null;
-            foreach (ResolutionPreset item in _resolutionBox.Items)
-            {
-                if (item.LongSide == ResolutionPresets[index].LongSide)
-                {
-                    target = item;
-                    break;
-                }
-            }
-            if (target != null) _resolutionBox.Items.Remove(target);
-        }
-
-        /// <summary>按长边像素切换下拉菜单的选中项（会触发 SelectionChanged 并重建取流）。</summary>
-        private void SelectPresetByLongSide(int longSide)
-        {
-            if (_resolutionBox == null) return;
-
-            foreach (ResolutionPreset item in _resolutionBox.Items)
-            {
-                if (item.LongSide == longSide)
-                {
-                    _resolutionBox.SelectedItem = item;
-                    return;
-                }
-            }
+            LogToFile(reason + "，分辨率降级为 " + nextPreset.Name);
+            // 一次只降一档，切过去重建取流真正验证；仍不兼容会再次收到信号继续往下降
+            _resolutionBox.SelectedItem = nextPreset;
+            // 切走后再移除旧档位，避免 ComboBox 自动改选造成一次无谓重启
+            if (currentPreset != null) _resolutionBox.Items.Remove(currentPreset);
         }
 
         private static int IndexOfPreset(int longSide)
@@ -1404,7 +1536,21 @@ namespace AdbTools.RemoteControl
                 + "），采集尺寸切换为 " + newSize);
             _autoFitted = false;
             _stream.Size = newSize;
-            _stream.Restart();
+
+            if (_stream is ScrcpyVideoStream)
+            {
+                // scrcpy server 自己跟随设备旋转改变输出尺寸，且 max_size 按长边计算、
+                // 横竖屏结果相同；重建只会造成几秒黑屏，还可能触发无谓的档位验证/降档。
+                LogToFile("scrcpy 取流由设备端自行跟随旋转，无需重建");
+            }
+            else
+            {
+                _stream.Restart();
+            }
+
+            // 主动补一次自适应：scrcpy 重启后可能仍输出同尺寸画面，
+            // 若不主动触发，_autoFitted 重置后就没有下一次尺寸变化来调用 AutoFitToPhone。
+            Dispatcher.BeginInvoke(new Action(UpdatePhoneFrame));
         }
 
         /// <summary>
@@ -1424,7 +1570,7 @@ namespace AdbTools.RemoteControl
             // 恢复后按新画面重新适配窗口
             _autoFitted = false;
 
-            AdbVideoStream stream = _stream;
+            IVideoStream stream = _stream;
             if (stream == null) return;
 
             string newSize = ComputeCaptureSize(width > height);
@@ -1454,10 +1600,10 @@ namespace AdbTools.RemoteControl
                 || output.IndexOf("mWakefulness=Dozing", StringComparison.OrdinalIgnoreCase) >= 0;
 
             // 只有真正熄屏（Asleep/Dozing）才暂停取流：此时 screenrecord 会直接退出，
-            // 不暂停就会陷入“取流结束 → 准备重连”的无限循环；
+            // 不暂停就会陷入"取流结束 → 准备重连"的无限循环；
             // 锁屏但屏幕仍亮时必须继续取流，否则远程看不到锁屏界面、也就无法滑动解锁。
             bool paused = screenOff;
-            AdbVideoStream stream = _stream;
+            IVideoStream stream = _stream;
             if (stream != null)
             {
                 // 锁屏静态界面长时间不产帧，同样不该被看门狗判为断流
@@ -1466,10 +1612,10 @@ namespace AdbTools.RemoteControl
                 {
                     if (paused)
                     {
-                        // 先置暂停再结束片段，避免被打断时提示“准备重连”
+                        // 先置暂停再结束片段，避免被打断时提示"准备重连"
                         stream.Paused = true;
                         stream.Restart();
-                        // 清空画面：否则留下的最后一帧会让“已息屏”提示完全看不清
+                        // 清空画面：否则留下的最后一帧会让"已息屏"提示完全看不清
                         Dispatcher.BeginInvoke(new Action(ClearDisplayedFrame));
                     }
                     else
@@ -1908,17 +2054,80 @@ namespace AdbTools.RemoteControl
             return true;
         }
 
-        private void Window_Closed(object sender, EventArgs e)
+        /// <summary>
+        /// 关闭时先取消关闭，用中央卡片提示；等后台清理完成后再放行真正关闭。
+        /// 清理会启动多个 adb 进程并等待取流线程退出，全部放在后台线程，
+        /// 主界面与远程控制窗口共用同一个 Dispatcher，因此不会短暂无响应。
+        /// </summary>
+        private void Window_Closing(object sender, CancelEventArgs e)
         {
+            if (_cleanupDone) return;
+            e.Cancel = true;
+            if (_closing) return;   // 清理进行中，继续显示卡片
+
+            _closing = true;
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
-            try { if (_stream != null) _stream.Stop(); } catch { }
-            try { if (_stream != null) _stream.ReleaseDevice(); } catch { }
-            try { if (_pumpThread != null) _pumpThread.Join(1000); } catch { }
-            try { if (_injector != null) _injector.Dispose(); } catch { }
-            try { if (_decoder != null) _decoder.Dispose(); } catch { }
-            try { MfInterop.Shutdown(); } catch { }
-            RestoreDeviceState();
+
+            ShowClosingNotice("正在关闭远程控制", "正在停止取流并释放解码资源…");
+
+            // 兜底：清理异常卡住时也要让用户能关掉窗口
+            _closeGuard = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            _closeGuard.Tick += (s, ev) => { _closeGuard.Stop(); FinishClose(); };
+            _closeGuard.Start();
+
+            IVideoStream stream = _stream;
+            H264DecoderMft decoder = _decoder;
+            Thread pump = _pumpThread;
+            InputInjector injector = _injector;
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { if (stream != null) stream.Stop(); } catch { }
+                try { if (pump != null) pump.Join(1500); } catch { }
+                try { if (decoder != null) decoder.Dispose(); } catch { }
+                try { MfInterop.Shutdown(); } catch { }
+
+                ShowClosingNotice("正在关闭远程控制", "正在清理设备端服务与转发…");
+                try { if (stream != null) stream.ReleaseDevice(); } catch { }
+                try { if (stream != null) stream.Dispose(); } catch { }
+                try { if (injector != null) injector.Dispose(); } catch { }
+                try { RestoreDeviceState(); } catch { }
+
+                ShowClosingNotice("清理完成", "窗口即将关闭…");
+                Thread.Sleep(300);
+                Dispatcher.BeginInvoke(new Action(FinishClose));
+            });
+        }
+
+        /// <summary>更新关闭过程的中央卡片（可从后台线程调用）。</summary>
+        private void ShowClosingNotice(string title, string detail)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_closing) return;
+                _startupTitle.Text = title;
+                _startupSteps.Text = detail;
+                _startupPanel.Visibility = Visibility.Visible;
+                _phoneFrame.Visibility = Visibility.Visible;
+            }));
+        }
+
+        /// <summary>清理完成（或超时）后放行关闭，幂等。</summary>
+        private void FinishClose()
+        {
+            if (_cleanupDone) return;
+            _cleanupDone = true;
+            if (_closeGuard != null) { try { _closeGuard.Stop(); } catch { } }
+            try { Close(); } catch { }
+        }
+
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            // 资源清理已在 Window_Closing 的后台流程中完成，这里只做轻量收尾
+            try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
+            try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
+            try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
         }
     }
 }

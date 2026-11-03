@@ -83,6 +83,15 @@ foreach ($p in $patterns) {
     }
 }
 if ($count -eq 0) { throw ("No *.exe / *.dll found in " + $SRC + "; nothing to package.") }
+
+# 2.0) Copy bundled resources (not exe/dll): scrcpy server, its license, and this project's own license.
+$extraFiles = @("scrcpy-server", "scrcpy-LICENSE.txt", "THIRD_PARTY_NOTICES.txt", "LICENSE.txt")
+foreach ($extra in $extraFiles) {
+    $srcFile = Join-Path $SRC $extra
+    if (-not (Test-Path $srcFile)) { throw ("Missing bundled file: " + $srcFile) }
+    Copy-Item $srcFile (Join-Path $STAGE $extra) -Force
+    Write-Host ("Staged bundled file -> " + $extra)
+}
 Write-Host ("Staged " + $count + " files -> " + $STAGE)
 
 # 2.1) 把独立卸载器作为 uninstall.exe 打包（安装时释放到安装目录，避免复制整个安装器）

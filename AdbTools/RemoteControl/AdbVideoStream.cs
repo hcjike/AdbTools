@@ -12,7 +12,7 @@ namespace AdbTools.RemoteControl
     /// 通过 `adb exec-out screenrecord --output-format=h264 -` 持续取流。
     /// screenrecord 单次最长 180 秒，到点退出后自动重启，保证长时间可用。
     /// </summary>
-    internal sealed class AdbVideoStream : IDisposable
+    internal sealed class AdbVideoStream : IVideoStream
     {
         private readonly string _adbPath;
         private readonly string _serial;
@@ -43,13 +43,27 @@ namespace AdbTools.RemoteControl
         /// 暂停看门狗的“无数据”判定：设备锁屏/息屏时本来就几乎不产帧，
         /// 此时不应反复重连（否则日志刷屏且白白占用编码器）。
         /// </summary>
-        public volatile bool SuppressWatchdog;
+        private volatile bool _suppressWatchdog;
+
+        /// <summary>暂停看门狗的“无数据”判定（实现 IVideoStream）。</summary>
+        public bool SuppressWatchdog
+        {
+            get { return _suppressWatchdog; }
+            set { _suppressWatchdog = value; }
+        }
 
         /// <summary>
         /// 暂停取流：设备锁屏/息屏期间 screenrecord 往往直接退出，
         /// 置为 true 后不再重启片段，等方法结束或设备唤醒后继续。
         /// </summary>
-        public volatile bool Paused;
+        private volatile bool _paused;
+
+        /// <summary>暂停/恢复取流（实现 IVideoStream）。</summary>
+        public bool Paused
+        {
+            get { return _paused; }
+            set { _paused = value; }
+        }
 
         /// <summary>码率（bps），切换分辨率时同步调整，下一次片段生效。</summary>
         public int BitRate
@@ -111,7 +125,7 @@ namespace AdbTools.RemoteControl
             while (!_stopped)
             {
                 // 锁屏/息屏期间不重启片段：避免“取流结束→准备重连”无限循环
-                if (Paused)
+                if (_paused)
                 {
                     Thread.Sleep(200);
                     continue;
@@ -159,7 +173,7 @@ namespace AdbTools.RemoteControl
                             int timeout = Volatile.Read(ref receivedFlag) == 0
                                 ? (SegmentCount <= 1 ? 8000 : 4000)
                                 : 60000;
-                            if (SuppressWatchdog)
+                            if (_suppressWatchdog)
                             {
                                 // 设备锁屏/息屏期间不判超时，避免无意义的重连
                                 Interlocked.Exchange(ref lastDataTick[0], Environment.TickCount);
@@ -191,7 +205,7 @@ namespace AdbTools.RemoteControl
                     }
 
                     // 锁屏/息屏暂停导致的中断不提示“准备重连”
-                    if (!_stopped && !Paused)
+                    if (!_stopped && !_paused)
                     {
                         // 正常码流一秒就有几十 KB；只有几十字节说明 screenrecord 直接报错退出
                         // （尺寸不支持/编码器不可用），明确报“取流失败”供上层降档
