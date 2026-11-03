@@ -1,5 +1,12 @@
-AdbTools 第三方组件声明
-========================
+AdbTools 许可与第三方组件声明
+==============================
+
+本项目
+------
+名称      : AdbTools（Adb连接工具）
+许可      : Apache License 2.0（全文见同目录 LICENSE.txt）
+版权      : Copyright 2025 宏尘 / Copyright © 宏尘 (www.hcjike.com)
+项目地址  : https://github.com/hcjike/AdbTools
 
 scrcpy (server)
 ---------------

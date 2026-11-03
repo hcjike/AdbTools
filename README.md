@@ -45,7 +45,7 @@
 
 - 需要 `.NET Framework 4.6` 运行时；
 - `64 位 Windows` 系统；
-- 程序已内置 `adb.exe` 及依赖（`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`QRCoder.dll`）、远程控制所需的 `scrcpy-server` 与授权文件（`scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt`），**无需电脑另行安装 ADB、scrcpy 或 VC++ 运行库**，Windows 10/11 开箱即用。adb 命令会自动拉起自带服务，不依赖系统中已存在的 adb 服务（Win7/8/8.1 需系统已安装 Universal C Runtime 更新）；
+- 程序已内置 `adb.exe` 及依赖（`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`QRCoder.dll`）、远程控制所需的 `scrcpy-server` 与授权文件（`scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt`），以及本项目许可证 `LICENSE.txt`，**无需电脑另行安装 ADB、scrcpy 或 VC++ 运行库**，Windows 10/11 开箱即用。adb 命令会自动拉起自带服务，不依赖系统中已存在的 adb 服务（Win7/8/8.1 需系统已安装 Universal C Runtime 更新）；
 - 远程控制要求设备允许 `adb shell` 以 shell 身份启动 `app_process`（部分深度定制的 TV ROM 会限制）；不满足时会自动回退到 `adb screenrecord`，功能仍可用但流畅度会下降。
 
 ## 连接准备
@@ -85,7 +85,8 @@
 | `AdbTools.exe`、`QRCoder.dll` | 主程序与扫码配对 |
 | `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll` | ADB 及 USB 依赖 |
 | `scrcpy-server` | 远程控制的设备端取流服务（运行时推送到设备 `/data/local/tmp/`） |
-| `scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` | 第三方许可证全文与版本/来源声明 |
+| `scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` | 第三方许可证全文与许可/组件声明 |
+| `LICENSE.txt` | 本项目 Apache-2.0 许可证全文（含版权声明） |
 | `uninstall.exe` | 卸载程序 |
 
 安装时会额外写入 `install.manifest` 记录本次释放的文件清单，卸载时按清单精确删除，不会误删目录内的其他文件。
@@ -197,9 +198,11 @@
 
 ## 第三方组件
 
-远程控制的视频取流使用 **scrcpy 5.0.1** 的设备端组件 `scrcpy-server`（[项目地址](https://github.com/Genymobile/scrcpy)），采用 **Apache License 2.0** 授权：
+本项目 AdbTools 采用 **Apache License 2.0**，版权所有 `Copyright 2025 宏尘`；许可证全文随安装包分发为 `LICENSE.txt`（源文件为仓库根目录的 `LICENSE`）。
 
-- 随程序附带的 `scrcpy-LICENSE.txt` 为许可证全文，`THIRD_PARTY_NOTICES.txt` 记录版本、来源、版权人、SHA-256 与用途说明；
+远程控制的视频取流使用 **scrcpy 5.0.1** 的设备端组件 `scrcpy-server`（[项目地址](https://github.com/Genymobile/scrcpy)），同样采用 **Apache License 2.0** 授权：
+
+- 随程序附带的 `scrcpy-LICENSE.txt` 为 scrcpy 许可证全文，`THIRD_PARTY_NOTICES.txt` 记录本项目许可与第三方组件的版本、来源、版权人、SHA-256 与用途说明；
 - 仅使用设备端 server（运行时推送到设备 `/data/local/tmp/` 并以 `app_process` 启动），未使用 PC 端 `scrcpy.exe`、SDL 与 FFmpeg 组件；它不修改设备系统分区，卸载本程序不影响设备；
 - 设备不支持 `app_process` 时，程序会自动回退到 `adb screenrecord` 取流；
 - 以上文件均随安装包分发，清单见[安装和使用](#安装和使用)。

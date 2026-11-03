@@ -38,6 +38,8 @@ namespace AdbToolsInstaller
             "scrcpy-server",
             "scrcpy-LICENSE.txt",
             "THIRD_PARTY_NOTICES.txt",
+            // 本项目许可证全文（Apache-2.0，含版权声明）
+            "LICENSE.txt",
             UninstallExeName,
             ManifestFileName
         };

@@ -278,6 +278,12 @@
     <Content Include="THIRD_PARTY_NOTICES.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- 本项目许可证全文（Apache-2.0，末尾含 Copyright 2025 宏尘 版权声明），随程序一起发布。
+         源为解决方案根目录的 LICENSE，用 Link 指定输出名，避免在程序目录里再放一份副本 -->
+    <Content Include="..\LICENSE">
+      <Link>LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Resource Include="resource\imgs\new_version.png" />
     <Resource Include="icon.ico" />
   </ItemGroup>

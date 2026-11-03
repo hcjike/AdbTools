@@ -84,8 +84,8 @@ foreach ($p in $patterns) {
 }
 if ($count -eq 0) { throw ("No *.exe / *.dll found in " + $SRC + "; nothing to package.") }
 
-# 2.0) Copy bundled third-party resources (not exe/dll): scrcpy server and licenses.
-$extraFiles = @("scrcpy-server", "scrcpy-LICENSE.txt", "THIRD_PARTY_NOTICES.txt")
+# 2.0) Copy bundled resources (not exe/dll): scrcpy server, its license, and this project's own license.
+$extraFiles = @("scrcpy-server", "scrcpy-LICENSE.txt", "THIRD_PARTY_NOTICES.txt", "LICENSE.txt")
 foreach ($extra in $extraFiles) {
     $srcFile = Join-Path $SRC $extra
     if (-not (Test-Path $srcFile)) { throw ("Missing bundled file: " + $srcFile) }
