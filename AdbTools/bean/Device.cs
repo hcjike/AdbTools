@@ -21,6 +21,9 @@ namespace AdbTools.bean
 
         public string ShowDeviceName { get; set; }
 
+        /// <summary>adb -s 参数用的、带双引号的序列号，避免序列号含空格（mDNS/TLS 设备）时命令被截断。</summary>
+        public string SerialArg => AdbTools.Globals.QuoteSerial(DeviceMark);
+
         public string ConnectWay { get; set; }
 
         public Brush ConnectWayColor { get; set; }
@@ -55,7 +58,7 @@ namespace AdbTools.bean
         /// </summary>
         private void QueryProp(string prop, Action<string> setter)
         {
-            CmdExecutor.ExecuteCommandAndReturnAsync($"{MainWindow.adbPath} -s {DeviceMark} shell getprop {prop}", result =>
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{MainWindow.adbPath} -s {SerialArg} shell getprop {prop}", result =>
             {
                 // 回调已在UI线程，可直接更新；解析失败时保留原值，避免名字被清空
                 string value = ParsePropValue(result, prop);

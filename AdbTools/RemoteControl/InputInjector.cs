@@ -68,7 +68,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell getprop ro.build.version.sdk")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell getprop ro.build.version.sdk")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

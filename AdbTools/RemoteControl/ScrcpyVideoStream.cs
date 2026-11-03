@@ -393,7 +393,7 @@ namespace AdbTools.RemoteControl
 
             int maxSize = MaxSide();
             var sb = new StringBuilder();
-            sb.Append("-s ").Append(_serial).Append(" shell \"CLASSPATH=").Append(DeviceServerPath);
+            sb.Append("-s ").Append(AdbTools.Globals.QuoteSerial(_serial)).Append(" shell \"CLASSPATH=").Append(DeviceServerPath);
             sb.Append(" app_process / com.genymobile.scrcpy.Server ").Append(ServerVersion);
             sb.Append(" scid=").Append(_scid.ToString("x8", CultureInfo.InvariantCulture));
             sb.Append(" log_level=info tunnel_forward=true audio=false control=");
@@ -702,7 +702,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " " + adbArgs)
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " " + adbArgs)
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

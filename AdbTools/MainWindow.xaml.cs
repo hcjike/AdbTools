@@ -248,13 +248,27 @@ namespace AdbTools
 
             foreach (string line in content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
-                if (!line.EndsWith("device"))
+                string trimmed = line.TrimEnd();
+                if (!trimmed.EndsWith("device"))
                 {
                     // 跳过 unauthorized、offline 等非就绪状态及cmd回显行
                     continue;
                 }
 
-                string address = line.Replace("device", "").Trim();
+                // 序列号与状态之间用 tab 分隔（adb devices 默认格式）；
+                // 个别 adb 版本用空格分隔时，按行尾状态词 "device" 截取。
+                // 序列号本身可能含空格（mDNS/TLS 连接名），必须用 tab 或尾部截取，
+                // 不能用 Replace("device","")，否则会误删序列号内的 device 子串。
+                string address;
+                int tab = trimmed.LastIndexOf('\t');
+                if (tab >= 0)
+                {
+                    address = trimmed.Substring(0, tab).Trim();
+                }
+                else
+                {
+                    address = trimmed.Substring(0, Math.Max(0, trimmed.Length - "device".Length)).Trim();
+                }
                 deviceMarks.Add(address);
 
                 Device exist = deviceAddressList.FirstOrDefault(o => o.DeviceMark == address);
@@ -414,7 +428,7 @@ namespace AdbTools
 
             string adbExe = adbPath.Trim('"');
 
-            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} -s {deviceMark} shell getprop ro.build.version.sdk", result =>
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} -s {Globals.QuoteSerial(deviceMark)} shell getprop ro.build.version.sdk", result =>
             {
                 int sdk = ParseSdkVersion(result);
                 if (sdk > 0 && sdk < 24)
@@ -468,7 +482,7 @@ namespace AdbTools
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} disconnect {device.DeviceMark}", result =>
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} disconnect {device.SerialArg}", result =>
             {
                 Timer_Tick(null, null);
                 waitAnimation(false);
@@ -571,17 +585,17 @@ namespace AdbTools
 
         private void resetPortItem_Click(object sender, RoutedEventArgs e)
         {
-            ExecuteDeviceSetting("恢复默认TCP端口(5555)", d => $"{adbPath} -s {d.DeviceMark} tcpip 5555", "检查设备是否已离线。");
+            ExecuteDeviceSetting("恢复默认TCP端口(5555)", d => $"{adbPath} -s {d.SerialArg} tcpip 5555", "检查设备是否已离线。");
         }
 
         private void resetPXItem_Click(object sender, RoutedEventArgs e)
         {
-            ExecuteDeviceSetting("恢复默认分辨率", d => $"{adbPath} -s {d.DeviceMark} shell wm size reset", "检查设备是否已离线。");
+            ExecuteDeviceSetting("恢复默认分辨率", d => $"{adbPath} -s {d.SerialArg} shell wm size reset", "检查设备是否已离线。");
         }
 
         private void resetDPIItem_Click(object sender, RoutedEventArgs e)
         {
-            ExecuteDeviceSetting("恢复默认DPI", d => $"{adbPath} -s {d.DeviceMark} shell wm density reset", "检查设备是否已离线。");
+            ExecuteDeviceSetting("恢复默认DPI", d => $"{adbPath} -s {d.SerialArg} shell wm density reset", "检查设备是否已离线。");
         }
 
         private void logcatItem_Click(object sender, RoutedEventArgs e)
@@ -591,7 +605,7 @@ namespace AdbTools
             {
                 return;
             }
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} logcat");
+            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} logcat");
         }
 
         private void logcatDebugItem_Click(object sender, RoutedEventArgs e)
@@ -601,7 +615,7 @@ namespace AdbTools
             {
                 return;
             }
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} logcat -s DEBUG");
+            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} logcat -s DEBUG");
         }
 
         private void openShell_Click(object sender, RoutedEventArgs e)
@@ -611,7 +625,7 @@ namespace AdbTools
             {
                 return;
             }
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.DeviceMark} shell ");
+            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} shell ");
         }
 
         #region 《版本更新》
@@ -945,7 +959,7 @@ namespace AdbTools
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.DeviceMark} shell {pmCommand} {package}" },
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.SerialArg} shell {pmCommand} {package}" },
                 result =>
                 {
                     waitAnimation(false);
@@ -987,7 +1001,7 @@ namespace AdbTools
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.DeviceMark} shell pm list packages {arguments}".TrimEnd() }, result =>
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.SerialArg} shell pm list packages {arguments}".TrimEnd() }, result =>
             {
                 List<string> packages = ParsePackageList(result);
                 waitAnimation(false);
@@ -1187,7 +1201,7 @@ namespace AdbTools
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {targetDevice.DeviceMark} install \"{apkFilePath}\"" },
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {targetDevice.SerialArg} install \"{apkFilePath}\"" },
                 result =>
                 {
                     waitAnimation(false);
