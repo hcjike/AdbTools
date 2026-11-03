@@ -199,6 +199,19 @@ namespace AdbTools.RemoteControl
         private int _frameWidth;
         private int _frameHeight;
 
+        /// <summary>视频帧的可见尺寸（= 服务端 videoSize），控制通道注入触摸时作为坐标系。</summary>
+        private int _videoWidth;
+        private int _videoHeight;
+
+        /// <summary>本次拖拽是否已走实时触摸通道（按下注入成功后才为 true）。</summary>
+        private bool _liveTouch;
+
+        /// <summary>是否已记录过"实时触摸已启用"，避免每次点击都写日志。</summary>
+        private bool _liveTouchLogged;
+
+        /// <summary>上一条 MOVE 的发送时刻（Stopwatch 计数），用于限频。</summary>
+        private long _lastTouchTick;
+
         private int _decodedFrames;
         private int _lastDecodedFrames;
 
@@ -244,6 +257,14 @@ namespace AdbTools.RemoteControl
         private bool _moved;
         private Point _startPoint;
         private Point _lastPoint;
+
+        /// <summary>拖动中最近一次的视频帧坐标（控制通道使用，天然跟随旋转与缩放）。</summary>
+        private Point _lastVideoPoint;
+
+        /// <summary>滚轮累积量与触发位置，用于把高频滚轮事件合并成一次滑动。</summary>
+        private double _wheelAccum;
+        private Point _wheelPoint;
+        private DispatcherTimer _wheelTimer;
         private DateTime _dragStartTime = DateTime.UtcNow;
 
         /// <summary>设备物理分辨率（输入注入使用物理像素，而视频流是缩放后的尺寸）。</summary>
@@ -421,9 +442,9 @@ namespace AdbTools.RemoteControl
                 Background = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0x4A, 0x4A, 0x55))
             });
-            navBar.Children.Add(CreateNavButton("音量+ 长按连发", 24, CreateVolumeIcon(true), repeatOnHold: true));
-            navBar.Children.Add(CreateNavButton("音量- 长按连发", 25, CreateVolumeIcon(false), repeatOnHold: true));
-            navBar.Children.Add(CreateNavButton("电源 短按亮灭屏 / 长按 3 秒", 26,
+            navBar.Children.Add(CreateNavButton("音量+ 按住持续增大", 24, CreateVolumeIcon(true), repeatOnHold: true));
+            navBar.Children.Add(CreateNavButton("音量- 按住持续减小", 25, CreateVolumeIcon(false), repeatOnHold: true));
+            navBar.Children.Add(CreateNavButton("电源 短按亮灭屏 / 长按（松开即触发）", 26,
                 CreatePowerIcon(), longPressOnHold: true));
             Grid.SetRow(navBar, 2);
             root.Children.Add(navBar);
@@ -707,6 +728,17 @@ namespace AdbTools.RemoteControl
             {
                 QueryPhysicalSize();
                 try { _injector = new InputInjector(_adbPath, _serial); } catch { }
+
+                InputInjector injector = _injector;
+                if (injector != null)
+                {
+                    // 绑定控制通道与坐标系：之后按下/移动可直接注入，不必等抬手补一次 swipe
+                    injector.Control = _stream as ScrcpyVideoStream;
+                    injector.DeviceWidth = _deviceWidth;
+                    injector.DeviceHeight = _deviceHeight;
+                    injector.VideoWidth = _videoWidth;
+                    injector.VideoHeight = _videoHeight;
+                }
             });
         }
 
@@ -744,6 +776,17 @@ namespace AdbTools.RemoteControl
                 _frameHeight = height;
                 _framePending = true;
                 Interlocked.Exchange(ref _decodedAtTicks, DateTime.UtcNow.Ticks);
+            }
+
+            // 触摸事件必须使用视频帧坐标系（服务端 videoSize，实测等于裁剪后的可见尺寸），
+            // 首帧与旋转后都要同步给注入器。传 coded 尺寸（含 16 像素补边）会被服务端直接丢弃。
+            _videoWidth = width;
+            _videoHeight = height;
+            InputInjector injector = _injector;
+            if (injector != null)
+            {
+                injector.VideoWidth = width;
+                injector.VideoHeight = height;
             }
 
             // 只在没有待渲染任务时排一次渲染：渲染跟不上时自动丢中间帧，
@@ -931,31 +974,57 @@ namespace AdbTools.RemoteControl
             _textSink.Focus();
             // 用户刚旋转完设备往往会马上点一下，此时加密方向检测
             RequestOrientationCheck();
-            int x, y;
-            if (!TryMapToDevice(e.GetPosition(_image), out x, out y)) return;
+            int x, y, vx, vy;
+            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy)) return;
 
             _dragging = true;
             _moved = false;
             _startPoint = new Point(x, y);
             _lastPoint = _startPoint;
+            _lastVideoPoint = new Point(vx, vy);
             _dragStartTime = DateTime.UtcNow;
             _image.CaptureMouse();
 
-            // 注意：`input motionevent` 每条命令都要起一次 Java 进程（约 150~300ms），
-            // 无法支撑实时拖动，因此只记录起点，抬起时用一次 tap / swipe 完成注入。
+            // 控制通道可用时按下就真实注入 DOWN，拖动过程中逐条发 MOVE，画面能实时跟随；
+            // 否则保持原逻辑：只记起点，抬起时用一次 tap / swipe 完成
+            // （`input motionevent` 每条都要起一次 Java 进程，无法支撑实时拖动）。
+            InputInjector injector = _injector;
+            _liveTouch = injector != null && injector.SupportsLiveTouch && injector.TouchDown(vx, vy);
+            _lastTouchTick = Stopwatch.GetTimestamp();
+
+            if (_liveTouch && !_liveTouchLogged)
+            {
+                _liveTouchLogged = true;
+                LogToFile(string.Format("实时触摸已启用：视频坐标系 {0}x{1}，设备 {2}x{3}",
+                    _videoWidth, _videoHeight, _deviceWidth, _deviceHeight));
+            }
         }
 
         private void Image_MouseMove(object sender, MouseEventArgs e)
         {
             if (!_dragging) return;
 
-            int x, y;
-            if (!TryMapToDevice(e.GetPosition(_image), out x, out y)) return;
+            int x, y, vx, vy;
+            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy)) return;
 
             _lastPoint = new Point(x, y);
+            _lastVideoPoint = new Point(vx, vy);
             if (!_moved && (Math.Abs(x - _startPoint.X) > 6 || Math.Abs(y - _startPoint.Y) > 6))
             {
                 _moved = true;
+            }
+
+            if (_liveTouch)
+            {
+                // 约 8ms 一条：控制通道是本地 TCP 写入，不会排队；
+                // 限频只是避免高回报率鼠标把设备端输入队列打满。
+                long now = Stopwatch.GetTimestamp();
+                if ((now - _lastTouchTick) * 1000.0 / Stopwatch.Frequency >= 8.0)
+                {
+                    _lastTouchTick = now;
+                    InputInjector injector = _injector;
+                    if (injector == null || !injector.TouchMove(vx, vy)) _liveTouch = false;
+                }
             }
         }
 
@@ -965,14 +1034,29 @@ namespace AdbTools.RemoteControl
             _dragging = false;
             _image.ReleaseMouseCapture();
 
-            int x, y;
-            if (!TryMapToDevice(e.GetPosition(_image), out x, out y))
+            int x, y, vx, vy;
+            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy))
             {
                 x = (int)_lastPoint.X;
                 y = (int)_lastPoint.Y;
+                vx = (int)_lastVideoPoint.X;
+                vy = (int)_lastVideoPoint.Y;
             }
 
             if (_injector == null) return;
+
+            // 拖拽期间已实时注入过，抬手只补一条 UP 即可，不能再重复整段 swipe
+            if (_liveTouch)
+            {
+                _liveTouch = false;
+                if (_injector.TouchUp(vx, vy))
+                {
+                    _lastInject = _moved
+                        ? string.Format("touch {0},{1} -> {2},{3}", (int)_startPoint.X, (int)_startPoint.Y, x, y)
+                        : string.Format("tap {0},{1}", (int)_startPoint.X, (int)_startPoint.Y);
+                    return;
+                }
+            }
 
             if (_moved)
             {
@@ -990,21 +1074,57 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>滚轮：在鼠标位置做一次短距离上下滑动。</summary>
+        /// <summary>滚轮：合并高频事件后，在鼠标位置做一次短距离上下滑动。</summary>
         private void Image_MouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (_injector == null) return;
 
-            int x, y;
-            if (!TryMapToDevice(e.GetPosition(_image), out x, out y)) return;
+            int x, y, vx, vy;
+            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy)) return;
 
-            int distance = (int)Math.Max(120, Math.Min(600, Math.Abs(e.Delta) * 1.5));
-            int from = e.Delta > 0 ? y + distance / 2 : y - distance / 2;
-            int to = e.Delta > 0 ? y - distance / 2 : y + distance / 2;
+            // 触摸板/高分辨率滚轮会连续产生很多小 delta，逐个下发会让 adb 命令排队，
+            // 表现为"滚一次执行很多次、停手后还在继续"。这里按 50ms 合并成一次滑动。
+            _wheelPoint = new Point(x, y);
+            _wheelAccum += e.Delta;
+
+            if (_wheelTimer == null)
+            {
+                _wheelTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+                _wheelTimer.Tick += (s, args) => FlushWheel();
+            }
+            _wheelTimer.Stop();
+            _wheelTimer.Start();
+        }
+
+        /// <summary>把这一轮累积的滚轮量换算成一次滑动。</summary>
+        private void FlushWheel()
+        {
+            DispatcherTimer timer = _wheelTimer;
+            if (timer != null)
+            {
+                timer.Stop();
+                _wheelTimer = null;
+            }
+
+            double delta = _wheelAccum;
+            _wheelAccum = 0;
+            if (Math.Abs(delta) < 1) return;
+
+            InputInjector injector = _injector;
+            if (injector == null) return;
+
+            int x = (int)_wheelPoint.X;
+            int y = (int)_wheelPoint.Y;
+
+            // 累积量越大滑得越远，限制在合理区间，避免一次滚动直接跳屏。
+            // 滚轮向上（delta > 0）表示查看更上面的内容 = 手指向下滑，因此起点在上。
+            int distance = (int)Math.Max(120, Math.Min(600, Math.Abs(delta) * 1.5));
+            int from = delta > 0 ? y - distance / 2 : y + distance / 2;
+            int to = delta > 0 ? y + distance / 2 : y - distance / 2;
 
             from = Clamp(from, 0, Math.Max(0, _deviceHeight - 1));
             to = Clamp(to, 0, Math.Max(0, _deviceHeight - 1));
-            _injector.Swipe(x, from, x, to, 200);
+            injector.Swipe(x, from, x, to, 200);
         }
 
         private static int Clamp(int value, int min, int max)
@@ -1053,6 +1173,14 @@ namespace AdbTools.RemoteControl
                                 _deviceHeight = h;
                                 // 拿到真实分辨率后，把设备根本达不到的高档位从菜单移除
                                 TrimUnreachablePresets();
+
+                                // 物理坐标系的尺寸变了（如旋转），同步给注入器用于换算
+                                InputInjector injector = _injector;
+                                if (injector != null)
+                                {
+                                    injector.DeviceWidth = w;
+                                    injector.DeviceHeight = h;
+                                }
                             }
                         }
                     }
@@ -1782,8 +1910,9 @@ namespace AdbTools.RemoteControl
 
         /// <summary>
         /// 创建虚拟导航按键（图标 + 注入 keyevent）。
-        /// repeatOnHold：按住时连发（音量键，等效真实长按快速调节）；
-        /// longPressOnHold：按住超过 0.5 秒用 --longpress 注入（电源键）。
+        /// repeatOnHold：按住时每 180ms 重发一次完整按键（音量键，松开即停、不限次数）；
+        /// longPressOnHold：松开时按按住时长决定短按 / --longpress（电源键）。
+        /// 实测设备不会响应"只按下不抬起"的注入事件，因此重复必须每次发完整按键。
         /// </summary>
         private Button CreateNavButton(string tip, int keyCode, FrameworkElement icon,
             bool repeatOnHold = false, bool longPressOnHold = false)
@@ -1813,7 +1942,6 @@ namespace AdbTools.RemoteControl
             if (repeatOnHold || longPressOnHold)
             {
                 DispatcherTimer holdTimer = null;
-                int heldTicks = 0;
                 DateTime pressStarted = DateTime.MinValue;
                 DateTime lastReleaseAt = DateTime.MinValue;
 
@@ -1822,19 +1950,11 @@ namespace AdbTools.RemoteControl
                     pressStarted = DateTime.UtcNow;
                     if (!repeatOnHold) return;
 
+                    // 音量：按下立即调一次，之后每 180ms 重复，松开即停（不限次数）。
+                    // 实测注入"只按下不抬起"的设备不会响应，必须每次发完整按键事件。
                     InjectNavKey(keyCode);
-                    heldTicks = 0;
-                    // 250ms 一次：单条 `input keyevent` 在设备上约 100~150ms，
-                    // 间隔太密会在 shell 里排队，松手后还在继续调音量
-                    holdTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-                    holdTimer.Tick += (s2, e2) =>
-                    {
-                        // 前 2 个 tick（约 500ms）不发，避免单击时重复触发
-                        if (++heldTicks <= 2) return;
-                        // 最多连发 12 次（约 3 秒），防止一直按住时音量一直跑到头
-                        if (heldTicks > 14) return;
-                        InjectNavKey(keyCode);
-                    };
+                    holdTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+                    holdTimer.Tick += (s2, e2) => InjectNavKey(keyCode);
                     holdTimer.Start();
                 };
 
@@ -1849,8 +1969,9 @@ namespace AdbTools.RemoteControl
                     }
                 };
 
-                // 鼠标移出按钮时也停止连发，避免拖走后还在响
+                // 鼠标移出/失去捕获时停止连发，避免拖走后还在响
                 button.MouseLeave += (s, e) => StopHoldTimer(ref holdTimer);
+                button.LostMouseCapture += (s, e) => StopHoldTimer(ref holdTimer);
 
                 // 键盘/自动化触发（没有鼠标按下事件）时补一次单击；
                 // 鼠标点击后紧跟的 Click 要跳过，否则长按松手会多注入一次
@@ -2013,11 +2134,18 @@ namespace AdbTools.RemoteControl
             };
         }
 
-        /// <summary>把窗口内坐标换算成设备像素坐标（按等比缩放后的实际显示区域）。</summary>
-        private bool TryMapToDevice(Point point, out int deviceX, out int deviceY)
+        /// <summary>
+        /// 把窗口内坐标换算成注入坐标（按等比缩放后的实际显示区域）。
+        /// videoX/videoY 是视频帧坐标，控制通道直接使用——它天然跟随旋转与缩放，无需再换算；
+        /// deviceX/deviceY 是当前方向下的设备像素坐标，供 adb shell 回退路径使用。
+        /// </summary>
+        private bool TryMapToDevice(Point point, out int deviceX, out int deviceY,
+            out int videoX, out int videoY)
         {
             deviceX = 0;
             deviceY = 0;
+            videoX = 0;
+            videoY = 0;
             if (_bitmap == null) return false;
 
             double viewWidth = _image.ActualWidth;
@@ -2036,11 +2164,15 @@ namespace AdbTools.RemoteControl
             double py = (point.Y - offsetY) / scale;
             if (px < 0 || py < 0 || px >= bitmapWidth || py >= bitmapHeight) return false;
 
+            // 画面像素位置就是服务端 videoSize 坐标系下的坐标
+            videoX = (int)px;
+            videoY = (int)py;
+
             // 视频流是缩放后的尺寸（如 720x1280），而 input 注入必须使用设备物理像素（如 1312x2848）
             if (_deviceWidth <= 0 || _deviceHeight <= 0)
             {
-                deviceX = (int)px;
-                deviceY = (int)py;
+                deviceX = videoX;
+                deviceY = videoY;
                 return true;
             }
 
@@ -2068,6 +2200,7 @@ namespace AdbTools.RemoteControl
             _closing = true;
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
+            try { if (_wheelTimer != null) _wheelTimer.Stop(); } catch { }
 
             ShowClosingNotice("正在关闭远程控制", "正在停止取流并释放解码资源…");
 
@@ -2128,6 +2261,7 @@ namespace AdbTools.RemoteControl
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
             try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
+            try { if (_wheelTimer != null) _wheelTimer.Stop(); } catch { }
         }
     }
 }

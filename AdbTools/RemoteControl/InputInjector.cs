@@ -27,6 +27,34 @@ namespace AdbTools.RemoteControl
         /// <summary>设备是否支持 `input motionevent`（Android 11 / SDK 30 及以上）。</summary>
         public bool SupportsMotionEvent { get; private set; }
 
+        /// <summary>
+        /// 可选的 scrcpy 控制通道。可用时触摸与按键直接走它：每次注入只写一次本地 TCP，
+        /// 不必启动 adb shell + Java 进程，延迟从百毫秒级降到几毫秒，拖拽才能跟手。
+        /// </summary>
+        public ScrcpyVideoStream Control { get; set; }
+
+        /// <summary>设备物理分辨率（仅 adb shell 回退路径使用；控制通道按视频坐标注入）。</summary>
+        public int DeviceWidth { get; set; }
+        public int DeviceHeight { get; set; }
+
+        /// <summary>视频帧的可见尺寸（服务端 videoSize），控制通道注入时使用该坐标系。</summary>
+        public int VideoWidth { get; set; }
+        public int VideoHeight { get; set; }
+
+        /// <summary>
+        /// 是否支持实时触摸（按下/移动/抬起逐条注入）。
+        /// 不支持时只能等抬手后用一次 tap / swipe 完成，拖动过程画面不会跟随。
+        /// </summary>
+        public bool SupportsLiveTouch
+        {
+            get
+            {
+                ScrcpyVideoStream control = Control;
+                return control != null && control.ControlAvailable
+                    && VideoWidth > 0 && VideoHeight > 0;
+            }
+        }
+
         public InputInjector(string adbPath, string serial)
         {
             _adbPath = adbPath;
@@ -116,6 +144,40 @@ namespace AdbTools.RemoteControl
             Send(string.Format(CultureInfo.InvariantCulture, "input tap {0} {1}", x, y));
         }
 
+        /// <summary>
+        /// 实时按下。x/y 为**视频帧坐标**（画面像素位置），与旋转、缩放无关，
+        /// 服务端要求的坐标系就是 videoSize，直接使用即可。返回 false 表示不可用。
+        /// </summary>
+        public bool TouchDown(int x, int y)
+        {
+            return Touch(0, x, y);
+        }
+
+        /// <summary>实时移动（视频帧坐标）。</summary>
+        public bool TouchMove(int x, int y)
+        {
+            return Touch(2, x, y);
+        }
+
+        /// <summary>实时抬起（视频帧坐标）。</summary>
+        public bool TouchUp(int x, int y)
+        {
+            return Touch(1, x, y);
+        }
+
+        private bool Touch(int action, int x, int y)
+        {
+            ScrcpyVideoStream control = Control;
+            if (control == null || !control.ControlAvailable) return false;
+
+            int vw = VideoWidth, vh = VideoHeight;
+            if (vw <= 0 || vh <= 0) return false;
+
+            if (x < 0) x = 0; else if (x >= vw) x = vw - 1;
+            if (y < 0) y = 0; else if (y >= vh) y = vh - 1;
+            return control.SendTouch(action, x, y, vw, vh);
+        }
+
         public void Swipe(int x1, int y1, int x2, int y2, int durationMs)
         {
             Send(string.Format(CultureInfo.InvariantCulture, "input swipe {0} {1} {2} {3} {4}", x1, y1, x2, y2, durationMs));
@@ -138,6 +200,13 @@ namespace AdbTools.RemoteControl
 
         public void KeyEvent(int keyCode)
         {
+            // 控制通道可用时直接注入按下/抬起，避免每条按键都起一次 Java 进程
+            ScrcpyVideoStream control = Control;
+            if (control != null && control.ControlAvailable
+                && control.SendKey(0, keyCode) && control.SendKey(1, keyCode))
+            {
+                return;
+            }
             Send("input keyevent " + keyCode.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -291,6 +360,7 @@ namespace AdbTools.RemoteControl
         {
             if (_disposed) return;
             _disposed = true;
+
             try
             {
                 _process.StandardInput.WriteLine("exit");

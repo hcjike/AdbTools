@@ -40,6 +40,15 @@ namespace AdbTools.RemoteControl
         private int _forwardPort = -1;
         private int _scid;
 
+        /// <summary>控制通道：与视频通道同端口的第二次连接，可用时输入注入直接走 scrcpy 协议。</summary>
+        private TcpClient _controlClient;
+        private NetworkStream _controlStream;
+        private readonly object _controlWriteLock = new object();
+        private volatile bool _controlReady;
+
+        /// <summary>服务端提供不了控制通道时置位，后续片段改用纯视频模式（control=false）。</summary>
+        private volatile bool _controlDisabled;
+
         /// <summary>server 进程已输出 Device 信息的标记（说明 app_process 已启动）。</summary>
         private volatile int _serverReady;
 
@@ -204,6 +213,19 @@ namespace AdbTools.RemoteControl
                             client = new TcpClient();
                             client.Connect(IPAddress.Loopback, port);
                             NetworkStream ns = client.GetStream();
+
+                            // server 的 DesktopConnection.open 按 video → control 顺序把所有通道
+                            // accept 完才开始推流：控制连接必须在这里建立，
+                            // 否则 server 卡在 accept，客户端永远等不到首帧。
+                            if (!OpenControl(port))
+                            {
+                                // 设备端给不了控制通道：此时 server 仍在等第二条连接，
+                                // 主动断开让本片段立刻结束，下一片段改用 control=false 纯视频模式
+                                _restartRequested = true;
+                                try { client.Close(); } catch { }
+                                throw new InvalidOperationException("控制通道不可用，改用纯视频通道重试");
+                            }
+
                             // 编码器初始化可能要几秒，首批数据给足超时；
                             ns.ReadTimeout = 8000;
                             int first = ns.Read(buffer, 0, buffer.Length);
@@ -374,7 +396,9 @@ namespace AdbTools.RemoteControl
             sb.Append("-s ").Append(_serial).Append(" shell \"CLASSPATH=").Append(DeviceServerPath);
             sb.Append(" app_process / com.genymobile.scrcpy.Server ").Append(ServerVersion);
             sb.Append(" scid=").Append(_scid.ToString("x8", CultureInfo.InvariantCulture));
-            sb.Append(" log_level=info tunnel_forward=true audio=false control=false cleanup=false raw_stream=true");
+            sb.Append(" log_level=info tunnel_forward=true audio=false control=");
+            sb.Append(_controlDisabled ? "false" : "true");
+            sb.Append(" cleanup=false raw_stream=true");
             if (maxSize > 0) sb.Append(" max_size=").Append(maxSize.ToString(CultureInfo.InvariantCulture));
             if (_bitRate > 0) sb.Append(" video_bit_rate=").Append(_bitRate.ToString(CultureInfo.InvariantCulture));
             sb.Append('"');
@@ -447,9 +471,168 @@ namespace AdbTools.RemoteControl
             lock (_sync) _client = client;
         }
 
+        /// <summary>
+        /// 控制通道是否可用。可用时触摸/按键直接走 scrcpy 协议，
+        /// 每次注入只有一次本地 TCP 写入，而不是启动一次 adb shell + Java 进程。
+        /// </summary>
+        public bool ControlAvailable
+        {
+            get { return _controlReady; }
+        }
+
+        /// <summary>
+        /// 建立控制通道：server 在 tunnel 模式下按 video → control 的顺序 accept，
+        /// 视频连好后再连一次同一转发端口即可。
+        /// </summary>
+        private bool OpenControl(int port)
+        {
+            try
+            {
+                var client = new TcpClient { NoDelay = true, SendTimeout = 300 };
+                IAsyncResult ar = client.BeginConnect(IPAddress.Loopback, port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(2000))
+                {
+                    try { client.Close(); } catch { }
+                    _controlDisabled = true;
+                    Log?.Invoke("scrcpy 控制通道连接超时，改用纯视频通道重试");
+                    return false;
+                }
+                client.EndConnect(ar);
+
+                NetworkStream ns = client.GetStream();
+                lock (_sync)
+                {
+                    _controlClient = client;
+                    _controlStream = ns;
+                }
+                _controlReady = true;
+                Log?.Invoke("scrcpy 控制通道已就绪（实时输入）");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _controlReady = false;
+                _controlDisabled = true;
+                Log?.Invoke("scrcpy 控制通道不可用，改用纯视频通道重试：" + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>关闭控制通道：片段重启时同步关闭，避免向已结束的 server 写数据。</summary>
+        private void CloseControl()
+        {
+            TcpClient client;
+            NetworkStream stream;
+            lock (_sync)
+            {
+                stream = _controlStream;
+                client = _controlClient;
+                _controlStream = null;
+                _controlClient = null;
+            }
+            _controlReady = false;
+            if (stream != null) { try { stream.Dispose(); } catch { } }
+            if (client != null) { try { client.Close(); } catch { } }
+        }
+
+        /// <summary>
+        /// 注入一次触摸事件（scrcpy 控制协议 type=2，32 字节）。
+        /// action：0=按下、1=抬起、2=移动。屏幕尺寸必须与设备端 videoSize 完全一致，
+        /// 否则 server 的 PositionMapper 会直接丢弃该事件。
+        /// </summary>
+        public bool SendTouch(int action, int x, int y, int screenWidth, int screenHeight)
+        {
+            if (!_controlReady || screenWidth <= 0 || screenHeight <= 0) return false;
+
+            var buf = new byte[32];
+            buf[0] = 2;                                                   // INJECT_TOUCH_EVENT
+            buf[1] = (byte)action;                                        // AMOTION_EVENT_ACTION_*
+            WriteU64BE(buf, 2, unchecked((ulong)-2L));                    // SC_POINTER_ID_GENERIC_FINGER
+            WriteI32BE(buf, 10, x);
+            WriteI32BE(buf, 14, y);
+            WriteU16BE(buf, 18, screenWidth);
+            WriteU16BE(buf, 20, screenHeight);
+            // pressure 是 0~1 的定点数：按下/移动为满值，抬起为 0
+            WriteU16BE(buf, 22, action == 1 ? 0 : 0xFFFF);
+            WriteU32BE(buf, 24, 0);                                       // action_button
+            WriteU32BE(buf, 28, 0);                                       // buttons
+            return SendControl(buf);
+        }
+
+        /// <summary>
+        /// 注入一次按键（scrcpy 控制协议 type=0，14 字节）。
+        /// action：0=按下、1=抬起；repeat 为重复计数（按住时递增，设备据此识别为长按重复）。
+        /// </summary>
+        public bool SendKey(int action, int keyCode, int repeat = 0)
+        {
+            if (!_controlReady) return false;
+
+            var buf = new byte[14];
+            buf[0] = 0;                                                   // INJECT_KEYCODE
+            buf[1] = (byte)action;
+            WriteU32BE(buf, 2, unchecked((uint)keyCode));
+            WriteU32BE(buf, 6, unchecked((uint)repeat));
+            WriteU32BE(buf, 10, 0);                                       // meta state
+            return SendControl(buf);
+        }
+
+        private bool SendControl(byte[] data)
+        {
+            NetworkStream stream;
+            lock (_sync) stream = _controlStream;
+            if (stream == null) return false;
+
+            try
+            {
+                // 多条消息不能交错写入，否则设备端按固定长度解析会整体错位
+                lock (_controlWriteLock)
+                {
+                    stream.Write(data, 0, data.Length);
+                    stream.Flush();
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke("scrcpy 控制通道写入失败，输入退回 adb shell：" + ex.Message);
+                CloseControl();
+                return false;
+            }
+        }
+
+        private static void WriteU16BE(byte[] buf, int offset, int value)
+        {
+            buf[offset] = (byte)(value >> 8);
+            buf[offset + 1] = (byte)value;
+        }
+
+        private static void WriteU32BE(byte[] buf, int offset, uint value)
+        {
+            buf[offset] = (byte)(value >> 24);
+            buf[offset + 1] = (byte)(value >> 16);
+            buf[offset + 2] = (byte)(value >> 8);
+            buf[offset + 3] = (byte)value;
+        }
+
+        private static void WriteI32BE(byte[] buf, int offset, int value)
+        {
+            WriteU32BE(buf, offset, unchecked((uint)value));
+        }
+
+        private static void WriteU64BE(byte[] buf, int offset, ulong value)
+        {
+            for (int i = 7; i >= 0; i--)
+            {
+                buf[offset + i] = (byte)value;
+                value >>= 8;
+            }
+        }
+
         /// <summary>关闭当前片段：断开 socket、结束 server 进程、移除转发并清理设备端残留。</summary>
         private void CloseCurrent()
         {
+            CloseControl();
+
             TcpClient client;
             Process server;
             int port;
