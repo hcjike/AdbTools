@@ -34,6 +34,10 @@ namespace AdbToolsInstaller
             "AdbWinApi.dll",
             "AdbWinUsbApi.dll",
             "QRCoder.dll",
+            // scrcpy 5.0.1 设备端 server 与授权文件（新版本安装清单会记录，这里兼容旧版残留清理）
+            "scrcpy-server",
+            "scrcpy-LICENSE.txt",
+            "THIRD_PARTY_NOTICES.txt",
             UninstallExeName,
             ManifestFileName
         };

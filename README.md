@@ -18,6 +18,7 @@
 - [安装和使用](#安装和使用)
 - [使用说明](#使用说明)
 - [常见问题](#常见问题)
+- [第三方组件](#第三方组件)
 - [说明](#说明)
 
 ## 功能特性
@@ -146,6 +147,16 @@
 - **程序无法启动**：请确认已安装 `.NET Framework 4.6` 运行时。
 - **找不到程序入口**：安装完成后，可从桌面或开始菜单的 **`Adb连接工具`** 快捷方式启动。
 
+## 第三方组件
+
+远程控制的视频取流使用 **scrcpy 5.0.1** 的设备端组件 `scrcpy-server`（[项目地址](https://github.com/Genymobile/scrcpy)），采用 **Apache License 2.0** 授权：
+
+- 随程序附带的 `scrcpy-LICENSE.txt` 为许可证全文，`THIRD_PARTY_NOTICES.txt` 为版本、来源与用途说明；
+- 仅使用设备端 server（运行时推送到设备 `/data/local/tmp/` 并以 `app_process` 启动），未使用 PC 端 `scrcpy.exe`、SDL 与 FFmpeg 组件；
+- 设备不支持 `app_process` 时，程序会自动回退到 `adb screenrecord` 取流。
+
+ADB 相关能力依赖 Google 官方 `adb` 组件。
+
 ## 说明
 
-本项目为开源工具，ADB 相关能力依赖 Google 官方 `adb` 组件，仅供学习与交流使用。
+本项目为开源工具，仅供学习与交流使用。

@@ -210,6 +210,8 @@
     </Compile>
     <Compile Include="RemoteControl\AccessUnitSplitter.cs" />
     <Compile Include="RemoteControl\AdbVideoStream.cs" />
+    <Compile Include="RemoteControl\IVideoStream.cs" />
+    <Compile Include="RemoteControl\ScrcpyVideoStream.cs" />
     <Compile Include="RemoteControl\H264DecoderMft.cs" />
     <Compile Include="RemoteControl\InputInjector.cs" />
     <Compile Include="RemoteControl\MfInterfaces.cs" />
@@ -264,6 +266,16 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="AdbWinUsbApi.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- scrcpy 5.0.1 设备端 server 与授权文件（Apache-2.0），随程序一起发布 -->
+    <Content Include="scrcpy-server">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="scrcpy-LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="THIRD_PARTY_NOTICES.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Resource Include="resource\imgs\new_version.png" />

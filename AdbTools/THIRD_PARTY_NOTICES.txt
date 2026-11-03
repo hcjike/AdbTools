@@ -1,0 +1,23 @@
+AdbTools 第三方组件声明
+========================
+
+scrcpy (server)
+---------------
+版本      : 5.0.1
+来源      : https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1
+许可      : Apache License 2.0（全文见同目录 scrcpy-LICENSE.txt）
+版权      : Copyright (C) 2018 Genymobile, Copyright (C) 2018-2026 Romain Vimont
+随附文件  : scrcpy-server
+SHA-256   : 764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536
+          （与官方发行包 SHA256SUMS.txt 中的值一致）
+
+用途说明
+--------
+本程序仅随附 scrcpy 的设备端组件 scrcpy-server，未使用其 PC 端
+scrcpy.exe、SDL3.dll 及 FFmpeg DLL。设备端 server 由本程序通过 adb 启动，
+以 raw_stream 模式输出 H.264 裸流，再由本程序自带的解码与显示链路处理。
+
+scrcpy-server 在运行时会被推送到设备的 /data/local/tmp/ 目录并以
+app_process 启动；它不修改设备系统分区，卸载本程序不会影响设备。
+
+scrcpy 的完整源代码、文档与许可证可从上述来源获取。
