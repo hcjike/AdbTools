@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -119,6 +120,15 @@ namespace AdbTools.RemoteControl
 
         /// <summary>首帧已上屏，不再显示/更新启动过程。</summary>
         private bool _startupHidden;
+
+        /// <summary>已进入关闭流程：中央卡片显示提示，暂时阻止窗口真正关闭。</summary>
+        private bool _closing;
+
+        /// <summary>后台清理已完成，允许窗口真正关闭。</summary>
+        private bool _cleanupDone;
+
+        /// <summary>关闭清理的超时兜底，避免清理卡住导致窗口永远关不掉。</summary>
+        private DispatcherTimer _closeGuard;
 
         /// <summary>画面宿主区域（占满可用空间），用于计算外框尺寸。</summary>
         private Grid _screenHost;
@@ -431,6 +441,7 @@ namespace AdbTools.RemoteControl
             Content = root;
 
             Loaded += Window_Loaded;
+            Closing += Window_Closing;
             Closed += Window_Closed;
             PreviewKeyDown += Window_PreviewKeyDown;
 
@@ -529,7 +540,8 @@ namespace AdbTools.RemoteControl
         /// <summary>首帧真正上屏后收起启动过程卡片（在 UI 线程调用）。</summary>
         private void HideStartupHint()
         {
-            if (_startupHidden) return;
+            // 关闭流程中卡片要一直显示到清理完成，不能被首帧收起
+            if (_closing || _startupHidden) return;
             _startupHidden = true;
             _startupPanel.Visibility = Visibility.Collapsed;
         }
@@ -540,6 +552,14 @@ namespace AdbTools.RemoteControl
         /// </summary>
         private void UpdateNotice()
         {
+            // 关闭流程的卡片由 ShowClosingNotice 维护，500ms 定时器不要覆盖它
+            if (_closing)
+            {
+                _startupPanel.Visibility = Visibility.Visible;
+                _phoneFrame.Visibility = Visibility.Visible;
+                return;
+            }
+
             if (_paused)
             {
                 _startupTitle.Text = "设备已息屏";
@@ -2034,17 +2054,80 @@ namespace AdbTools.RemoteControl
             return true;
         }
 
-        private void Window_Closed(object sender, EventArgs e)
+        /// <summary>
+        /// 关闭时先取消关闭，用中央卡片提示；等后台清理完成后再放行真正关闭。
+        /// 清理会启动多个 adb 进程并等待取流线程退出，全部放在后台线程，
+        /// 主界面与远程控制窗口共用同一个 Dispatcher，因此不会短暂无响应。
+        /// </summary>
+        private void Window_Closing(object sender, CancelEventArgs e)
         {
+            if (_cleanupDone) return;
+            e.Cancel = true;
+            if (_closing) return;   // 清理进行中，继续显示卡片
+
+            _closing = true;
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
-            try { if (_stream != null) _stream.Stop(); } catch { }
-            try { if (_stream != null) _stream.ReleaseDevice(); } catch { }
-            try { if (_pumpThread != null) _pumpThread.Join(1000); } catch { }
-            try { if (_injector != null) _injector.Dispose(); } catch { }
-            try { if (_decoder != null) _decoder.Dispose(); } catch { }
-            try { MfInterop.Shutdown(); } catch { }
-            RestoreDeviceState();
+
+            ShowClosingNotice("正在关闭远程控制", "正在停止取流并释放解码资源…");
+
+            // 兜底：清理异常卡住时也要让用户能关掉窗口
+            _closeGuard = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            _closeGuard.Tick += (s, ev) => { _closeGuard.Stop(); FinishClose(); };
+            _closeGuard.Start();
+
+            IVideoStream stream = _stream;
+            H264DecoderMft decoder = _decoder;
+            Thread pump = _pumpThread;
+            InputInjector injector = _injector;
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { if (stream != null) stream.Stop(); } catch { }
+                try { if (pump != null) pump.Join(1500); } catch { }
+                try { if (decoder != null) decoder.Dispose(); } catch { }
+                try { MfInterop.Shutdown(); } catch { }
+
+                ShowClosingNotice("正在关闭远程控制", "正在清理设备端服务与转发…");
+                try { if (stream != null) stream.ReleaseDevice(); } catch { }
+                try { if (stream != null) stream.Dispose(); } catch { }
+                try { if (injector != null) injector.Dispose(); } catch { }
+                try { RestoreDeviceState(); } catch { }
+
+                ShowClosingNotice("清理完成", "窗口即将关闭…");
+                Thread.Sleep(300);
+                Dispatcher.BeginInvoke(new Action(FinishClose));
+            });
+        }
+
+        /// <summary>更新关闭过程的中央卡片（可从后台线程调用）。</summary>
+        private void ShowClosingNotice(string title, string detail)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_closing) return;
+                _startupTitle.Text = title;
+                _startupSteps.Text = detail;
+                _startupPanel.Visibility = Visibility.Visible;
+                _phoneFrame.Visibility = Visibility.Visible;
+            }));
+        }
+
+        /// <summary>清理完成（或超时）后放行关闭，幂等。</summary>
+        private void FinishClose()
+        {
+            if (_cleanupDone) return;
+            _cleanupDone = true;
+            if (_closeGuard != null) { try { _closeGuard.Stop(); } catch { } }
+            try { Close(); } catch { }
+        }
+
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            // 资源清理已在 Window_Closing 的后台流程中完成，这里只做轻量收尾
+            try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
+            try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
+            try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
         }
     }
 }
