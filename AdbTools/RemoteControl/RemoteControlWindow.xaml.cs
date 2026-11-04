@@ -1291,8 +1291,11 @@ namespace AdbTools.RemoteControl
             if (_bitmap == null || _screenHost == null) return;
             if (_screenHost.ActualWidth <= 0 || _screenHost.ActualHeight <= 0) return;
 
-            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right;
-            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom;
+            // 边框厚度也要算进去，否则画面区域比例与视频不一致，Uniform 会留出黑边
+            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right
+                + _phoneFrame.BorderThickness.Left + _phoneFrame.BorderThickness.Right;
+            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom
+                + _phoneFrame.BorderThickness.Top + _phoneFrame.BorderThickness.Bottom;
             double availableWidth = Math.Max(1, _screenHost.ActualWidth - bezel);
             double availableHeight = Math.Max(1, _screenHost.ActualHeight - bezelV);
 
@@ -1330,14 +1333,17 @@ namespace AdbTools.RemoteControl
 
             _autoFitted = true;
 
-            // 状态栏会随文本折行到两行，取值加下限，避免按单行算出偏大的窗口
-            double statusHeight = Math.Max(_status.ActualHeight, 40);
+            // 状态栏固定单行（NoWrap），按实际高度取值，避免多算高度让机身上下出现多余空白
+            double statusHeight = Math.Max(_status.ActualHeight, 26);
             double navHeight = _navBar != null && _navBar.ActualHeight > 0
                 ? _navBar.ActualHeight + _navBar.Margin.Top + _navBar.Margin.Bottom
                 : 46;
             navHeight = Math.Max(navHeight, 46);
-            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right;
-            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom;
+            // 边框厚度也要算进去，否则画面区域比例与视频不一致，Uniform 会留出黑边
+            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right
+                + _phoneFrame.BorderThickness.Left + _phoneFrame.BorderThickness.Right;
+            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom
+                + _phoneFrame.BorderThickness.Top + _phoneFrame.BorderThickness.Bottom;
             const double outerMargin = 16;
 
             // 横屏窗口会被撑到接近整屏宽度，显得过大：宽度收到六成半左右；
@@ -1853,6 +1859,23 @@ namespace AdbTools.RemoteControl
         private void RemoteScreen_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             UpdatePhoneFrame();
+            UpdateScreenClip();
+        }
+
+        /// <summary>按屏幕内圆角裁剪画面，避免画面直角盖住机身圆角。</summary>
+        private void UpdateScreenClip()
+        {
+            double w = _image.ActualWidth;
+            double h = _image.ActualHeight;
+            if (w <= 0 || h <= 0)
+            {
+                _image.Clip = null;
+                return;
+            }
+
+            double radius = Math.Min(24.0, Math.Min(w, h) * 0.045);
+            _image.Clip = new System.Windows.Media.RectangleGeometry(
+                new Rect(0, 0, w, h), radius, radius);
         }
 
         /// <summary>

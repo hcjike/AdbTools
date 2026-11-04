@@ -8,12 +8,18 @@
         Title="远程控制"
         Width="500" Height="880" MinWidth="320" MinHeight="480"
         WindowStartupLocation="CenterScreen"
-        Background="#FF0E0E12"
         Loaded="Window_Loaded"
         Closing="Window_Closing"
         Closed="Window_Closed"
         PreviewKeyDown="Window_PreviewKeyDown"
         PreviewMouseWheel="RemoteScreen_PreviewMouseWheel">
+    <!-- 背景用中心稍亮的径向渐变，让深色机身有明确轮廓，不再和背景糊在一起 -->
+    <Window.Background>
+        <RadialGradientBrush Center="0.5,0.42" GradientOrigin="0.5,0.42" RadiusX="0.78" RadiusY="0.78">
+            <GradientStop Color="#FF262631" Offset="0" />
+            <GradientStop Color="#FF09090C" Offset="1" />
+        </RadialGradientBrush>
+    </Window.Background>
     <Window.Resources>
         <!-- 分辨率下拉框的深色模板：扁平圆角、自绘箭头，与远程控制窗口配色一致 -->
         <ControlTemplate x:Key="ResolutionComboTemplate" TargetType="ComboBox">
@@ -127,7 +133,7 @@
         <!-- 顶部状态文字：单行显示，过长时省略，保证顶部栏高度稳定、与下拉框对齐 -->
         <Style x:Key="StatusTextStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="Background" Value="Black" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="TextWrapping" Value="NoWrap" />
@@ -136,18 +142,30 @@
             <Setter Property="Margin" Value="8,0,8,0" />
         </Style>
 
-        <!-- 仿手机外框：深色机身 + 圆角 + 内边距 + 投影 -->
+        <!-- 仿手机外框：金属渐变机身 + 高光边框 + 厚内边距 -->
         <Style x:Key="PhoneFrameStyle" TargetType="Border">
-            <Setter Property="Background" Value="#FF16161A" />
-            <Setter Property="BorderBrush" Value="#FF3F3F46" />
+            <Setter Property="CornerRadius" Value="30" />
+            <Setter Property="Padding" Value="6" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="28" />
-            <Setter Property="Padding" Value="10" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Effect">
+            <Setter Property="Background">
                 <Setter.Value>
-                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Color="Black" Opacity="0.75" />
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FF3A3A46" Offset="0" />
+                        <GradientStop Color="#FF1C1C22" Offset="0.45" />
+                        <GradientStop Color="#FF0C0C10" Offset="1" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderBrush">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FFB2B2C2" Offset="0" />
+                        <GradientStop Color="#FF4E4E5A" Offset="0.32" />
+                        <GradientStop Color="#FF232329" Offset="0.66" />
+                        <GradientStop Color="#FF848492" Offset="1" />
+                    </LinearGradientBrush>
                 </Setter.Value>
             </Setter>
         </Style>
@@ -175,7 +193,7 @@
         </Grid.RowDefinitions>
 
         <!-- 顶部：左侧状态文字，右侧分辨率菜单，整条栏固定高度并统一底色 -->
-        <Grid Grid.Row="0" Height="30" Background="Black">
+        <Grid Grid.Row="0" Height="26" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -195,6 +213,19 @@
 
         <!-- 画面：等比填充在手机外框内部，外框尺寸随窗口缩放同步调整 -->
         <Grid x:Name="_screenHost" Grid.Row="1" SizeChanged="RemoteScreen_SizeChanged">
+            <!-- 阴影单独放在空 Border 上：避免对含视频的画面子树应用 Effect，
+                 否则每帧都要先渲染到离屏表面，5MP 画面下开销很大 -->
+            <Border Background="#FF0B0B0F" CornerRadius="36"
+                    Width="{Binding ActualWidth, ElementName=_phoneFrame}"
+                    Height="{Binding ActualHeight, ElementName=_phoneFrame}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270"
+                                      Color="#FF000000" Opacity="0.9" />
+                </Border.Effect>
+            </Border>
+
             <Border x:Name="_phoneFrame" Style="{StaticResource PhoneFrameStyle}">
                 <Image x:Name="_image" Stretch="Uniform"
                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
