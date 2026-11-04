@@ -187,12 +187,21 @@ namespace AdbTools.RemoteControl
         private Thread _pumpThread;
 
         private WriteableBitmap _bitmap;
-        private byte[] _front;
-        private byte[] _back;
+
+        /// <summary>
+        /// 帧缓冲：解码线程写、UI 线程读。用三块固定缓冲轮换，
+        /// 通过 _front / _pendingBuffer / _rendering 三个引用标记占用状态，
+        /// 保证 UI 正在 WritePixels 的那块不会被后台线程改写（旧版双缓冲会撕裂）。
+        /// </summary>
+        private readonly byte[][] _frameBuffers = new byte[3][];
+        private byte[] _front;          // 已解码完成、等待呈现
+        private byte[] _pendingBuffer;  // 后台线程正在写入
+        private byte[] _rendering;      // UI 线程正在读取
         private readonly object _frameLock = new object();
-        private bool _framePending;
         private int _frameWidth;
         private int _frameHeight;
+        private int _frontWidth;
+        private int _frontHeight;
 
         /// <summary>视频帧的可见尺寸（= 服务端 videoSize），控制通道注入触摸时作为坐标系。</summary>
         private int _videoWidth;
@@ -437,24 +446,35 @@ namespace AdbTools.RemoteControl
             // 关闭流程的卡片由 ShowClosingNotice 维护，500ms 定时器不要覆盖它
             if (_closing)
             {
-                _startupPanel.Visibility = Visibility.Visible;
-                _phoneFrame.Visibility = Visibility.Visible;
+                SetNoticeVisibility(_startupPanel, Visibility.Visible);
+                SetNoticeVisibility(_phoneFrame, Visibility.Visible);
                 return;
             }
 
             if (_paused)
             {
-                _startupTitle.Text = "设备已息屏";
-                _startupSteps.Text = "亮屏后自动恢复画面\n也可点下方「电源」键唤醒";
-                _startupPanel.Visibility = Visibility.Visible;
+                SetNoticeText(_startupTitle, "设备已息屏");
+                SetNoticeText(_startupSteps, "亮屏后自动恢复画面\n也可点下方「电源」键唤醒");
+                SetNoticeVisibility(_startupPanel, Visibility.Visible);
                 // 画面已清空，隐藏空的机身外框，让提示落在深色背景上
-                _phoneFrame.Visibility = Visibility.Collapsed;
+                SetNoticeVisibility(_phoneFrame, Visibility.Collapsed);
                 return;
             }
 
-            _phoneFrame.Visibility = Visibility.Visible;
+            SetNoticeVisibility(_phoneFrame, Visibility.Visible);
             // 首帧前由 SetStartupStep 维护启动过程；首帧上屏后收起
-            _startupPanel.Visibility = _startupHidden ? Visibility.Collapsed : Visibility.Visible;
+            SetNoticeVisibility(_startupPanel, _startupHidden ? Visibility.Collapsed : Visibility.Visible);
+        }
+
+        /// <summary>值没变就不赋值，避免 500ms 定时器反复触发依赖属性变更与布局。</summary>
+        private static void SetNoticeText(TextBlock block, string text)
+        {
+            if (!string.Equals(block.Text, text, StringComparison.Ordinal)) block.Text = text;
+        }
+
+        private static void SetNoticeVisibility(UIElement element, Visibility visibility)
+        {
+            if (element.Visibility != visibility) element.Visibility = visibility;
         }
 
         /// <summary>
@@ -624,30 +644,61 @@ namespace AdbTools.RemoteControl
             }
 
             int need = width * height * 4;
-            byte[] buffer = _back;
-            if (buffer == null || buffer.Length < need) buffer = new byte[need];
-            if (!Nv12Converter.Convert(nv12, length, sourceWidth, sourceHeight,
-                    cropX, cropY, width, height, buffer)) return;
+            byte[] buffer;
+            lock (_frameLock)
+            {
+                // 尺寸变化时重建三块缓冲；旧尺寸的待呈现帧直接丢弃
+                if (_frameWidth != width || _frameHeight != height
+                    || _frameBuffers[0] == null || _frameBuffers[0].Length < need)
+                {
+                    for (int i = 0; i < _frameBuffers.Length; i++) _frameBuffers[i] = new byte[need];
+                    _frameWidth = width;
+                    _frameHeight = height;
+                    _front = null;
+                }
+
+                // 只取既不是"待呈现"、也不是"后台正在写/前台正在读"的那块
+                buffer = null;
+                foreach (byte[] candidate in _frameBuffers)
+                {
+                    if (candidate != _front && candidate != _pendingBuffer && candidate != _rendering)
+                    {
+                        buffer = candidate;
+                        break;
+                    }
+                }
+                // 三块都被占用，说明渲染严重跟不上：丢这一帧，绝不覆盖正在显示的画面
+                if (buffer == null) return;
+                _pendingBuffer = buffer;
+            }
+
+            bool converted = Nv12Converter.Convert(nv12, length, sourceWidth, sourceHeight,
+                cropX, cropY, width, height, buffer);
 
             lock (_frameLock)
             {
-                _back = _front;
+                _pendingBuffer = null;
+                if (!converted) return;
+                // 旧 _front 还没被取走说明渲染跟不上，直接丢中间帧，始终显示最新一帧
                 _front = buffer;
-                _frameWidth = width;
-                _frameHeight = height;
-                _framePending = true;
+                _frontWidth = width;
+                _frontHeight = height;
                 Interlocked.Exchange(ref _decodedAtTicks, DateTime.UtcNow.Ticks);
             }
 
             // 触摸事件必须使用视频帧坐标系（服务端 videoSize，实测等于裁剪后的可见尺寸），
             // 首帧与旋转后都要同步给注入器。传 coded 尺寸（含 16 像素补边）会被服务端直接丢弃。
-            _videoWidth = width;
-            _videoHeight = height;
-            InputInjector injector = _injector;
-            if (injector != null)
+            // 尺寸没变就不要每帧重复赋值，减少跨线程属性写入。
+            if (_videoWidth != width || _videoHeight != height)
             {
-                injector.VideoWidth = width;
-                injector.VideoHeight = height;
+                _videoWidth = width;
+                _videoHeight = height;
+                InputInjector injector = _injector;
+                if (injector != null)
+                {
+                    injector.VideoWidth = width;
+                    injector.VideoHeight = height;
+                }
             }
 
             // 只在没有待渲染任务时排一次渲染：渲染跟不上时自动丢中间帧，
@@ -664,8 +715,7 @@ namespace AdbTools.RemoteControl
             lock (_frameLock)
             {
                 _front = null;
-                _back = null;
-                _framePending = false;
+                _pendingBuffer = null;
                 _frameWidth = 0;
                 _frameHeight = 0;
             }
@@ -680,18 +730,20 @@ namespace AdbTools.RemoteControl
             int width, height;
             lock (_frameLock)
             {
-                if (!_framePending)
+                frame = _front;
+                if (frame == null)
                 {
                     _renderQueued = 0;
                     return;
                 }
-                _framePending = false;
-                frame = _front;
-                width = _frameWidth;
-                height = _frameHeight;
+                _front = null;
+                // 标记这块缓冲正被 UI 读取，后台线程不得复用
+                _rendering = frame;
+                width = _frontWidth;
+                height = _frontHeight;
             }
 
-            if (frame != null && width > 0 && height > 0)
+            if (width > 0 && height > 0 && frame.Length >= width * height * 4)
             {
                 if (_bitmap == null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
                 {
@@ -740,11 +792,18 @@ namespace AdbTools.RemoteControl
                 }
             }
 
-            Interlocked.Exchange(ref _renderQueued, 0);
+            bool hasNewFrame;
+            lock (_frameLock)
+            {
+                // 释放正在读取的缓冲，后台线程可以重新使用它
+                _rendering = null;
+                // 必须先清零再检查 _front：否则解码线程恰好在两者之间提交新帧时，
+                // 会因为看到 _renderQueued=1 不再排队，导致这一帧永远不被呈现
+                Interlocked.Exchange(ref _renderQueued, 0);
+                hasNewFrame = _front != null;
+            }
 
             // 渲染期间又到了新帧：补一次渲染，保持"总是显示最新帧"
-            bool hasNewFrame;
-            lock (_frameLock) hasNewFrame = _framePending;
             if (hasNewFrame && Interlocked.CompareExchange(ref _renderQueued, 1, 0) == 0)
             {
                 Dispatcher.BeginInvoke(new Action(RenderFrame), DispatcherPriority.Render);
@@ -783,10 +842,11 @@ namespace AdbTools.RemoteControl
 
             // 左上角固定为：画面分辨率 → 设备物理分辨率、真实上屏帧率；
             // 延迟、解码帧率等放悬停提示，其它说明一律在中央卡片里
-            _status.Text = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
+            string statusText = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
+            if (!string.Equals(_status.Text, statusText, StringComparison.Ordinal)) _status.Text = statusText;
 
             // 详细指标放悬停提示：解码帧率高于上屏帧率说明画面被丢了，是卡顿的主要原因
-            _status.ToolTip = string.Format(
+            string tooltip = string.Format(
                 "上屏 {0:F0} fps：真正写到画面上的帧数，即你眼睛看到的流畅度\n" +
                 "解码 {1:F0} fps：解码器输出的帧数，明显高于上屏说明电脑跟不上、中间帧被丢弃\n" +
                 "最大帧间隔 {3:F0} ms：最近一次采样窗口内最长的两次上屏间隔，越大越容易感觉一顿\n" +
@@ -796,6 +856,10 @@ namespace AdbTools.RemoteControl
                 Math.Max(0, _displayFps), Math.Max(0, _decodeFps),
                 _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-",
                 maxIntervalMs);
+            if (!string.Equals(_status.ToolTip as string, tooltip, StringComparison.Ordinal))
+            {
+                _status.ToolTip = tooltip;
+            }
 
             // 每 10 秒把当前状态写进日志，便于事后排查"画面没恢复"这类问题
             if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 10)
@@ -806,13 +870,61 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>把运行日志写到临时目录，便于排查"等待首帧"卡住的问题。</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _logQueue =
+            new System.Collections.Concurrent.ConcurrentQueue<string>();
+        private static int _logWorkerStarted;
+
+        /// <summary>
+        /// 日志改为入队 + 单个后台线程常开 StreamWriter 写入：
+        /// 解码/取流线程不再做同步磁盘 I/O，也不会每条日志开关一次文件。
+        /// </summary>
         private static void LogToFile(string message)
         {
             try
             {
+                _logQueue.Enqueue(DateTime.Now.ToString("HH:mm:ss.fff ") + message);
+                if (Interlocked.CompareExchange(ref _logWorkerStarted, 1, 0) == 0)
+                {
+                    var worker = new Thread(LogWorker)
+                    {
+                        IsBackground = true,
+                        Name = "remote-log"
+                    };
+                    worker.Start();
+                }
+            }
+            catch { }
+        }
+
+        private static void LogWorker()
+        {
+            try
+            {
                 string path = Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log");
-                File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff ") + message + Environment.NewLine);
+                using (var writer = new StreamWriter(path, true, System.Text.Encoding.UTF8))
+                {
+                    DateTime lastFlush = DateTime.UtcNow;
+                    string line;
+                    while (true)
+                    {
+                        // 一次取空队列再写，减少文件写入与 flush 次数
+                        bool wrote = false;
+                        while (_logQueue.TryDequeue(out line))
+                        {
+                            writer.WriteLine(line);
+                            wrote = true;
+                        }
+
+                        DateTime now = DateTime.UtcNow;
+                        if (wrote && (now - lastFlush).TotalMilliseconds >= 200)
+                        {
+                            writer.Flush();
+                            lastFlush = now;
+                        }
+
+                        Thread.Sleep(20);
+                    }
+                }
             }
             catch { }
         }
@@ -1302,8 +1414,20 @@ namespace AdbTools.RemoteControl
             double scale = Math.Min(availableWidth / _bitmap.PixelWidth, availableHeight / _bitmap.PixelHeight);
             if (scale <= 0) return;
 
-            _phoneFrame.Width = _bitmap.PixelWidth * scale + bezel;
-            _phoneFrame.Height = _bitmap.PixelHeight * scale + bezelV;
+            double newWidth = _bitmap.PixelWidth * scale + bezel;
+            double newHeight = _bitmap.PixelHeight * scale + bezelV;
+            // 尺寸没变就不要重新赋值：改 Width/Height 会触发新一轮布局，
+            // 而 SizeChanged 回调又会回到这里，形成重复布局 pass
+            if (!double.IsNaN(_phoneFrame.Width) && !double.IsNaN(_phoneFrame.Height)
+                && Math.Abs(_phoneFrame.Width - newWidth) < 0.5
+                && Math.Abs(_phoneFrame.Height - newHeight) < 0.5)
+            {
+                AutoFitToPhone();
+                return;
+            }
+
+            _phoneFrame.Width = newWidth;
+            _phoneFrame.Height = newHeight;
 
             AutoFitToPhone();
         }
@@ -1623,9 +1747,16 @@ namespace AdbTools.RemoteControl
         /// 触发一次快速方向检测：画面宽高比变化、断流重连、用户操作之后往往伴随旋转，
         /// 触发后 2 秒内按 300ms 检测，其余时间保持 1 秒一次的兜底查询。
         /// </summary>
+        private DateTime _lastBurstRequest = DateTime.MinValue;
+
         private void RequestOrientationCheck()
         {
-            _orientationBurstUntil = DateTime.UtcNow.AddSeconds(2);
+            DateTime now = DateTime.UtcNow;
+            // 鼠标按下、片段重建会连续触发；burst 未结束时不必反复延长，
+            // 避免短时间内堆起多个 adb 方向查询进程
+            if (now < _orientationBurstUntil && (now - _lastBurstRequest).TotalMilliseconds < 500) return;
+            _lastBurstRequest = now;
+            _orientationBurstUntil = now.AddSeconds(2);
         }
 
         /// <summary>查询当前方向与逻辑分辨率，变化时重建取流并重新自适应窗口。</summary>
@@ -1855,12 +1986,24 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>画面区域尺寸变化：重新按画面比例计算机身尺寸。</summary>
+        /// <summary>画面宿主尺寸变化：重新按画面比例计算机身尺寸。</summary>
         private void RemoteScreen_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             UpdatePhoneFrame();
+        }
+
+        /// <summary>
+        /// 画面自身尺寸变化后再更新圆角裁剪。
+        /// 不能在宿主 SizeChanged 里直接裁剪：那一刻 _image 还是旧尺寸，
+        /// Clip 会偏小，导致画面右侧/底部被切掉。
+        /// </summary>
+        private void Image_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
             UpdateScreenClip();
         }
+
+        private double _lastClipWidth;
+        private double _lastClipHeight;
 
         /// <summary>按屏幕内圆角裁剪画面，避免画面直角盖住机身圆角。</summary>
         private void UpdateScreenClip()
@@ -1869,10 +2012,18 @@ namespace AdbTools.RemoteControl
             double h = _image.ActualHeight;
             if (w <= 0 || h <= 0)
             {
-                _image.Clip = null;
+                if (_image.Clip != null) _image.Clip = null;
+                _lastClipWidth = _lastClipHeight = 0;
                 return;
             }
 
+            // 尺寸未变时不要重建裁剪几何，避免每次布局都分配对象
+            if (_image.Clip != null
+                && Math.Abs(w - _lastClipWidth) < 0.5
+                && Math.Abs(h - _lastClipHeight) < 0.5) return;
+
+            _lastClipWidth = w;
+            _lastClipHeight = h;
             double radius = Math.Min(24.0, Math.Min(w, h) * 0.045);
             _image.Clip = new System.Windows.Media.RectangleGeometry(
                 new Rect(0, 0, w, h), radius, radius);

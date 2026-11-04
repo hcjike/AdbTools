@@ -229,7 +229,8 @@
             <Border x:Name="_phoneFrame" Style="{StaticResource PhoneFrameStyle}">
                 <Image x:Name="_image" Stretch="Uniform"
                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                       SizeChanged="RemoteScreen_SizeChanged"
+                       RenderOptions.BitmapScalingMode="LowQuality"
+                       SizeChanged="Image_SizeChanged"
                        MouseLeftButtonDown="Image_MouseLeftButtonDown"
                        MouseMove="Image_MouseMove"
                        MouseLeftButtonUp="Image_MouseLeftButtonUp" />
