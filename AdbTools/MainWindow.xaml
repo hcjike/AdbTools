@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AdbTools" xmlns:customcontrol="clr-namespace:AdbTools.CustomControl"
         mc:Ignorable="d"
-        Title="Adb连接工具" Height="560" Width="460" MinHeight="500" MinWidth="400" FontSize="14" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" Loaded="Window_Loaded" Unloaded="Window_Unloaded" >
+        Title="Adb连接工具" Height="560" Width="460" MinHeight="500" MinWidth="400" FontSize="14" WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" Loaded="Window_Loaded" Unloaded="Window_Unloaded" ResizeMode="CanMinimize" >
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <ContextMenu x:Key="ListBoxItemContextMenu"  FontSize="13">

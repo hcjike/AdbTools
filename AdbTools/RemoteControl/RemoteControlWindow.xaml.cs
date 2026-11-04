@@ -16,7 +16,7 @@ namespace AdbTools.RemoteControl
     /// <summary>
     /// 远程控制窗口（M1/M2 验证）：实时显示设备画面，鼠标点击/拖动与键盘输入直接注入设备。
     /// </summary>
-    internal sealed class RemoteControlWindow : Window
+    internal sealed partial class RemoteControlWindow : Window
     {
         /// <summary>分辨率档位：名称、长边像素、图标几何、悬停提示。</summary>
         private sealed class ResolutionPreset
@@ -33,12 +33,12 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>分辨率档位，第 0 档为原始分辨率（不缩放），其余按长边像素缩放。</summary>
+        /// <summary>分辨率档位，第 0 档为原画（不缩放），其余按长边像素缩放。</summary>
         private static readonly ResolutionPreset[] ResolutionPresets =
         {
             new ResolutionPreset
             {
-                Name = "原始分辨率",
+                Name = "原画",
                 LongSide = 0,
                 Icon = CreateQualityIcon(4),
                 Tip = "不缩放，直接按设备物理分辨率采集\n"
@@ -48,38 +48,48 @@ namespace AdbTools.RemoteControl
             },
             new ResolutionPreset
             {
-                Name = "1080P 高清",
+                Name = "1080P 超清",
                 LongSide = 1920,
                 Icon = CreateQualityIcon(3),
                 Tip = "长边缩到 1920（约 1080P，短边按设备比例）\n"
-                    + "清晰度：很高，正常视距下与原分辨率差别很小\n"
-                    + "速度：开销约为原始分辨率的一半，主流电脑可稳定 30~60 fps\n"
+                    + "清晰度：很高，正常视距下与原画差别很小\n"
+                    + "速度：开销约为原画的一半，主流电脑可稳定 30~60 fps\n"
                     + "建议：USB 或 5G Wi-Fi，兼顾清晰度与流畅度"
             },
             new ResolutionPreset
             {
-                Name = "720P 标准",
+                Name = "720P 高清",
                 LongSide = 1280,
                 Icon = CreateQualityIcon(2),
                 Tip = "长边缩到 1280（约 720P，短边按设备比例）\n"
                     + "清晰度：够用，界面与文字清晰可读\n"
-                    + "速度：快，开销约为原始分辨率的 1/4，低配电脑也能跑满帧\n"
+                    + "速度：快，开销约为原画的 1/4，低配电脑也能跑满帧\n"
                     + "建议：2.4G Wi-Fi、笔记本省电模式，或设备性能较弱时优先选这档"
             },
             new ResolutionPreset
             {
-                Name = "480P 流畅",
+                Name = "480P 标清",
                 LongSide = 854,
                 Icon = CreateQualityIcon(1),
                 Tip = "长边缩到 854（约 480P，短边按设备比例）\n"
                     + "清晰度：偏糊，小字可能看不清\n"
-                    + "速度：最快，延迟最低，最省 CPU 与带宽\n"
-                    + "建议：网络差、只需要点击操作和看大致画面时使用"
+                    + "速度：很快，延迟低，省 CPU 与带宽\n"
+                    + "建议：网络较差、只需要点击操作和看大致画面时使用"
+            },
+            new ResolutionPreset
+            {
+                Name = "360P 流畅",
+                LongSide = 640,
+                Icon = CreateQualityIcon(0),
+                Tip = "长边缩到 640（约 360P，短边按设备比例）\n"
+                    + "清晰度：很低，只能看清大块内容与图标\n"
+                    + "速度：最快，CPU 与带宽占用最低\n"
+                    + "建议：网络很差、设备性能较弱，或只操作界面时使用"
             }
         };
 
         /// <summary>
-        /// 清晰度图标：屏幕外框 + 内部横向线条，线条条数随清晰度档位递减（4 → 1）。
+        /// 清晰度图标：屏幕外框 + 内部横向线条，线条条数随清晰度档位递减（4 → 0）。
         /// 返回冻结的几何，可被下拉项与选中框里的多个 Path 安全共用。
         /// </summary>
         private static System.Windows.Media.Geometry CreateQualityIcon(int bars)
@@ -105,17 +115,9 @@ namespace AdbTools.RemoteControl
         private readonly string _adbPath;
         private readonly string _serial;
 
-        private readonly Image _image = new Image();
-        private readonly TextBlock _status = new TextBlock();
-        private readonly TextBox _textSink = new TextBox();
-
-        /// <summary>仿手机外框：包裹画面并按窗口大小等比缩放。</summary>
-        private readonly Border _phoneFrame = new Border();
-
-        /// <summary>画面区域中央的状态卡片：启动过程、锁屏/息屏、异常说明共用一套样式。</summary>
-        private readonly Border _startupPanel = new Border();
-        private readonly TextBlock _startupTitle = new TextBlock();
-        private readonly TextBlock _startupSteps = new TextBlock();
+        // 界面元素（_image / _status / _textSink / _phoneFrame / _startupPanel /
+        // _startupTitle / _startupSteps）均由 RemoteControlWindow.xaml 的 x:Name 生成，
+        // 这里只保留启动过程文案的逻辑状态。
         private readonly List<string> _startupLines = new List<string>();
 
         /// <summary>首帧已上屏，不再显示/更新启动过程。</summary>
@@ -130,14 +132,7 @@ namespace AdbTools.RemoteControl
         /// <summary>关闭清理的超时兜底，避免清理卡住导致窗口永远关不掉。</summary>
         private DispatcherTimer _closeGuard;
 
-        /// <summary>画面宿主区域（占满可用空间），用于计算外框尺寸。</summary>
-        private Grid _screenHost;
-
-        /// <summary>底部虚拟按键栏（自适应窗口尺寸时用于计算高度）。</summary>
-        private StackPanel _navBar;
-
-        /// <summary>分辨率下拉菜单。</summary>
-        private ComboBox _resolutionBox;
+        // _screenHost / _navBar / _resolutionBox 同样由 XAML 的 x:Name 生成。
 
         /// <summary>当前选择的长边像素，0 表示原始分辨率。</summary>
         private int _presetLongSide;
@@ -192,12 +187,28 @@ namespace AdbTools.RemoteControl
         private Thread _pumpThread;
 
         private WriteableBitmap _bitmap;
-        private byte[] _front;
-        private byte[] _back;
+
+        /// <summary>
+        /// 显示位图缓存（按宽高）。横竖屏各一块，旋转时直接复用：
+        /// 每次新建 5MP 位图会额外产生约 60MB 后备内存与纹理，内存曲线出现尖峰。
+        /// </summary>
+        private readonly Dictionary<string, WriteableBitmap> _bitmapCache =
+            new Dictionary<string, WriteableBitmap>();
+
+        /// <summary>
+        /// 帧缓冲：解码线程写、UI 线程读。用三块固定缓冲轮换，
+        /// 通过 _front / _pendingBuffer / _rendering 三个引用标记占用状态，
+        /// 保证 UI 正在 WritePixels 的那块不会被后台线程改写（旧版双缓冲会撕裂）。
+        /// </summary>
+        private readonly byte[][] _frameBuffers = new byte[3][];
+        private byte[] _front;          // 已解码完成、等待呈现
+        private byte[] _pendingBuffer;  // 后台线程正在写入
+        private byte[] _rendering;      // UI 线程正在读取
         private readonly object _frameLock = new object();
-        private bool _framePending;
         private int _frameWidth;
         private int _frameHeight;
+        private int _frontWidth;
+        private int _frontHeight;
 
         /// <summary>视频帧的可见尺寸（= 服务端 videoSize），控制通道注入触摸时作为坐标系。</summary>
         private int _videoWidth;
@@ -219,6 +230,10 @@ namespace AdbTools.RemoteControl
         private int _presentedFrames;
         private int _lastPresentedFrames;
 
+        /// <summary>上屏帧间隔统计：平均帧率高但间隔不均时，体感就是一顿一顿。</summary>
+        private long _lastPresentTicks;
+        private double _maxPresentIntervalMs;
+
         /// <summary>上一次帧率采样的时刻，用真实经过时间计算，避免计时器被推迟时算出虚高的帧率。</summary>
         private DateTime _lastFpsSample = DateTime.UtcNow;
 
@@ -238,6 +253,9 @@ namespace AdbTools.RemoteControl
         /// <summary>最近一次注入的命令，显示在状态栏便于确认点击是否落点正确。</summary>
         private string _lastInject = "";
 
+        /// <summary>按键注入日志的节流时间戳（音量键按住会连发，不能每次按键都写日志）。</summary>
+        private DateTime _lastInjectLog = DateTime.MinValue;
+
         /// <summary>是否已有待渲染任务在 UI 队列中（用于合并/丢弃过期帧）。</summary>
         private int _renderQueued;
 
@@ -253,6 +271,11 @@ namespace AdbTools.RemoteControl
         /// <summary>最近一条取流/解码日志；未出首帧时显示在状态栏，便于定位问题。</summary>
         private volatile string _lastLog = "";
 
+        /// <summary>按键按住连发/长按的计时器与时间戳（按钮由 XAML 声明，按实例记录状态）。</summary>
+        private readonly Dictionary<Button, DispatcherTimer> _navHoldTimers = new Dictionary<Button, DispatcherTimer>();
+        private readonly Dictionary<Button, DateTime> _navPressStarted = new Dictionary<Button, DateTime>();
+        private readonly Dictionary<Button, DateTime> _navLastRelease = new Dictionary<Button, DateTime>();
+
         private bool _dragging;
         private bool _moved;
         private Point _startPoint;
@@ -264,7 +287,27 @@ namespace AdbTools.RemoteControl
         /// <summary>滚轮累积量与触发位置，用于把高频滚轮事件合并成一次滑动。</summary>
         private double _wheelAccum;
         private Point _wheelPoint;
-        private DispatcherTimer _wheelTimer;
+        private Point _wheelVideoPoint;
+
+        /// <summary>滚轮拖拽手势：按下 → 逐帧移动 → 抬起，抬手后由系统产生惯性。</summary>
+        private bool _wheelGestureActive;
+        private int _wheelGestureX;
+        private int _wheelGestureStartY;
+        private double _wheelGesturePos;
+        private double _wheelGestureTarget;
+        private int _wheelGestureIdleFrames;
+        private DateTime _wheelGestureLastTick;
+        private int _wheelGestureFrames;
+        private double _wheelGestureMaxDt;
+
+        /// <summary>一格滚轮对应的拖拽像素（视频坐标）。</summary>
+        private const double WheelPixelsPerNotch = 60.0;
+
+        /// <summary>手势移动速度（像素/秒）；按真实经过时间推进，定时器抖动也不会忽快忽慢。</summary>
+        private const double WheelGestureSpeed = 1200.0;
+
+        /// <summary>单次手势最多移动画面高度的比例，避免快速滚轮后长时间追赶。</summary>
+        private const double WheelGestureMaxDistanceRatio = 0.45;
         private DateTime _dragStartTime = DateTime.UtcNow;
 
         /// <summary>设备物理分辨率（输入注入使用物理像素，而视频流是缩放后的尺寸）。</summary>
@@ -278,6 +321,9 @@ namespace AdbTools.RemoteControl
 
         public RemoteControlWindow(string adbPath, string serial, string size, int bitRate)
         {
+            // 先加载 XAML，生成界面元素与 x:Name 字段
+            InitializeComponent();
+
             var ctorWatch = System.Diagnostics.Stopwatch.StartNew();
             _adbPath = adbPath;
             _serial = serial;
@@ -285,61 +331,11 @@ namespace AdbTools.RemoteControl
             // 分辨率查询放到后台线程（见 StartCaptureAsync），这里不做阻塞的 adb 调用
 
             Title = "远程控制 - " + serial;
-            // 默认按手机比例（约 9:19.5）+ 机身内边距给窗口尺寸，减少两侧黑边
-            Width = 500;
-            Height = 880;
-            MinWidth = 320;
-            MinHeight = 480;
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            // 与机身接近的深色背景：机身外的留白不显得突兀
-            Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x0E, 0x0E, 0x12));
+            // 窗口尺寸、深色背景与四行布局（状态栏 / 手机外框 / 虚拟按键栏 / 隐藏输入框）
+            // 均已声明在 RemoteControlWindow.xaml 中。
 
-            // 四行：状态栏 / 手机外框（占满剩余空间）/ 虚拟按键栏 / 隐藏输入框
-            var root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            // 与运行时格式一致，避免首帧前闪一下别的文案
-            _status.Text = "- → -   0 fps";
-            _status.Foreground = System.Windows.Media.Brushes.White;
-            _status.Background = System.Windows.Media.Brushes.Black;
-            _status.Padding = new Thickness(0);
-            _status.FontSize = 12;
-            // 单行显示，过长时省略，保证顶部栏高度稳定、与下拉框对齐
-            _status.TextWrapping = TextWrapping.NoWrap;
-            _status.TextTrimming = TextTrimming.CharacterEllipsis;
-            _status.VerticalAlignment = VerticalAlignment.Center;
-            _status.Margin = new Thickness(8, 0, 8, 0);
-
-            // 顶部：左侧状态文字，右侧分辨率菜单，整条栏固定高度并统一底色
-            var header = new Grid
-            {
-                Height = 30,
-                Background = System.Windows.Media.Brushes.Black
-            };
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.Children.Add(_status);
-
-            _resolutionBox = new ComboBox
-            {
-                Width = 132,
-                Height = 22,
-                Margin = new Thickness(0, 0, 6, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = System.Windows.Media.Brushes.White,
-                Cursor = Cursors.Hand,
-                // 去掉点击后的虚线焦点框，避免看起来像错位的系统控件
-                FocusVisualStyle = null,
-                ToolTip = "采集分辨率：原始分辨率不缩放，其他档位按长边缩放\n鼠标悬停到各项可查看清晰度与速度的取舍说明",
-                // 自绘深色模板，避免系统默认下拉框在暗色窗口里显得突兀
-                Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(ResolutionComboTemplateXaml),
-                ItemTemplate = (DataTemplate)System.Windows.Markup.XamlReader.Parse(ResolutionItemTemplateXaml),
-                ItemContainerStyle = (Style)System.Windows.Markup.XamlReader.Parse(ResolutionComboItemStyleXaml)
-            };
+            // 状态栏与分辨率菜单的样式、模板、提示均已在 XAML 中声明，
+            // 这里只填充档位数据并挂接切换事件。
             foreach (var preset in ResolutionPresets)
             {
                 // 直接放数据对象，由 ItemTemplate 渲染（放 UIElement 会被"选中框"和"下拉项"争抢同一个实例）
@@ -347,124 +343,8 @@ namespace AdbTools.RemoteControl
             }
             _resolutionBox.SelectedIndex = 0;
             _resolutionBox.SelectionChanged += Resolution_SelectionChanged;
-            Grid.SetColumn(_resolutionBox, 1);
-            header.Children.Add(_resolutionBox);
 
-            Grid.SetRow(header, 0);
-            root.Children.Add(header);
-
-            // 画面：等比填充在手机外框内部，外框尺寸随窗口缩放同步调整
-            _image.Stretch = System.Windows.Media.Stretch.Uniform;
-            _image.HorizontalAlignment = HorizontalAlignment.Stretch;
-            _image.VerticalAlignment = VerticalAlignment.Stretch;
-            _image.MouseLeftButtonDown += Image_MouseLeftButtonDown;
-            _image.MouseMove += Image_MouseMove;
-            _image.MouseLeftButtonUp += Image_MouseLeftButtonUp;
-            _image.MouseWheel += Image_MouseWheel;
-
-            // 仿手机外框：深色机身 + 圆角 + 内边距 + 投影
-            _phoneFrame.Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x16, 0x16, 0x1A));
-            _phoneFrame.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x3F, 0x3F, 0x46));
-            _phoneFrame.BorderThickness = new Thickness(1);
-            _phoneFrame.CornerRadius = new CornerRadius(28);
-            _phoneFrame.Padding = new Thickness(10);
-            _phoneFrame.HorizontalAlignment = HorizontalAlignment.Center;
-            _phoneFrame.VerticalAlignment = VerticalAlignment.Center;
-            _phoneFrame.Child = _image;
-            _phoneFrame.Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                BlurRadius = 24,
-                ShadowDepth = 0,
-                Color = System.Windows.Media.Colors.Black,
-                Opacity = 0.75
-            };
-
-            // 画面中央卡片：启动过程、锁屏/息屏、异常说明都在这里，
-            // 只显示简化的阶段文案，不把 scrcpy/adb 的详细日志刷到画面上
-            _startupTitle.Text = "正在连接设备";
-            _startupTitle.Foreground = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            _startupTitle.FontSize = 16;
-            _startupTitle.FontWeight = FontWeights.SemiBold;
-            _startupTitle.TextAlignment = TextAlignment.Center;
-
-            _startupSteps.Foreground = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
-            _startupSteps.FontSize = 12;
-            _startupSteps.TextAlignment = TextAlignment.Center;
-            _startupSteps.TextWrapping = TextWrapping.Wrap;
-            _startupSteps.Margin = new Thickness(0, 10, 0, 0);
-
-            var startupStack = new StackPanel();
-            startupStack.Children.Add(_startupTitle);
-            startupStack.Children.Add(_startupSteps);
-
-            _startupPanel.Child = startupStack;
-            _startupPanel.Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromArgb(0xEE, 0x1A, 0x1A, 0x22));
-            _startupPanel.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x3F, 0x3F, 0x46));
-            _startupPanel.BorderThickness = new Thickness(1);
-            _startupPanel.CornerRadius = new CornerRadius(10);
-            _startupPanel.Padding = new Thickness(26, 20, 26, 20);
-            _startupPanel.HorizontalAlignment = HorizontalAlignment.Center;
-            _startupPanel.VerticalAlignment = VerticalAlignment.Center;
-            _startupPanel.MaxWidth = 360;
-
-            _screenHost = new Grid();
-            _screenHost.Children.Add(_phoneFrame);
-            _screenHost.Children.Add(_startupPanel);
-            _screenHost.SizeChanged += (s, e) => UpdatePhoneFrame();
-            _image.SizeChanged += (s, e) => UpdatePhoneFrame();
-            Grid.SetRow(_screenHost, 1);
-            root.Children.Add(_screenHost);
-
-            // 虚拟按键：小尺寸、在窗口下方居中摆放
-            var navBar = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 6, 0, 8)
-            };
-            navBar.Children.Add(CreateNavButton("返回", 4, CreateBackIcon()));
-            navBar.Children.Add(CreateNavButton("Home", 3, CreateHomeIcon()));
-            navBar.Children.Add(CreateNavButton("任务", 187, CreateRecentsIcon()));
-            // 分隔线：左侧导航键，右侧音量与电源
-            navBar.Children.Add(new Border
-            {
-                Width = 1,
-                Height = 15,
-                Margin = new Thickness(5, 0, 8, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(0x4A, 0x4A, 0x55))
-            });
-            navBar.Children.Add(CreateNavButton("音量+ 按住持续增大", 24, CreateVolumeIcon(true), repeatOnHold: true));
-            navBar.Children.Add(CreateNavButton("音量- 按住持续减小", 25, CreateVolumeIcon(false), repeatOnHold: true));
-            navBar.Children.Add(CreateNavButton("电源 短按亮灭屏 / 长按（松开即触发）", 26,
-                CreatePowerIcon(), longPressOnHold: true));
-            Grid.SetRow(navBar, 2);
-            root.Children.Add(navBar);
-            _navBar = navBar;
-
-            // 隐藏的文本框负责接收键盘字符输入（WPF 文本输入需要可聚焦元素）
-            _textSink.Width = 1;
-            _textSink.Height = 1;
-            _textSink.Opacity = 0;
-            _textSink.IsTabStop = false;
-            _textSink.PreviewTextInput += TextSink_PreviewTextInput;
-            Grid.SetRow(_textSink, 3);
-            root.Children.Add(_textSink);
-
-            Content = root;
-
-            Loaded += Window_Loaded;
-            Closing += Window_Closing;
-            Closed += Window_Closed;
-            PreviewKeyDown += Window_PreviewKeyDown;
+            // 画面尺寸变化、窗口生命周期、虚拟按键与键盘输入事件均已由 XAML 声明。
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timer.Tick += (s, e) => UpdateStatus();
@@ -576,24 +456,35 @@ namespace AdbTools.RemoteControl
             // 关闭流程的卡片由 ShowClosingNotice 维护，500ms 定时器不要覆盖它
             if (_closing)
             {
-                _startupPanel.Visibility = Visibility.Visible;
-                _phoneFrame.Visibility = Visibility.Visible;
+                SetNoticeVisibility(_startupPanel, Visibility.Visible);
+                SetNoticeVisibility(_phoneFrame, Visibility.Visible);
                 return;
             }
 
             if (_paused)
             {
-                _startupTitle.Text = "设备已息屏";
-                _startupSteps.Text = "亮屏后自动恢复画面\n也可点下方「电源」键唤醒";
-                _startupPanel.Visibility = Visibility.Visible;
+                SetNoticeText(_startupTitle, "设备已息屏");
+                SetNoticeText(_startupSteps, "亮屏后自动恢复画面\n也可点下方「电源」键唤醒");
+                SetNoticeVisibility(_startupPanel, Visibility.Visible);
                 // 画面已清空，隐藏空的机身外框，让提示落在深色背景上
-                _phoneFrame.Visibility = Visibility.Collapsed;
+                SetNoticeVisibility(_phoneFrame, Visibility.Collapsed);
                 return;
             }
 
-            _phoneFrame.Visibility = Visibility.Visible;
+            SetNoticeVisibility(_phoneFrame, Visibility.Visible);
             // 首帧前由 SetStartupStep 维护启动过程；首帧上屏后收起
-            _startupPanel.Visibility = _startupHidden ? Visibility.Collapsed : Visibility.Visible;
+            SetNoticeVisibility(_startupPanel, _startupHidden ? Visibility.Collapsed : Visibility.Visible);
+        }
+
+        /// <summary>值没变就不赋值，避免 500ms 定时器反复触发依赖属性变更与布局。</summary>
+        private static void SetNoticeText(TextBlock block, string text)
+        {
+            if (!string.Equals(block.Text, text, StringComparison.Ordinal)) block.Text = text;
+        }
+
+        private static void SetNoticeVisibility(UIElement element, Visibility visibility)
+        {
+            if (element.Visibility != visibility) element.Visibility = visibility;
         }
 
         /// <summary>
@@ -691,7 +582,8 @@ namespace AdbTools.RemoteControl
                             + BitConverter.ToString(au, 0, Math.Min(8, au.Length)) + " 关键帧=" + keyFrame);
                     }
                     _decoder.Feed(au, keyFrame);
-                    if (auSeen % 60 == 0)
+                    // 约每 10 秒记一次进度即可，避免每秒刷一行把日志撑大
+                    if (auSeen % 600 == 0)
                     {
                         LogToFile("AU=" + auSeen + " 解码=" + _decoder.DecodedFrames);
                     }
@@ -763,30 +655,61 @@ namespace AdbTools.RemoteControl
             }
 
             int need = width * height * 4;
-            byte[] buffer = _back;
-            if (buffer == null || buffer.Length < need) buffer = new byte[need];
-            if (!Nv12Converter.Convert(nv12, length, sourceWidth, sourceHeight,
-                    cropX, cropY, width, height, buffer)) return;
+            byte[] buffer;
+            lock (_frameLock)
+            {
+                // 只在容量不足时重新分配：横竖屏互换时像素总量不变，
+                // 按宽高变化重建会在每次旋转瞬间产生 3×20MB 的垃圾，内存曲线出现尖峰。
+                if (_frameBuffers[0] == null || _frameBuffers[0].Length < need)
+                {
+                    for (int i = 0; i < _frameBuffers.Length; i++) _frameBuffers[i] = new byte[need];
+                    _front = null;
+                }
+                _frameWidth = width;
+                _frameHeight = height;
+
+                // 只取既不是"待呈现"、也不是"后台正在写/前台正在读"的那块
+                buffer = null;
+                foreach (byte[] candidate in _frameBuffers)
+                {
+                    if (candidate != _front && candidate != _pendingBuffer && candidate != _rendering)
+                    {
+                        buffer = candidate;
+                        break;
+                    }
+                }
+                // 三块都被占用，说明渲染严重跟不上：丢这一帧，绝不覆盖正在显示的画面
+                if (buffer == null) return;
+                _pendingBuffer = buffer;
+            }
+
+            bool converted = Nv12Converter.Convert(nv12, length, sourceWidth, sourceHeight,
+                cropX, cropY, width, height, buffer);
 
             lock (_frameLock)
             {
-                _back = _front;
+                _pendingBuffer = null;
+                if (!converted) return;
+                // 旧 _front 还没被取走说明渲染跟不上，直接丢中间帧，始终显示最新一帧
                 _front = buffer;
-                _frameWidth = width;
-                _frameHeight = height;
-                _framePending = true;
+                _frontWidth = width;
+                _frontHeight = height;
                 Interlocked.Exchange(ref _decodedAtTicks, DateTime.UtcNow.Ticks);
             }
 
             // 触摸事件必须使用视频帧坐标系（服务端 videoSize，实测等于裁剪后的可见尺寸），
             // 首帧与旋转后都要同步给注入器。传 coded 尺寸（含 16 像素补边）会被服务端直接丢弃。
-            _videoWidth = width;
-            _videoHeight = height;
-            InputInjector injector = _injector;
-            if (injector != null)
+            // 尺寸没变就不要每帧重复赋值，减少跨线程属性写入。
+            if (_videoWidth != width || _videoHeight != height)
             {
-                injector.VideoWidth = width;
-                injector.VideoHeight = height;
+                _videoWidth = width;
+                _videoHeight = height;
+                InputInjector injector = _injector;
+                if (injector != null)
+                {
+                    injector.VideoWidth = width;
+                    injector.VideoHeight = height;
+                }
             }
 
             // 只在没有待渲染任务时排一次渲染：渲染跟不上时自动丢中间帧，
@@ -803,8 +726,7 @@ namespace AdbTools.RemoteControl
             lock (_frameLock)
             {
                 _front = null;
-                _back = null;
-                _framePending = false;
+                _pendingBuffer = null;
                 _frameWidth = 0;
                 _frameHeight = 0;
             }
@@ -819,18 +741,20 @@ namespace AdbTools.RemoteControl
             int width, height;
             lock (_frameLock)
             {
-                if (!_framePending)
+                frame = _front;
+                if (frame == null)
                 {
                     _renderQueued = 0;
                     return;
                 }
-                _framePending = false;
-                frame = _front;
-                width = _frameWidth;
-                height = _frameHeight;
+                _front = null;
+                // 标记这块缓冲正被 UI 读取，后台线程不得复用
+                _rendering = frame;
+                width = _frontWidth;
+                height = _frontHeight;
             }
 
-            if (frame != null && width > 0 && height > 0)
+            if (width > 0 && height > 0 && frame.Length >= width * height * 4)
             {
                 if (_bitmap == null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
                 {
@@ -841,7 +765,7 @@ namespace AdbTools.RemoteControl
                         || Math.Abs((double)_bitmap.PixelWidth / _bitmap.PixelHeight - (double)width / height) > 0.02;
                     if (aspectChanged) _autoFitted = false;
 
-                    _bitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+                    _bitmap = GetOrCreateBitmap(width, height);
                     _image.Source = _bitmap;
                     UpdatePhoneFrame();
                     // 画面宽高比变化通常意味着设备旋转，立刻加密方向检测
@@ -853,6 +777,18 @@ namespace AdbTools.RemoteControl
                 HideStartupHint();
 
                 Interlocked.Increment(ref _presentedFrames);
+
+                // 记录上屏帧间隔峰值：平均帧率看不出卡顿，间隔抖动才能反映出来
+                long nowTicks = DateTime.UtcNow.Ticks;
+                long lastTicks = Interlocked.Exchange(ref _lastPresentTicks, nowTicks);
+                if (lastTicks > 0)
+                {
+                    double intervalMs = (nowTicks - lastTicks) / 10000.0;
+                    if (intervalMs > 0 && intervalMs < 2000 && intervalMs > _maxPresentIntervalMs)
+                    {
+                        _maxPresentIntervalMs = intervalMs;
+                    }
+                }
 
                 // 上屏延迟：解码完成 → 真正写进位图，反映 UI 排队与像素拷贝的耗时
                 long decodedAt = Interlocked.Read(ref _decodedAtTicks);
@@ -867,15 +803,51 @@ namespace AdbTools.RemoteControl
                 }
             }
 
-            Interlocked.Exchange(ref _renderQueued, 0);
+            bool hasNewFrame;
+            lock (_frameLock)
+            {
+                // 释放正在读取的缓冲，后台线程可以重新使用它
+                _rendering = null;
+                // 必须先清零再检查 _front：否则解码线程恰好在两者之间提交新帧时，
+                // 会因为看到 _renderQueued=1 不再排队，导致这一帧永远不被呈现
+                Interlocked.Exchange(ref _renderQueued, 0);
+                hasNewFrame = _front != null;
+            }
 
             // 渲染期间又到了新帧：补一次渲染，保持"总是显示最新帧"
-            bool hasNewFrame;
-            lock (_frameLock) hasNewFrame = _framePending;
             if (hasNewFrame && Interlocked.CompareExchange(ref _renderQueued, 1, 0) == 0)
             {
                 Dispatcher.BeginInvoke(new Action(RenderFrame), DispatcherPriority.Render);
             }
+        }
+
+        /// <summary>
+        /// 取该尺寸的显示位图：横竖屏各缓存一块，旋转时直接复用，
+        /// 避免每次新建 5MP 位图产生的后备内存与纹理（约 60MB/次）。
+        /// </summary>
+        private WriteableBitmap GetOrCreateBitmap(int width, int height)
+        {
+            string key = width + "x" + height;
+            WriteableBitmap cached;
+            if (_bitmapCache.TryGetValue(key, out cached)) return cached;
+
+            var bitmap = new WriteableBitmap(width, height, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null);
+            _bitmapCache[key] = bitmap;
+
+            // 只需要横竖两套；出现第三种尺寸时丢掉最旧的一块
+            while (_bitmapCache.Count > 2)
+            {
+                string oldest = null;
+                foreach (string k in _bitmapCache.Keys)
+                {
+                    if (k != key) { oldest = k; break; }
+                }
+                if (oldest == null) break;
+                _bitmapCache.Remove(oldest);
+            }
+
+            return bitmap;
         }
 
         private void UpdateStatus()
@@ -898,6 +870,9 @@ namespace AdbTools.RemoteControl
             _lastDecodedFrames = decoded;
             _lastPresentedFrames = presented;
 
+            double maxIntervalMs = _maxPresentIntervalMs;
+            _maxPresentIntervalMs = 0;
+
             // 锁屏/熄屏时在状态栏最前面提示，方便判断"画面没变"是不是设备休眠了
             // 中央卡片负责息屏/启动过程等说明；状态栏只保留三项指标
             UpdateNotice();
@@ -907,20 +882,27 @@ namespace AdbTools.RemoteControl
 
             // 左上角固定为：画面分辨率 → 设备物理分辨率、真实上屏帧率；
             // 延迟、解码帧率等放悬停提示，其它说明一律在中央卡片里
-            _status.Text = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
+            string statusText = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
+            if (!string.Equals(_status.Text, statusText, StringComparison.Ordinal)) _status.Text = statusText;
 
             // 详细指标放悬停提示：解码帧率高于上屏帧率说明画面被丢了，是卡顿的主要原因
-            _status.ToolTip = string.Format(
+            string tooltip = string.Format(
                 "上屏 {0:F0} fps：真正写到画面上的帧数，即你眼睛看到的流畅度\n" +
                 "解码 {1:F0} fps：解码器输出的帧数，明显高于上屏说明电脑跟不上、中间帧被丢弃\n" +
+                "最大帧间隔 {3:F0} ms：最近一次采样窗口内最长的两次上屏间隔，越大越容易感觉一顿\n" +
                 "上屏延迟 {2}：解码完成到画面更新，只含电脑端排队与像素拷贝；\n" +
                 "    另有设备端采集编码约 30~80 ms 与传输耗时，不计入此值\n" +
                 "帧率偏低或延迟偏大时，建议把分辨率调低一档",
                 Math.Max(0, _displayFps), Math.Max(0, _decodeFps),
-                _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-");
+                _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-",
+                maxIntervalMs);
+            if (!string.Equals(_status.ToolTip as string, tooltip, StringComparison.Ordinal))
+            {
+                _status.ToolTip = tooltip;
+            }
 
             // 每 10 秒把当前状态写进日志，便于事后排查"画面没恢复"这类问题
-            if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 10)
+            if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 30)
             {
                 _lastStatusLog = DateTime.UtcNow;
                 LogToFile("状态：" + (_status.Text ?? "-") + "，采集=" + (_stream != null ? _stream.Size : "-")
@@ -928,13 +910,97 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>把运行日志写到临时目录，便于排查"等待首帧"卡住的问题。</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentQueue<string> _logQueue =
+            new System.Collections.Concurrent.ConcurrentQueue<string>();
+        private static int _logWorkerStarted;
+
+        /// <summary>
+        /// 日志改为入队 + 单个后台线程常开 StreamWriter 写入：
+        /// 解码/取流线程不再做同步磁盘 I/O，也不会每条日志开关一次文件。
+        /// </summary>
         private static void LogToFile(string message)
         {
             try
             {
-                string path = Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log");
-                File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff ") + message + Environment.NewLine);
+                _logQueue.Enqueue(DateTime.Now.ToString("HH:mm:ss.fff ") + message);
+                if (Interlocked.CompareExchange(ref _logWorkerStarted, 1, 0) == 0)
+                {
+                    var worker = new Thread(LogWorker)
+                    {
+                        IsBackground = true,
+                        Name = "remote-log"
+                    };
+                    worker.Start();
+                }
+            }
+            catch { }
+        }
+
+        private static void LogWorker()
+        {
+            try
+            {
+                // 日志写到 %APPDATA%\AdbTools\logs，按天分文件，避免占用临时目录
+                string path = AdbTools.Globals.GetLogFilePath(
+                    "RemoteControl-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                CleanupOldLogs();
+
+                // 日志目录不可写时退回临时目录，保证写日志本身不会变成故障点
+                StreamWriter writer;
+                try
+                {
+                    writer = new StreamWriter(path, true, System.Text.Encoding.UTF8);
+                }
+                catch
+                {
+                    writer = new StreamWriter(
+                        Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log"),
+                        true, System.Text.Encoding.UTF8);
+                }
+
+                using (writer)
+                {
+                    DateTime lastFlush = DateTime.UtcNow;
+                    string line;
+                    while (true)
+                    {
+                        // 一次取空队列再写，减少文件写入与 flush 次数
+                        bool wrote = false;
+                        while (_logQueue.TryDequeue(out line))
+                        {
+                            writer.WriteLine(line);
+                            wrote = true;
+                        }
+
+                        DateTime now = DateTime.UtcNow;
+                        if (wrote && (now - lastFlush).TotalMilliseconds >= 200)
+                        {
+                            writer.Flush();
+                            lastFlush = now;
+                        }
+
+                        Thread.Sleep(20);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>只保留最近 7 天的日志，避免长期运行后日志目录无限增长。</summary>
+        private static void CleanupOldLogs()
+        {
+            try
+            {
+                string dir = AdbTools.Globals.LogDirectory;
+                DateTime limit = DateTime.Now.AddDays(-7);
+                foreach (string file in Directory.GetFiles(dir, "RemoteControl-*.log"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTime(file) < limit) File.Delete(file);
+                    }
+                    catch { }
+                }
             }
             catch { }
         }
@@ -972,6 +1038,8 @@ namespace AdbTools.RemoteControl
         private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _textSink.Focus();
+            // 用户开始拖动画面时先结束滚轮手势，避免两条触摸序列叠加
+            EndWheelGesture();
             // 用户刚旋转完设备往往会马上点一下，此时加密方向检测
             RequestOrientationCheck();
             int x, y, vx, vy;
@@ -1074,44 +1142,191 @@ namespace AdbTools.RemoteControl
             }
         }
 
-        /// <summary>滚轮：合并高频事件后，在鼠标位置做一次短距离上下滑动。</summary>
-        private void Image_MouseWheel(object sender, MouseWheelEventArgs e)
+        /// <summary>
+        /// 滚轮：转成一次触摸拖拽手势（按下 → 逐帧移动 → 抬起），抬手后由系统产生惯性。
+        /// 与鼠标拖拽共用同一条 scrcpy 控制通道，逐帧写入、不排队，反向滚动可立即改变方向。
+        /// </summary>
+        private void RemoteScreen_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            if (_injector == null) return;
+            if (_injector == null)
+            {
+                LogToFile("滚轮忽略：输入通道未建立");
+                return;
+            }
+
+            // 用户正在用鼠标拖动画面时不叠加滚轮手势，避免手指事件冲突
+            if (_dragging) return;
 
             int x, y, vx, vy;
-            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy)) return;
-
-            // 触摸板/高分辨率滚轮会连续产生很多小 delta，逐个下发会让 adb 命令排队，
-            // 表现为"滚一次执行很多次、停手后还在继续"。这里按 50ms 合并成一次滑动。
-            _wheelPoint = new Point(x, y);
-            _wheelAccum += e.Delta;
-
-            if (_wheelTimer == null)
+            if (!TryMapToDevice(e.GetPosition(_image), out x, out y, out vx, out vy))
             {
-                _wheelTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-                _wheelTimer.Tick += (s, args) => FlushWheel();
+                LogToFile("滚轮忽略：坐标不在画面内 image="
+                    + _image.ActualWidth.ToString("F0") + "x" + _image.ActualHeight.ToString("F0"));
+                return;
             }
-            _wheelTimer.Stop();
-            _wheelTimer.Start();
+
+            e.Handled = true;
+
+            _wheelPoint = new Point(x, y);
+            _wheelVideoPoint = new Point(vx, vy);
+            _wheelAccum += e.Delta;
+            StartOrExtendWheelGesture();
         }
 
-        /// <summary>把这一轮累积的滚轮量换算成一次滑动。</summary>
-        private void FlushWheel()
+        /// <summary>
+        /// 启动或延长滚轮拖拽手势：把累积滚轮量换算成手指位移，交给手势状态机逐帧推进。
+        /// 手势已在执行时只叠加目标位移，不重新按下，避免事件堆积。
+        /// </summary>
+        private void StartOrExtendWheelGesture()
         {
-            DispatcherTimer timer = _wheelTimer;
-            if (timer != null)
+            InputInjector injector = _injector;
+            if (injector == null) return;
+
+            int vh = _videoHeight;
+            if (vh <= 0 || _videoWidth <= 0)
             {
-                timer.Stop();
-                _wheelTimer = null;
+                FallbackWheelSwipe();
+                return;
             }
+
+            // 一格滚轮换算成固定像素位移；正数表示手指向下滑（内容向上滚）
+            double delta = _wheelAccum;
+            _wheelAccum = 0;
+            double pixels = delta / 120.0 * WheelPixelsPerNotch;
+            if (Math.Abs(pixels) < 1) return;
+
+            if (!_wheelGestureActive)
+            {
+                int vx = Clamp((int)_wheelVideoPoint.X, 0, Math.Max(0, _videoWidth - 1));
+                // 用真实位置按下，不预先挪到中间，否则按下瞬间画面会跳一下
+                int vy = Clamp((int)_wheelVideoPoint.Y, 0, Math.Max(0, vh - 1));
+
+                _wheelGestureX = vx;
+                _wheelGestureStartY = vy;
+                _wheelGesturePos = 0;
+                // 目标位移同时受上下边界和单次最大距离限制
+                double maxDistance = vh * WheelGestureMaxDistanceRatio;
+                _wheelGestureTarget = Clamp(pixels,
+                    Math.Max(-vy, -maxDistance),
+                    Math.Min(Math.Max(0, vh - 1 - vy), maxDistance));
+                _wheelGestureIdleFrames = 0;
+                _wheelGestureLastTick = DateTime.UtcNow;
+                _wheelGestureFrames = 0;
+                _wheelGestureMaxDt = 0;
+
+                if (!injector.TouchDown(vx, vy))
+                {
+                    _wheelGestureActive = false;
+                    _wheelAccum = delta;   // 还原，交给回退逻辑
+                    FallbackWheelSwipe();
+                    return;
+                }
+
+                _wheelGestureActive = true;
+                // 用渲染帧驱动：触摸移动与画面刷新对齐，避免定时器错帧造成顿挫
+                System.Windows.Media.CompositionTarget.Rendering -= WheelGestureOnRendering;
+                System.Windows.Media.CompositionTarget.Rendering += WheelGestureOnRendering;
+                return;
+            }
+
+            // 手势进行中：叠加目标位移，同时限制单次手势的总距离
+            double limit = vh * WheelGestureMaxDistanceRatio;
+            double desired = Clamp(_wheelGestureTarget + pixels, -limit, limit);
+            _wheelGestureTarget = Clamp(desired,
+                -_wheelGestureStartY, Math.Max(0, vh - 1 - _wheelGestureStartY));
+            _wheelGestureIdleFrames = 0;
+        }
+
+        /// <summary>渲染帧回调：每个画面帧推进一步，保证触摸移动与画面刷新同步。</summary>
+        private void WheelGestureOnRendering(object sender, EventArgs e)
+        {
+            StepWheelGesture();
+        }
+
+        /// <summary>手势每帧推进一步；目标位移走完后抬手，让系统产生惯性。</summary>
+        private void StepWheelGesture()
+        {
+            InputInjector injector = _injector;
+            if (injector == null || !_wheelGestureActive)
+            {
+                EndWheelGesture();
+                return;
+            }
+
+            double remaining = _wheelGestureTarget - _wheelGesturePos;
+            if (Math.Abs(remaining) < 1)
+            {
+                // 快速滚动时事件间隔可能略长，保持手势一小段时间再抬手，
+                // 避免反复“按下/抬起”打断上一次惯性，造成画面抖动
+                if (++_wheelGestureIdleFrames >= 5) EndWheelGesture();
+                return;
+            }
+
+            _wheelGestureIdleFrames = 0;
+
+            // 按真实经过时间推进：定时器延迟时步长自动变长，整体速度保持恒定
+            DateTime now = DateTime.UtcNow;
+            double rawDt = (now - _wheelGestureLastTick).TotalSeconds;
+            _wheelGestureLastTick = now;
+            _wheelGestureFrames++;
+            if (rawDt > _wheelGestureMaxDt) _wheelGestureMaxDt = rawDt;
+
+            double dt = rawDt;
+            if (dt <= 0 || dt > 0.1) dt = 0.016;
+
+            double step = WheelGestureSpeed * dt;
+            if (step > Math.Abs(remaining)) step = Math.Abs(remaining);
+            _wheelGesturePos += remaining > 0 ? step : -step;
+
+            int y = (int)Math.Round(_wheelGestureStartY + _wheelGesturePos);
+            int clamped = Clamp(y, 0, Math.Max(0, _videoHeight - 1));
+            if (clamped != y)
+            {
+                // 到边界后无法继续拖拽，直接抬手，让惯性自然接管
+                _wheelGesturePos = clamped - _wheelGestureStartY;
+                EndWheelGesture();
+                return;
+            }
+
+            if (!injector.TouchMove(_wheelGestureX, clamped))
+            {
+                EndWheelGesture();
+                return;
+            }
+            _lastInject = "scroll-gesture " + (int)_wheelGesturePos;
+        }
+
+        /// <summary>结束滚轮手势：抬起手指，结束按住状态。</summary>
+        private void EndWheelGesture()
+        {
+            System.Windows.Media.CompositionTarget.Rendering -= WheelGestureOnRendering;
+
+            if (!_wheelGestureActive) return;
+            _wheelGestureActive = false;
+
+            if (_wheelGestureFrames > 0)
+            {
+                LogToFile("滚轮手势 帧=" + _wheelGestureFrames + " 位移=" + (int)_wheelGesturePos
+                    + " 最大帧间隔=" + (_wheelGestureMaxDt * 1000).ToString("F0") + "ms");
+            }
+
+            InputInjector injector = _injector;
+            if (injector == null) return;
+
+            int y = Clamp((int)Math.Round(_wheelGestureStartY + _wheelGesturePos),
+                0, Math.Max(0, _videoHeight - 1));
+            injector.TouchUp(_wheelGestureX, y);
+        }
+
+        /// <summary>控制通道不可用时的兜底：退回一次 adb shell swipe。</summary>
+        private void FallbackWheelSwipe()
+        {
+            InputInjector injector = _injector;
+            if (injector == null) return;
 
             double delta = _wheelAccum;
             _wheelAccum = 0;
             if (Math.Abs(delta) < 1) return;
-
-            InputInjector injector = _injector;
-            if (injector == null) return;
 
             int x = (int)_wheelPoint.X;
             int y = (int)_wheelPoint.Y;
@@ -1122,12 +1337,23 @@ namespace AdbTools.RemoteControl
             int from = delta > 0 ? y - distance / 2 : y + distance / 2;
             int to = delta > 0 ? y + distance / 2 : y - distance / 2;
 
-            from = Clamp(from, 0, Math.Max(0, _deviceHeight - 1));
-            to = Clamp(to, 0, Math.Max(0, _deviceHeight - 1));
+            // 物理分辨率未取到时退回视频尺寸，避免限幅把起止点压成同一点导致滑动无效
+            int boundHeight = _deviceHeight > 0
+                ? _deviceHeight
+                : Math.Max(1, _bitmap != null ? _bitmap.PixelHeight : 1);
+            from = Clamp(from, 0, boundHeight - 1);
+            to = Clamp(to, 0, boundHeight - 1);
             injector.Swipe(x, from, x, to, 200);
         }
 
         private static int Clamp(int value, int min, int max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        private static double Clamp(double value, double min, double max)
         {
             if (value < min) return min;
             if (value > max) return max;
@@ -1229,7 +1455,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell svc power stayon false")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell svc power stayon false")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -1253,16 +1479,31 @@ namespace AdbTools.RemoteControl
             if (_bitmap == null || _screenHost == null) return;
             if (_screenHost.ActualWidth <= 0 || _screenHost.ActualHeight <= 0) return;
 
-            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right;
-            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom;
+            // 边框厚度也要算进去，否则画面区域比例与视频不一致，Uniform 会留出黑边
+            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right
+                + _phoneFrame.BorderThickness.Left + _phoneFrame.BorderThickness.Right;
+            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom
+                + _phoneFrame.BorderThickness.Top + _phoneFrame.BorderThickness.Bottom;
             double availableWidth = Math.Max(1, _screenHost.ActualWidth - bezel);
             double availableHeight = Math.Max(1, _screenHost.ActualHeight - bezelV);
 
             double scale = Math.Min(availableWidth / _bitmap.PixelWidth, availableHeight / _bitmap.PixelHeight);
             if (scale <= 0) return;
 
-            _phoneFrame.Width = _bitmap.PixelWidth * scale + bezel;
-            _phoneFrame.Height = _bitmap.PixelHeight * scale + bezelV;
+            double newWidth = _bitmap.PixelWidth * scale + bezel;
+            double newHeight = _bitmap.PixelHeight * scale + bezelV;
+            // 尺寸没变就不要重新赋值：改 Width/Height 会触发新一轮布局，
+            // 而 SizeChanged 回调又会回到这里，形成重复布局 pass
+            if (!double.IsNaN(_phoneFrame.Width) && !double.IsNaN(_phoneFrame.Height)
+                && Math.Abs(_phoneFrame.Width - newWidth) < 0.5
+                && Math.Abs(_phoneFrame.Height - newHeight) < 0.5)
+            {
+                AutoFitToPhone();
+                return;
+            }
+
+            _phoneFrame.Width = newWidth;
+            _phoneFrame.Height = newHeight;
 
             AutoFitToPhone();
         }
@@ -1292,14 +1533,17 @@ namespace AdbTools.RemoteControl
 
             _autoFitted = true;
 
-            // 状态栏会随文本折行到两行，取值加下限，避免按单行算出偏大的窗口
-            double statusHeight = Math.Max(_status.ActualHeight, 40);
+            // 状态栏固定单行（NoWrap），按实际高度取值，避免多算高度让机身上下出现多余空白
+            double statusHeight = Math.Max(_status.ActualHeight, 26);
             double navHeight = _navBar != null && _navBar.ActualHeight > 0
                 ? _navBar.ActualHeight + _navBar.Margin.Top + _navBar.Margin.Bottom
                 : 46;
             navHeight = Math.Max(navHeight, 46);
-            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right;
-            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom;
+            // 边框厚度也要算进去，否则画面区域比例与视频不一致，Uniform 会留出黑边
+            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right
+                + _phoneFrame.BorderThickness.Left + _phoneFrame.BorderThickness.Right;
+            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom
+                + _phoneFrame.BorderThickness.Top + _phoneFrame.BorderThickness.Bottom;
             const double outerMargin = 16;
 
             // 横屏窗口会被撑到接近整屏宽度，显得过大：宽度收到六成半左右；
@@ -1351,9 +1595,10 @@ namespace AdbTools.RemoteControl
             int maxSide = Math.Max(_deviceWidth, _deviceHeight);
             int minSide = Math.Min(_deviceWidth, _deviceHeight);
 
-            // 4K 及以上屏幕像素过多（编解码与转换开销翻倍），等比压到约 420 万像素以内；
-            // 常见 1080p+ 机型仍保持原生分辨率
-            const double maxPixels = 4200000;
+            // 原始分辨率按设备物理尺寸采集，只有超过 4K（约 830 万像素）才压缩，
+            // 避免 1800x2880 这类 5MP 屏被误降到 0.9 倍；
+            // 选择具体档位时仍限制在约 420 万像素，控制编解码与转换开销。
+            double maxPixels = targetLongSide > 0 ? 4200000.0 : 8300000.0;
             double pixels = (double)maxSide * minSide;
             if (pixels > maxPixels)
             {
@@ -1541,7 +1786,7 @@ namespace AdbTools.RemoteControl
             {
                 // 在设备端就把整份 dumpsys 过滤成一行，避免 350ms 一次轮询时传输上百 KB 文本
                 var psi = new ProcessStartInfo(_adbPath,
-                    "-s " + _serial + " shell \"dumpsys input | grep -m1 'Viewport INTERNAL'\"")
+                    "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell \"dumpsys input | grep -m1 'Viewport INTERNAL'\"")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -1578,9 +1823,16 @@ namespace AdbTools.RemoteControl
         /// 触发一次快速方向检测：画面宽高比变化、断流重连、用户操作之后往往伴随旋转，
         /// 触发后 2 秒内按 300ms 检测，其余时间保持 1 秒一次的兜底查询。
         /// </summary>
+        private DateTime _lastBurstRequest = DateTime.MinValue;
+
         private void RequestOrientationCheck()
         {
-            _orientationBurstUntil = DateTime.UtcNow.AddSeconds(2);
+            DateTime now = DateTime.UtcNow;
+            // 鼠标按下、片段重建会连续触发；burst 未结束时不必反复延长，
+            // 避免短时间内堆起多个 adb 方向查询进程
+            if (now < _orientationBurstUntil && (now - _lastBurstRequest).TotalMilliseconds < 500) return;
+            _lastBurstRequest = now;
+            _orientationBurstUntil = now.AddSeconds(2);
         }
 
         /// <summary>查询当前方向与逻辑分辨率，变化时重建取流并重新自适应窗口。</summary>
@@ -1773,7 +2025,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell \"" + script + "\"")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell \"" + script + "\"")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -1790,213 +2042,145 @@ namespace AdbTools.RemoteControl
             catch { return null; }
         }
 
-        /// <summary>分辨率下拉框的深色模板：扁平圆角、自绘箭头，与远程控制窗口配色一致。</summary>
-        private const string ResolutionComboTemplateXaml = @"
-<ControlTemplate TargetType='ComboBox'
-    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
-  <Grid>
-    <ToggleButton x:Name='Toggle' Focusable='False' ClickMode='Press'
-        Foreground='#FFF2F2F2' FontSize='12'
-        Content='{TemplateBinding SelectionBoxItem}'
-        ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}'
-        IsChecked='{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}'>
-      <ToggleButton.Template>
-        <ControlTemplate TargetType='ToggleButton'>
-          <Border x:Name='bd' Background='#FF23232A' BorderBrush='#FF3F3F46' BorderThickness='1' CornerRadius='4'>
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width='*'/>
-                <ColumnDefinition Width='Auto'/>
-              </Grid.ColumnDefinitions>
-              <ContentPresenter Grid.Column='0' Margin='8,0,4,0' VerticalAlignment='Center' HorizontalAlignment='Left'/>
-              <Path Grid.Column='1' Margin='0,0,8,0' VerticalAlignment='Center' Data='M0,0 L8,0 L4,5 Z' Fill='#FFB9B9C2'/>
-            </Grid>
-          </Border>
-          <ControlTemplate.Triggers>
-            <Trigger Property='IsMouseOver' Value='True'>
-              <Setter TargetName='bd' Property='BorderBrush' Value='#FF5C5C68'/>
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </ToggleButton.Template>
-    </ToggleButton>
-    <Popup x:Name='PART_Popup' Placement='Bottom' VerticalOffset='2'
-           IsOpen='{TemplateBinding IsDropDownOpen}' AllowsTransparency='True' Focusable='False' PopupAnimation='Fade'>
-      <Border Background='#FF23232A' BorderBrush='#FF3F3F46' BorderThickness='1' CornerRadius='4' Padding='2' MinWidth='132'>
-        <ItemsPresenter/>
-      </Border>
-    </Popup>
-  </Grid>
-</ControlTemplate>";
-
-        /// <summary>下拉项内容：清晰度图标 + 档位名称（图标几何由多个 Path 共用）。</summary>
-        private const string ResolutionItemTemplateXaml = @"
-<DataTemplate
-    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
-  <StackPanel Orientation='Horizontal' Margin='0,1'>
-    <Path Data='{Binding Icon}' Width='14' Height='14' Margin='1,0,7,0' Stretch='Uniform'
-          Stroke='#FFF2F2F2' StrokeThickness='1.5' Fill='Transparent'
-          StrokeLineJoin='Round' StrokeStartLineCap='Round' StrokeEndLineCap='Round'
-          VerticalAlignment='Center'/>
-    <TextBlock Text='{Binding Name}' Foreground='#FFF2F2F2' FontSize='12' VerticalAlignment='Center'/>
-  </StackPanel>
-</DataTemplate>";
-
-        /// <summary>下拉项样式：深色底、白字，悬停浅灰、选中蓝色，悬停显示该档位的说明。</summary>
-        private const string ResolutionComboItemStyleXaml = @"
-<Style TargetType='ComboBoxItem'
-    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
-  <Setter Property='Foreground' Value='#FFF2F2F2'/>
-  <!-- 鼠标移到项上变小手，与窗口里其他可点控件保持一致 -->
-  <Setter Property='Cursor' Value='Hand'/>
-  <!-- 提示文字较长，延长显示时间；ToolTip 内容由档位数据的 Tip 提供 -->
-  <Setter Property='ToolTip' Value='{Binding Tip}'/>
-  <Setter Property='ToolTipService.ShowDuration' Value='20000'/>
-  <Setter Property='ToolTipService.InitialShowDelay' Value='300'/>
-  <Setter Property='Template'>
-    <Setter.Value>
-      <ControlTemplate TargetType='ComboBoxItem'>
-        <Border x:Name='bd' Background='Transparent' CornerRadius='3' Padding='8,4' Margin='0,1'>
-          <ContentPresenter/>
-        </Border>
-        <ControlTemplate.Triggers>
-          <Trigger Property='IsHighlighted' Value='True'>
-            <Setter TargetName='bd' Property='Background' Value='#FF33333C'/>
-          </Trigger>
-          <Trigger Property='IsSelected' Value='True'>
-            <Setter TargetName='bd' Property='Background' Value='#FF2A9FFF'/>
-          </Trigger>
-        </ControlTemplate.Triggers>
-      </ControlTemplate>
-    </Setter.Value>
-  </Setter>
-</Style>";
-
-        /// <summary>导航按键外观：深灰圆角，鼠标悬停变亮，按下变蓝（与主界面按钮色调一致）。</summary>
-        private const string NavButtonTemplateXaml = @"
-<ControlTemplate TargetType='Button'
-    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
-  <Border x:Name='bd' Background='#FF35353D' CornerRadius='5' SnapsToDevicePixels='True'>
-    <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/>
-  </Border>
-  <ControlTemplate.Triggers>
-    <Trigger Property='IsMouseOver' Value='True'>
-      <Setter TargetName='bd' Property='Background' Value='#FF4C4C58'/>
-    </Trigger>
-    <Trigger Property='IsPressed' Value='True'>
-      <Setter TargetName='bd' Property='Background' Value='#FF2A9FFF'/>
-    </Trigger>
-  </ControlTemplate.Triggers>
-</ControlTemplate>";
-
-        /// <summary>导航按键模板只解析一次后复用，避免每个按键都解析一遍 XAML。</summary>
-        private static ControlTemplate _navButtonTemplate;
-
-        private static ControlTemplate NavButtonTemplate
+        /// <summary>
+        /// 解析按键 Tag：keyCode[:repeat][:longpress]。
+        /// repeat 表示按住时每 180ms 重发一次完整按键（音量键，松开即停、不限次数）；
+        /// longpress 表示松开时按按住时长决定短按 / --longpress（电源键）。
+        /// 实测设备不会响应"只按下不抬起"的注入事件，因此重复必须每次发完整按键。
+        /// </summary>
+        private static void ParseNavTag(object tag, out int keyCode,
+            out bool repeatOnHold, out bool longPressOnHold)
         {
-            get
+            repeatOnHold = false;
+            longPressOnHold = false;
+            string[] parts = (tag as string ?? string.Empty).Split(':');
+            int.TryParse(parts[0], out keyCode);
+            for (int i = 1; i < parts.Length; i++)
             {
-                if (_navButtonTemplate == null)
-                {
-                    _navButtonTemplate = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(NavButtonTemplateXaml);
-                }
-                return _navButtonTemplate;
+                if (parts[i] == "repeat") repeatOnHold = true;
+                else if (parts[i] == "longpress") longPressOnHold = true;
             }
+        }
+
+        /// <summary>画面宿主尺寸变化：重新按画面比例计算机身尺寸。</summary>
+        private void RemoteScreen_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdatePhoneFrame();
         }
 
         /// <summary>
-        /// 创建虚拟导航按键（图标 + 注入 keyevent）。
-        /// repeatOnHold：按住时每 180ms 重发一次完整按键（音量键，松开即停、不限次数）；
-        /// longPressOnHold：松开时按按住时长决定短按 / --longpress（电源键）。
-        /// 实测设备不会响应"只按下不抬起"的注入事件，因此重复必须每次发完整按键。
+        /// 画面自身尺寸变化后再更新圆角裁剪。
+        /// 不能在宿主 SizeChanged 里直接裁剪：那一刻 _image 还是旧尺寸，
+        /// Clip 会偏小，导致画面右侧/底部被切掉。
         /// </summary>
-        private Button CreateNavButton(string tip, int keyCode, FrameworkElement icon,
-            bool repeatOnHold = false, bool longPressOnHold = false)
+        private void Image_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            // 图标按原始路径坐标系绘制，用 Viewbox 统一缩放到小按钮内，避免被 26px 高度裁切
-            var iconHost = new Viewbox
-            {
-                Child = icon,
-                Width = 13,
-                Height = 13,
-                Stretch = System.Windows.Media.Stretch.Uniform
-            };
-
-            var button = new Button
-            {
-                Content = iconHost,
-                Width = 38,
-                Height = 26,
-                Padding = new Thickness(0),
-                // 左右各留 3，按键间距 6，整体居中时左右留白对称
-                Margin = new Thickness(3, 0, 3, 0),
-                BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand,
-                ToolTip = tip + "（keyevent " + keyCode + "）",
-                Template = NavButtonTemplate
-            };
-            if (repeatOnHold || longPressOnHold)
-            {
-                DispatcherTimer holdTimer = null;
-                DateTime pressStarted = DateTime.MinValue;
-                DateTime lastReleaseAt = DateTime.MinValue;
-
-                button.PreviewMouseLeftButtonDown += (s, e) =>
-                {
-                    pressStarted = DateTime.UtcNow;
-                    if (!repeatOnHold) return;
-
-                    // 音量：按下立即调一次，之后每 180ms 重复，松开即停（不限次数）。
-                    // 实测注入"只按下不抬起"的设备不会响应，必须每次发完整按键事件。
-                    InjectNavKey(keyCode);
-                    holdTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
-                    holdTimer.Tick += (s2, e2) => InjectNavKey(keyCode);
-                    holdTimer.Start();
-                };
-
-                button.PreviewMouseLeftButtonUp += (s, e) =>
-                {
-                    StopHoldTimer(ref holdTimer);
-                    lastReleaseAt = DateTime.UtcNow;
-
-                    if (longPressOnHold)
-                    {
-                        HandlePowerRelease((lastReleaseAt - pressStarted).TotalMilliseconds);
-                    }
-                };
-
-                // 鼠标移出/失去捕获时停止连发，避免拖走后还在响
-                button.MouseLeave += (s, e) => StopHoldTimer(ref holdTimer);
-                button.LostMouseCapture += (s, e) => StopHoldTimer(ref holdTimer);
-
-                // 键盘/自动化触发（没有鼠标按下事件）时补一次单击；
-                // 鼠标点击后紧跟的 Click 要跳过，否则长按松手会多注入一次
-                button.Click += (s, e) =>
-                {
-                    if (lastReleaseAt != DateTime.MinValue
-                        && (DateTime.UtcNow - lastReleaseAt).TotalMilliseconds < 500)
-                    {
-                        return;
-                    }
-                    InjectNavKey(keyCode);
-                };
-            }
-            else
-            {
-                button.Click += (s, e) => InjectNavKey(keyCode);
-            }
-            return button;
+            UpdateScreenClip();
         }
 
-        private static void StopHoldTimer(ref DispatcherTimer timer)
+        private double _lastClipWidth;
+        private double _lastClipHeight;
+
+        /// <summary>按屏幕内圆角裁剪画面，避免画面直角盖住机身圆角。</summary>
+        private void UpdateScreenClip()
         {
-            if (timer == null) return;
+            double w = _image.ActualWidth;
+            double h = _image.ActualHeight;
+            if (w <= 0 || h <= 0)
+            {
+                if (_image.Clip != null) _image.Clip = null;
+                _lastClipWidth = _lastClipHeight = 0;
+                return;
+            }
+
+            // 尺寸未变时不要重建裁剪几何，避免每次布局都分配对象
+            if (_image.Clip != null
+                && Math.Abs(w - _lastClipWidth) < 0.5
+                && Math.Abs(h - _lastClipHeight) < 0.5) return;
+
+            _lastClipWidth = w;
+            _lastClipHeight = h;
+            double radius = Math.Min(24.0, Math.Min(w, h) * 0.045);
+            _image.Clip = new System.Windows.Media.RectangleGeometry(
+                new Rect(0, 0, w, h), radius, radius);
+        }
+
+        /// <summary>
+        /// 按键按下：音量键立即注入并开始每 180ms 连发；电源键只记录按下时刻。
+        /// 普通按键交给 Click 处理。
+        /// </summary>
+        private void NavButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var button = (Button)sender;
+            ParseNavTag(button.Tag, out int keyCode, out bool repeatOnHold, out bool longPressOnHold);
+            if (!repeatOnHold && !longPressOnHold) return;
+
+            _navPressStarted[button] = DateTime.UtcNow;
+            if (!repeatOnHold) return;
+
+            // 音量：按下立即调一次，之后每 180ms 重复，松开即停（不限次数）。
+            // 实测注入"只按下不抬起"的设备不会响应，必须每次发完整按键事件。
+            InjectNavKey(keyCode);
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+            timer.Tick += (s2, e2) => InjectNavKey(keyCode);
+            timer.Start();
+            _navHoldTimers[button] = timer;
+        }
+
+        /// <summary>按键松开：停止连发；电源键按按住时长决定短按 / 长按。</summary>
+        private void NavButton_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var button = (Button)sender;
+            StopNavHoldTimer(button);
+
+            DateTime releasedAt = DateTime.UtcNow;
+            _navLastRelease[button] = releasedAt;
+
+            ParseNavTag(button.Tag, out _, out _, out bool longPressOnHold);
+            if (!longPressOnHold) return;
+
+            DateTime pressStarted;
+            if (!_navPressStarted.TryGetValue(button, out pressStarted)) pressStarted = releasedAt;
+            else _navPressStarted.Remove(button);
+            HandlePowerRelease((releasedAt - pressStarted).TotalMilliseconds);
+        }
+
+        /// <summary>鼠标移出时停止连发，避免拖走后还在响。</summary>
+        private void NavButton_MouseLeave(object sender, MouseEventArgs e)
+        {
+            StopNavHoldTimer((Button)sender);
+        }
+
+        /// <summary>失去鼠标捕获时停止连发。</summary>
+        private void NavButton_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            StopNavHoldTimer((Button)sender);
+        }
+
+        /// <summary>
+        /// 按键单击：键盘/自动化触发（没有鼠标按下事件）时补一次；
+        /// 鼠标点击后紧跟的 Click 要跳过，否则长按松手会多注入一次。
+        /// </summary>
+        private void NavButton_Click(object sender, RoutedEventArgs e)
+        {
+            var button = (Button)sender;
+            DateTime lastReleaseAt;
+            if (_navLastRelease.TryGetValue(button, out lastReleaseAt)
+                && (DateTime.UtcNow - lastReleaseAt).TotalMilliseconds < 500)
+            {
+                return;
+            }
+
+            ParseNavTag(button.Tag, out int keyCode, out _, out _);
+            InjectNavKey(keyCode);
+        }
+
+        private void StopNavHoldTimer(Button button)
+        {
+            DispatcherTimer timer;
+            if (!_navHoldTimers.TryGetValue(button, out timer)) return;
             timer.Stop();
-            timer = null;
+            _navHoldTimers.Remove(button);
         }
 
         /// <summary>
@@ -2036,102 +2220,16 @@ namespace AdbTools.RemoteControl
                 return;
             }
 
-            LogToFile("注入 keyevent " + keyCode + (longPress ? "（长按）" : ""));
+            // 音量键按住会每 180ms 连发一次，日志按 500ms 节流，避免刷屏
+            if ((DateTime.UtcNow - _lastInjectLog).TotalMilliseconds >= 500)
+            {
+                _lastInjectLog = DateTime.UtcNow;
+                LogToFile("注入 keyevent " + keyCode + (longPress ? "（长按）" : ""));
+            }
+
             if (longPress) _injector.KeyEventLongPress(keyCode);
             else _injector.KeyEvent(keyCode);
             _lastInject = "keyevent " + keyCode;
-        }
-
-        /// <summary>返回：Android 风格的三角形图标。</summary>
-        private static FrameworkElement CreateBackIcon()
-        {
-            var stroke = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            return new System.Windows.Shapes.Path
-            {
-                Data = System.Windows.Media.Geometry.Parse("M15,2 L3,12 L15,22 Z"),
-                Stroke = stroke,
-                StrokeThickness = 2,
-                StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
-                Fill = System.Windows.Media.Brushes.Transparent,
-                Width = 18,
-                Height = 24,
-                Stretch = System.Windows.Media.Stretch.Uniform
-            };
-        }
-
-        /// <summary>Home：空心圆。</summary>
-        private static FrameworkElement CreateHomeIcon()
-        {
-            var stroke = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            return new System.Windows.Shapes.Ellipse
-            {
-                Width = 18,
-                Height = 18,
-                Stroke = stroke,
-                StrokeThickness = 2,
-                Fill = System.Windows.Media.Brushes.Transparent
-            };
-        }
-
-        /// <summary>音量：喇叭轮廓 + 加号/减号。</summary>
-        private static FrameworkElement CreateVolumeIcon(bool up)
-        {
-            var stroke = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            string data = "M3,6.3 L5.6,6.3 L9,3.2 L9,12.8 L5.6,9.7 L3,9.7 Z M11.8,8 L15.8,8";
-            if (up) data += " M13.8,6 L13.8,10";
-
-            return new System.Windows.Shapes.Path
-            {
-                Data = System.Windows.Media.Geometry.Parse(data),
-                Stroke = stroke,
-                StrokeThickness = 1.5,
-                StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
-                StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
-                StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
-                Fill = System.Windows.Media.Brushes.Transparent,
-                Width = 16,
-                Height = 16,
-                Stretch = System.Windows.Media.Stretch.Uniform
-            };
-        }
-
-        /// <summary>电源：常见电源符号（缺口圆 + 顶部竖线）。</summary>
-        private static FrameworkElement CreatePowerIcon()
-        {
-            var stroke = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            return new System.Windows.Shapes.Path
-            {
-                Data = System.Windows.Media.Geometry.Parse("M8,2 L8,8.5 M4.2,4.4 A6,6 0 1 0 11.8,4.4"),
-                Stroke = stroke,
-                StrokeThickness = 1.8,
-                StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
-                StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
-                Fill = System.Windows.Media.Brushes.Transparent,
-                Width = 16,
-                Height = 16,
-                Stretch = System.Windows.Media.Stretch.Uniform
-            };
-        }
-
-        /// <summary>任务：空心圆角方块。</summary>
-        private static FrameworkElement CreateRecentsIcon()
-        {
-            var stroke = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF2, 0xF2));
-            return new System.Windows.Shapes.Rectangle
-            {
-                Width = 18,
-                Height = 18,
-                RadiusX = 2,
-                RadiusY = 2,
-                Stroke = stroke,
-                StrokeThickness = 2,
-                Fill = System.Windows.Media.Brushes.Transparent
-            };
         }
 
         /// <summary>
@@ -2200,7 +2298,7 @@ namespace AdbTools.RemoteControl
             _closing = true;
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
-            try { if (_wheelTimer != null) _wheelTimer.Stop(); } catch { }
+            EndWheelGesture();
 
             ShowClosingNotice("正在关闭远程控制", "正在停止取流并释放解码资源…");
 
@@ -2261,7 +2359,12 @@ namespace AdbTools.RemoteControl
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
             try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
-            try { if (_wheelTimer != null) _wheelTimer.Stop(); } catch { }
+            EndWheelGesture();
+
+            // 断开引用，让缓存的显示位图可以回收
+            _image.Source = null;
+            _bitmap = null;
+            _bitmapCache.Clear();
         }
     }
 }
