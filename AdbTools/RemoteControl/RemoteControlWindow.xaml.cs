@@ -189,6 +189,13 @@ namespace AdbTools.RemoteControl
         private WriteableBitmap _bitmap;
 
         /// <summary>
+        /// 显示位图缓存（按宽高）。横竖屏各一块，旋转时直接复用：
+        /// 每次新建 5MP 位图会额外产生约 60MB 后备内存与纹理，内存曲线出现尖峰。
+        /// </summary>
+        private readonly Dictionary<string, WriteableBitmap> _bitmapCache =
+            new Dictionary<string, WriteableBitmap>();
+
+        /// <summary>
         /// 帧缓冲：解码线程写、UI 线程读。用三块固定缓冲轮换，
         /// 通过 _front / _pendingBuffer / _rendering 三个引用标记占用状态，
         /// 保证 UI 正在 WritePixels 的那块不会被后台线程改写（旧版双缓冲会撕裂）。
@@ -245,6 +252,9 @@ namespace AdbTools.RemoteControl
 
         /// <summary>最近一次注入的命令，显示在状态栏便于确认点击是否落点正确。</summary>
         private string _lastInject = "";
+
+        /// <summary>按键注入日志的节流时间戳（音量键按住会连发，不能每次按键都写日志）。</summary>
+        private DateTime _lastInjectLog = DateTime.MinValue;
 
         /// <summary>是否已有待渲染任务在 UI 队列中（用于合并/丢弃过期帧）。</summary>
         private int _renderQueued;
@@ -572,7 +582,8 @@ namespace AdbTools.RemoteControl
                             + BitConverter.ToString(au, 0, Math.Min(8, au.Length)) + " 关键帧=" + keyFrame);
                     }
                     _decoder.Feed(au, keyFrame);
-                    if (auSeen % 60 == 0)
+                    // 约每 10 秒记一次进度即可，避免每秒刷一行把日志撑大
+                    if (auSeen % 600 == 0)
                     {
                         LogToFile("AU=" + auSeen + " 解码=" + _decoder.DecodedFrames);
                     }
@@ -647,15 +658,15 @@ namespace AdbTools.RemoteControl
             byte[] buffer;
             lock (_frameLock)
             {
-                // 尺寸变化时重建三块缓冲；旧尺寸的待呈现帧直接丢弃
-                if (_frameWidth != width || _frameHeight != height
-                    || _frameBuffers[0] == null || _frameBuffers[0].Length < need)
+                // 只在容量不足时重新分配：横竖屏互换时像素总量不变，
+                // 按宽高变化重建会在每次旋转瞬间产生 3×20MB 的垃圾，内存曲线出现尖峰。
+                if (_frameBuffers[0] == null || _frameBuffers[0].Length < need)
                 {
                     for (int i = 0; i < _frameBuffers.Length; i++) _frameBuffers[i] = new byte[need];
-                    _frameWidth = width;
-                    _frameHeight = height;
                     _front = null;
                 }
+                _frameWidth = width;
+                _frameHeight = height;
 
                 // 只取既不是"待呈现"、也不是"后台正在写/前台正在读"的那块
                 buffer = null;
@@ -754,7 +765,7 @@ namespace AdbTools.RemoteControl
                         || Math.Abs((double)_bitmap.PixelWidth / _bitmap.PixelHeight - (double)width / height) > 0.02;
                     if (aspectChanged) _autoFitted = false;
 
-                    _bitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+                    _bitmap = GetOrCreateBitmap(width, height);
                     _image.Source = _bitmap;
                     UpdatePhoneFrame();
                     // 画面宽高比变化通常意味着设备旋转，立刻加密方向检测
@@ -810,6 +821,35 @@ namespace AdbTools.RemoteControl
             }
         }
 
+        /// <summary>
+        /// 取该尺寸的显示位图：横竖屏各缓存一块，旋转时直接复用，
+        /// 避免每次新建 5MP 位图产生的后备内存与纹理（约 60MB/次）。
+        /// </summary>
+        private WriteableBitmap GetOrCreateBitmap(int width, int height)
+        {
+            string key = width + "x" + height;
+            WriteableBitmap cached;
+            if (_bitmapCache.TryGetValue(key, out cached)) return cached;
+
+            var bitmap = new WriteableBitmap(width, height, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null);
+            _bitmapCache[key] = bitmap;
+
+            // 只需要横竖两套；出现第三种尺寸时丢掉最旧的一块
+            while (_bitmapCache.Count > 2)
+            {
+                string oldest = null;
+                foreach (string k in _bitmapCache.Keys)
+                {
+                    if (k != key) { oldest = k; break; }
+                }
+                if (oldest == null) break;
+                _bitmapCache.Remove(oldest);
+            }
+
+            return bitmap;
+        }
+
         private void UpdateStatus()
         {
             // 按真实经过时间计算帧率：DispatcherTimer 在 UI 繁忙时会被推迟，
@@ -862,7 +902,7 @@ namespace AdbTools.RemoteControl
             }
 
             // 每 10 秒把当前状态写进日志，便于事后排查"画面没恢复"这类问题
-            if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 10)
+            if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 30)
             {
                 _lastStatusLog = DateTime.UtcNow;
                 LogToFile("状态：" + (_status.Text ?? "-") + "，采集=" + (_stream != null ? _stream.Size : "-")
@@ -900,8 +940,25 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                string path = Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log");
-                using (var writer = new StreamWriter(path, true, System.Text.Encoding.UTF8))
+                // 日志写到 %APPDATA%\AdbTools\logs，按天分文件，避免占用临时目录
+                string path = AdbTools.Globals.GetLogFilePath(
+                    "RemoteControl-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                CleanupOldLogs();
+
+                // 日志目录不可写时退回临时目录，保证写日志本身不会变成故障点
+                StreamWriter writer;
+                try
+                {
+                    writer = new StreamWriter(path, true, System.Text.Encoding.UTF8);
+                }
+                catch
+                {
+                    writer = new StreamWriter(
+                        Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log"),
+                        true, System.Text.Encoding.UTF8);
+                }
+
+                using (writer)
                 {
                     DateTime lastFlush = DateTime.UtcNow;
                     string line;
@@ -924,6 +981,25 @@ namespace AdbTools.RemoteControl
 
                         Thread.Sleep(20);
                     }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>只保留最近 7 天的日志，避免长期运行后日志目录无限增长。</summary>
+        private static void CleanupOldLogs()
+        {
+            try
+            {
+                string dir = AdbTools.Globals.LogDirectory;
+                DateTime limit = DateTime.Now.AddDays(-7);
+                foreach (string file in Directory.GetFiles(dir, "RemoteControl-*.log"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTime(file) < limit) File.Delete(file);
+                    }
+                    catch { }
                 }
             }
             catch { }
@@ -2144,7 +2220,13 @@ namespace AdbTools.RemoteControl
                 return;
             }
 
-            LogToFile("注入 keyevent " + keyCode + (longPress ? "（长按）" : ""));
+            // 音量键按住会每 180ms 连发一次，日志按 500ms 节流，避免刷屏
+            if ((DateTime.UtcNow - _lastInjectLog).TotalMilliseconds >= 500)
+            {
+                _lastInjectLog = DateTime.UtcNow;
+                LogToFile("注入 keyevent " + keyCode + (longPress ? "（长按）" : ""));
+            }
+
             if (longPress) _injector.KeyEventLongPress(keyCode);
             else _injector.KeyEvent(keyCode);
             _lastInject = "keyevent " + keyCode;
@@ -2278,6 +2360,11 @@ namespace AdbTools.RemoteControl
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
             try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
             EndWheelGesture();
+
+            // 断开引用，让缓存的显示位图可以回收
+            _image.Source = null;
+            _bitmap = null;
+            _bitmapCache.Clear();
         }
     }
 }

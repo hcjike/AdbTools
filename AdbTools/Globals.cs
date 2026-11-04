@@ -63,6 +63,47 @@ namespace AdbTools
         }
 
         /// <summary>
+        /// 程序在用户 Roaming 目录下的数据目录（%APPDATA%\AdbTools）。
+        /// </summary>
+        public static string AppDataDirectory
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "AdbTools");
+            }
+        }
+
+        /// <summary>
+        /// 日志目录（%APPDATA%\AdbTools\logs），不存在时自动创建。
+        /// </summary>
+        public static string LogDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(AppDataDirectory, "logs");
+                try
+                {
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                }
+                catch
+                {
+                    // 目录不可写时交给调用方处理（写日志本身失败不应影响功能）
+                }
+                return dir;
+            }
+        }
+
+        /// <summary>
+        /// 拼接日志文件的完整路径。
+        /// </summary>
+        public static string GetLogFilePath(string fileName)
+        {
+            return Path.Combine(LogDirectory, fileName);
+        }
+
+        /// <summary>
         /// Config配置文件读取
         /// </summary>
         public static class AppSettings
@@ -74,10 +115,8 @@ namespace AdbTools
             /// 不放在 exe 同目录，避免安装目录只读、程序更新被覆盖导致配置丢失；
             /// 用 Roaming 可在同域多台机器间随账户漫游，保留配置
             /// </summary>
-            private static readonly string ConfigFilePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AdbTools",
-                "AdbTools.config");
+            private static readonly string ConfigFilePath =
+                Path.Combine(AppDataDirectory, "AdbTools.config");
 
             private static Configuration _config;
 

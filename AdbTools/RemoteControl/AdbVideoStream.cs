@@ -197,7 +197,7 @@ namespace AdbTools.RemoteControl
                         totalBytes += read;
                         onData(buffer, read);
 
-                        if (heartbeat.ElapsedMilliseconds >= 2000)
+                        if (heartbeat.ElapsedMilliseconds >= 15000)
                         {
                             Log?.Invoke("已接收 " + (totalBytes / 1024) + " KB");
                             heartbeat.Restart();

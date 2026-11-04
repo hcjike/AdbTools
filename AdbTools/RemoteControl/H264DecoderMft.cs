@@ -27,6 +27,11 @@ namespace AdbTools.RemoteControl
         private int _diagInput;
         private int _diagOutput;
 
+        /// <summary>复用的输出样本与缓冲（尺寸变化时重建），避免每帧申请大块内存。</summary>
+        private IMFSample _outSample;
+        private IMFMediaBuffer _outBuffer;
+        private int _outBufferSize;
+
         /// <summary>输出 MFT 诊断日志（定位解码问题时使用）。</summary>
         public bool Verbose { get; set; }
 
@@ -86,19 +91,15 @@ namespace AdbTools.RemoteControl
                 // 上一次输入还没取完输出：先取空再重试
                 int drained = Drain();
                 hr = _transform.ProcessInput(0, sample, 0);
-                if (hr < 0)
-                {
-                    Marshal.ReleaseComObject(sample);
-                    return drained;
-                }
+                // ProcessInput 返回后样本由调用方释放（MFT 需要时会自行 AddRef）
+                Marshal.ReleaseComObject(sample);
+                if (hr < 0) return drained;
                 return drained + Drain();
             }
 
-            if (hr < 0)
-            {
-                Marshal.ReleaseComObject(sample);
-                return 0;
-            }
+            // 成功路径同样必须释放：否则每帧泄漏一个访问单元的输入缓冲
+            Marshal.ReleaseComObject(sample);
+            if (hr < 0) return 0;
 
             return Drain();
         }
@@ -294,13 +295,11 @@ namespace AdbTools.RemoteControl
 
             while (true)
             {
-                IMFMediaBuffer outBuffer;
-                MfInterop.Check(MfInterop.MFCreateMemoryBuffer(OutputBufferSize, out outBuffer), "创建输出缓冲区");
+                // 复用同一套输出样本/缓冲：5MP 下每帧 7.8MB，按 60fps 新建会持续制造大块内存压力
+                if (!EnsureOutputSample()) break;
+                _outBuffer.SetCurrentLength(0);
 
-                IMFSample outSample;
-                MfInterop.Check(MfInterop.MFCreateSample(out outSample), "创建输出样本");
-                outSample.AddBuffer(outBuffer);
-
+                IMFSample outSample = _outSample;
                 var dataBuffer = new MFT_OUTPUT_DATA_BUFFER();
                 dataBuffer.dwStreamID = 0;
                 dataBuffer.pSample = outSample;
@@ -313,12 +312,8 @@ namespace AdbTools.RemoteControl
                         + " sample=" + (dataBuffer.pSample != null ? "有" : "无"));
                 }
 
-                // 样本已交给 MFT 后，我们持有的缓冲区引用即可释放（样本内部自持一份）
-                Marshal.ReleaseComObject(outBuffer);
-
                 IMFSample producedSample = dataBuffer.pSample;
                 bool sampleIsOurs = ReferenceEquals(producedSample, outSample);
-                if (!sampleIsOurs) Marshal.ReleaseComObject(outSample);
 
                 if (dataBuffer.pEvents != IntPtr.Zero)
                 {
@@ -328,16 +323,16 @@ namespace AdbTools.RemoteControl
 
                 if (hr == MfInterop.MF_E_TRANSFORM_STREAM_CHANGE)
                 {
-                    if (producedSample != null) Marshal.ReleaseComObject(producedSample);
-                    // 分辨率/编码参数变化：重新协商输出类型
+                    if (!sampleIsOurs && producedSample != null) Marshal.ReleaseComObject(producedSample);
+                    // 分辨率/编码参数变化：重新协商输出类型，并按新尺寸重建输出缓冲
+                    ReleaseOutputSample();
                     ConfigureOutputType();
                     continue;
                 }
 
                 if (hr < 0 || producedSample == null)
                 {
-                    if (producedSample != null) Marshal.ReleaseComObject(producedSample);
-                    if (hr == MfInterop.MF_E_TRANSFORM_NEED_MORE_INPUT) break;
+                    if (!sampleIsOurs && producedSample != null) Marshal.ReleaseComObject(producedSample);
                     break;
                 }
 
@@ -362,10 +357,48 @@ namespace AdbTools.RemoteControl
                     }
                     Marshal.ReleaseComObject(buffer);
                 }
-                Marshal.ReleaseComObject(producedSample);
+
+                // 自己的样本留到下轮复用；MFT 另给的样本用完即释放
+                if (!sampleIsOurs) Marshal.ReleaseComObject(producedSample);
             }
 
             return produced;
+        }
+
+        private bool EnsureOutputSample()
+        {
+            if (_outSample != null && _outBufferSize == OutputBufferSize) return true;
+
+            ReleaseOutputSample();
+            try
+            {
+                MfInterop.Check(MfInterop.MFCreateMemoryBuffer(OutputBufferSize, out _outBuffer), "创建输出缓冲区");
+                MfInterop.Check(MfInterop.MFCreateSample(out _outSample), "创建输出样本");
+                _outSample.AddBuffer(_outBuffer);
+                _outBufferSize = OutputBufferSize;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Trace("[MFT] 创建输出样本失败：" + ex.Message);
+                ReleaseOutputSample();
+                return false;
+            }
+        }
+
+        private void ReleaseOutputSample()
+        {
+            if (_outSample != null)
+            {
+                try { Marshal.ReleaseComObject(_outSample); } catch { }
+                _outSample = null;
+            }
+            if (_outBuffer != null)
+            {
+                try { Marshal.ReleaseComObject(_outBuffer); } catch { }
+                _outBuffer = null;
+            }
+            _outBufferSize = 0;
         }
 
         /// <summary>
@@ -466,6 +499,7 @@ namespace AdbTools.RemoteControl
             if (_disposed) return;
             _disposed = true;
             try { _transform.ProcessMessage(MfInterop.MFT_MESSAGE_NOTIFY_END_STREAMING, IntPtr.Zero); } catch { }
+            ReleaseOutputSample();
             try { Marshal.ReleaseComObject(_transform); } catch { }
         }
     }
