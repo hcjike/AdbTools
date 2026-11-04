@@ -104,6 +104,53 @@ namespace AdbTools
         }
 
         /// <summary>
+        /// 更新安装包下载目录（%APPDATA%\AdbTools\update），不存在时自动创建。
+        /// 放在用户目录而不是 %TEMP%，避免临时目录被清理或权限受限。
+        /// </summary>
+        public static string UpdateDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(AppDataDirectory, "update");
+                try
+                {
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                }
+                catch
+                {
+                    // 目录不可写时由下载流程报错，这里不抛异常
+                }
+                return dir;
+            }
+        }
+
+        /// <summary>
+        /// 清理更新下载目录：每次启动时调用，删除上次残留的安装包。
+        /// 文件被占用（例如安装程序仍在运行）时跳过，下次启动再清。
+        /// </summary>
+        public static void CleanupUpdateDirectory()
+        {
+            try
+            {
+                string dir = Path.Combine(AppDataDirectory, "update");
+                if (!Directory.Exists(dir)) return;
+
+                foreach (string file in Directory.GetFiles(dir))
+                {
+                    try { File.Delete(file); } catch { }
+                }
+                foreach (string sub in Directory.GetDirectories(dir))
+                {
+                    try { Directory.Delete(sub, true); } catch { }
+                }
+            }
+            catch
+            {
+                // 清理失败不影响启动
+            }
+        }
+
+        /// <summary>
         /// Config配置文件读取
         /// </summary>
         public static class AppSettings

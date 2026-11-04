@@ -677,7 +677,10 @@ namespace AdbTools
                 return;
             }
 
-            string targetPath = Path.Combine(Path.GetTempPath(), "AdbToolsInstaller_" + githubReleases.tag_name + ".exe");
+            // 下载到 %APPDATA%\AdbTools\update：用户目录可写、不占临时目录，
+            // 且每次启动会被 Globals.CleanupUpdateDirectory 清空
+            string targetPath = Path.Combine(Globals.UpdateDirectory,
+                "AdbToolsInstaller_" + githubReleases.tag_name + ".exe");
 
             // 后台下载：不禁用窗口、不改光标、不占用标题，仅在更新图标上提示进度，
             // 避免网络较差时界面看起来像卡死。下载完成后的启动安装流程保持不变。
