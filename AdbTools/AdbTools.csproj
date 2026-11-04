@@ -217,7 +217,14 @@
     <Compile Include="RemoteControl\MfInterfaces.cs" />
     <Compile Include="RemoteControl\MfInterop.cs" />
     <Compile Include="RemoteControl\Nv12Converter.cs" />
-    <Compile Include="RemoteControl\RemoteControlWindow.cs" />
+    <Compile Include="RemoteControl\RemoteControlWindow.xaml.cs">
+      <DependentUpon>RemoteControlWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Page Include="RemoteControl\RemoteControlWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="PairWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

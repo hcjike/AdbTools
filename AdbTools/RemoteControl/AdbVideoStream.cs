@@ -287,7 +287,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " " + adbArgs)
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " " + adbArgs)
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

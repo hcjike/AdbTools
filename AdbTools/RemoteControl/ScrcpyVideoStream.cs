@@ -23,6 +23,12 @@ namespace AdbTools.RemoteControl
         private const string ServerFileName = "scrcpy-server";
         private const string DeviceServerPath = "/data/local/tmp/adbtools-scrcpy-server.jar";
 
+        /// <summary>
+        /// 采集帧率上限。不限帧时 120Hz 设备会按 120fps 出流，
+        /// 而 UI 线程每帧都要做大分辨率像素拷贝，跟不上反而更卡。
+        /// </summary>
+        private const int MaxFps = 60;
+
         private readonly string _adbPath;
         private readonly string _serial;
         private readonly string _serverPath;
@@ -401,6 +407,7 @@ namespace AdbTools.RemoteControl
             sb.Append(" cleanup=false raw_stream=true");
             if (maxSize > 0) sb.Append(" max_size=").Append(maxSize.ToString(CultureInfo.InvariantCulture));
             if (_bitRate > 0) sb.Append(" video_bit_rate=").Append(_bitRate.ToString(CultureInfo.InvariantCulture));
+            sb.Append(" max_fps=").Append(MaxFps.ToString(CultureInfo.InvariantCulture));
             sb.Append('"');
 
             var psi = new ProcessStartInfo(_adbPath, sb.ToString())
@@ -560,6 +567,27 @@ namespace AdbTools.RemoteControl
         }
 
         /// <summary>
+        /// 注入一次滚轮（scrcpy 控制协议 type=3，v2.0+ 带 buttons，共 21 字节）。
+        /// scrollX/scrollY 为定点数：约 32767 表示一格滚轮，正负表示方向。
+        /// 走控制通道即时写入，不会像 adb shell 的 input swipe 那样阻塞排队。
+        /// </summary>
+        public bool SendScroll(int x, int y, int screenWidth, int screenHeight, int scrollX, int scrollY)
+        {
+            if (!_controlReady || screenWidth <= 0 || screenHeight <= 0) return false;
+
+            var buf = new byte[21];
+            buf[0] = 3;                                                   // INJECT_SCROLL_EVENT
+            WriteI32BE(buf, 1, x);
+            WriteI32BE(buf, 5, y);
+            WriteU16BE(buf, 9, screenWidth);
+            WriteU16BE(buf, 11, screenHeight);
+            WriteI16BE(buf, 13, scrollX);
+            WriteI16BE(buf, 15, scrollY);
+            WriteU32BE(buf, 17, 0);                                       // buttons
+            return SendControl(buf);
+        }
+
+        /// <summary>
         /// 注入一次按键（scrcpy 控制协议 type=0，14 字节）。
         /// action：0=按下、1=抬起；repeat 为重复计数（按住时递增，设备据此识别为长按重复）。
         /// </summary>
@@ -601,6 +629,12 @@ namespace AdbTools.RemoteControl
         }
 
         private static void WriteU16BE(byte[] buf, int offset, int value)
+        {
+            buf[offset] = (byte)(value >> 8);
+            buf[offset + 1] = (byte)value;
+        }
+
+        private static void WriteI16BE(byte[] buf, int offset, int value)
         {
             buf[offset] = (byte)(value >> 8);
             buf[offset + 1] = (byte)value;

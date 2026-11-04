@@ -88,7 +88,7 @@ namespace AdbTools.RemoteControl
 
         private void Start()
         {
-            var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell")
+            var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell")
             {
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -183,6 +183,23 @@ namespace AdbTools.RemoteControl
             Send(string.Format(CultureInfo.InvariantCulture, "input swipe {0} {1} {2} {3} {4}", x1, y1, x2, y2, durationMs));
         }
 
+        /// <summary>
+        /// 注入滚轮（视频坐标）。控制通道可用时即时生效、不阻塞不排队；
+        /// 返回 false 表示控制通道不可用，调用方需自行回退。
+        /// </summary>
+        public bool Scroll(int videoX, int videoY, int scrollX, int scrollY)
+        {
+            ScrcpyVideoStream control = Control;
+            if (control == null || !control.ControlAvailable) return false;
+
+            int vw = VideoWidth, vh = VideoHeight;
+            if (vw <= 0 || vh <= 0) return false;
+
+            if (videoX < 0) videoX = 0; else if (videoX >= vw) videoX = vw - 1;
+            if (videoY < 0) videoY = 0; else if (videoY >= vh) videoY = vh - 1;
+            return control.SendScroll(videoX, videoY, vw, vh, scrollX, scrollY);
+        }
+
         public void MotionDown(int x, int y)
         {
             Send(string.Format(CultureInfo.InvariantCulture, "input motionevent DOWN {0} {1}", x, y));
@@ -248,7 +265,7 @@ namespace AdbTools.RemoteControl
             try
             {
                 string text;
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " shell getevent -pl")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell getevent -pl")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -318,7 +335,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + _serial + " " + adbArgs)
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " " + adbArgs)
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
