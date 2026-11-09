@@ -29,7 +29,7 @@
 - **连接管理**：设备列表展示、一键刷新（`F5`）、**定时刷新**（关闭 / 3 秒 / 5 秒 / 10 秒 / 15 秒 / 20 秒 / 30 秒 / 60 秒，设置自动保存）、断开单个 / 断开所有设备；设备名称读取完成前显示 `unknown`，读取后自动刷新。
 - **历史记录**：自动保存成功连接的地址，下拉框可右键「删除记录 / 清空所有记录」。
 - **应用安装**：右键设备行「安装应用」选择 APK，或直接把 APK 文件**拖拽**到设备行安装。
-- **应用控制**：打开应用列表查看全部应用（应用名 / 包名 / 系统或第三方 / 停用状态），支持搜索与筛选，可直接卸载、停用/启用、清除缓存或数据。
+- **应用控制**：打开应用列表查看全部应用（应用名 / 包名 / 系统或第三方 / 系统服务 / 停用状态），支持搜索与筛选（含系统服务），可直接卸载、停用/启用、清除缓存或数据。
 - **设备调试**：打开 Shell 窗口、独立日志窗口（缓冲切换、级别 / 关键字过滤、暂停、清空、保存、选择复制）、一键抓取崩溃日志与诊断包、恢复默认 TCP 端口 / 分辨率 / DPI。
 - **实时远程控制**：右键设备行即可打开实时画面窗口，支持触摸 / 滑动与返回、Home、任务、音量、电源等虚拟按键；设备端用 MediaCodec 主动编码（scrcpy server）输出 H.264，画面横竖屏自动适配。内置五档采集分辨率（原画 / 1080P / 720P / 480P / 360P），带清晰度图标与悬停说明；设备达不到的档位自动隐藏，编码器不兼容时**逐级向下验证**直到找到可用档位，最后仍不可用时自动回退 `adb screenrecord`。状态栏显示真实上屏帧率，启动、息屏与关闭过程在画面中央给出卡片提示。
 - **操作日志**：独立日志窗口记录操作过程与状态，可右键复制命令。
@@ -45,7 +45,7 @@
 
 - 需要 `.NET Framework 4.6` 运行时；
 - `64 位 Windows` 系统；
-- 程序已内置 `adb.exe` 及依赖（`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`QRCoder.dll`）、远程控制所需的 `scrcpy-server` 与授权文件（`scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt`），以及本项目许可证 `LICENSE.txt`，**无需电脑另行安装 ADB、scrcpy 或 VC++ 运行库**，Windows 10/11 开箱即用。adb 命令会自动拉起自带服务，不依赖系统中已存在的 adb 服务（Win7/8/8.1 需系统已安装 Universal C Runtime 更新）；
+- 程序已内置 `adb.exe` 及依赖（`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`QRCoder.dll`、`libwebp.dll`、`System.Data.SQLite.dll`）、远程控制所需的 `scrcpy-server` 与授权文件（`scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt`），以及本项目许可证 `LICENSE.txt`，**无需电脑另行安装 ADB、scrcpy 或 VC++ 运行库**，Windows 10/11 开箱即用。adb 命令会自动拉起自带服务，不依赖系统中已存在的 adb 服务（Win7/8/8.1 需系统已安装 Universal C Runtime 更新）；
 - 远程控制要求设备允许 `adb shell` 以 shell 身份启动 `app_process`（部分深度定制的 TV ROM 会限制）；不满足时会自动回退到 `adb screenrecord`，功能仍可用但流畅度会下降。
 
 ## 连接准备
@@ -84,6 +84,8 @@
 | --- | --- |
 | `AdbTools.exe`、`QRCoder.dll` | 主程序与扫码配对 |
 | `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll` | ADB 及 USB 依赖 |
+| `libwebp.dll` | 应用图标 WebP 解码 |
+| `System.Data.SQLite.dll`、`SQLite.Interop.dll` | 应用名 / 系统服务缓存数据库 |
 | `scrcpy-server` | 远程控制的设备端取流服务（运行时推送到设备 `/data/local/tmp/`） |
 | `scrcpy-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` | 第三方许可证全文与许可/组件声明 |
 | `LICENSE.txt` | 本项目 Apache-2.0 许可证全文（含版权声明） |
@@ -158,10 +160,11 @@
 
 - **包名与状态**：`pm list packages -f` 取包名与 APK 路径，`-s` / `-d` 标记系统应用与已停用应用，返回很快。
 - **应用名**：Android 没有直接查询应用名的命令，只能读取每个应用 APK 内的 `AndroidManifest.xml` 与 `resources.arsc`，在本机解析 `android:label`，并优先取简体中文资源。
-- **图标**：与名称一起解析，取 APK 里最高密度的图标位图；自适应图标（`mipmap-anydpi-v26/*.xml`）会再读它的前景层。纯矢量图标的少量应用显示「包名首字母 + 固定色块」占位，不影响其它信息。
+- **系统服务**：解析 manifest，把系统应用里「无桌面入口」或「声明常驻（persistent）」的应用标记为「系统服务」，列表以橙色标签显示并支持筛选。
+- **图标**：与名称一起解析，取 APK 里最高密度的图标位图；自适应图标（`mipmap-anydpi-v26/*.xml`）会再读它的前景层；WebP 与矢量图（VectorDrawable）图标由本机解码 / 渲染后缓存。解析不到图标的少数应用显示「应用名首字 + 固定色块」占位，不影响其它信息。
 - **拉取量**：每个应用只取 manifest、资源表和一张图标（多数几十 KB 到几百 KB，**不下载整个 APK**）。325 个应用首次约需 1~2 分钟，状态栏显示进度；可随时点「停止获取名称」中断，关闭窗口也会立即停止。
 - **大应用较慢**：资源表特别大的应用（例如系统「设置」约 104MB）单个约需 1 分钟；超过 160MB 的直接跳过，只显示包名。
-- **缓存**：名称存在 `%APPDATA%\AdbTools\data\app.db`（SQLite），图标存在 `%APPDATA%\AdbTools\data\icons\<包名>.png`，第二次打开直接命中，不再拉取。
+- **缓存**：名称、系统服务标记与解析状态存在 `%APPDATA%\AdbTools\data\app.db`（SQLite），图标存在 `%APPDATA%\AdbTools\data\icons\<包名>.png`，第二次打开直接命中，不再拉取；来自缓存的行会在列表中以「缓存」标签标注。
 - **仍显示包名的情况**：少数系统包（如部分 apex 虚拟化组件）本身没有 `android:label`，只能显示包名。
 - **不影响操作**：名称只用于显示，卸载 / 停用 / 启用 / 清除缓存等功能随时可用，不必等名称解析完成。
 - **WiFi 调试注意**：数据经 adb 通道传输，WiFi 下会占用带宽；解析期间同时使用远程控制可能互相影响，可先点「停止获取名称」。
