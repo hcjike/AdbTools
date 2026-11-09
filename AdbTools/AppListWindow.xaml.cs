@@ -142,13 +142,19 @@ namespace AdbTools
                 _resolver = null;
             }
 
-            _apps.Clear();
             // 第三方应用在前：这类才是一般要处理的对象，系统应用数量多且大多不用动
-            foreach (KeyValuePair<string, string> entry in ParsePackagePaths(allOutput)
+            List<KeyValuePair<string, string>> entries = ParsePackagePaths(allOutput)
                 .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .OrderBy(x => system.Contains(x.Key) ? 1 : 0)
-                .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // 一次 IN 查询把已缓存的名称全部取回，避免逐条查库
+            Dictionary<string, string> cachedLabels = AppLabelStore.GetLabels(entries.Select(x => x.Key));
+
+            _apps.Clear();
+            foreach (KeyValuePair<string, string> entry in entries)
             {
                 AppInfo app = new AppInfo
                 {
@@ -158,8 +164,8 @@ namespace AdbTools
                     IsDisabled = disabled.Contains(entry.Key)
                 };
 
-                string cached = AppLabelCache.Get(entry.Key);
-                if (!string.IsNullOrEmpty(cached))
+                string cached;
+                if (cachedLabels.TryGetValue(entry.Key, out cached) && !string.IsNullOrEmpty(cached))
                 {
                     app.DisplayName = cached;
                 }

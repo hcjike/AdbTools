@@ -128,7 +128,7 @@ namespace AdbTools
 
                 if (label != null)
                 {
-                    AppLabelCache.Set(app.PackageName, label);
+                    AppLabelStore.SetLabel(app.PackageName, label);
                     Interlocked.Exchange(ref _failureStreak, 0);
                 }
                 else if (transportOk)
