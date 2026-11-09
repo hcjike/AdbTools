@@ -605,7 +605,8 @@ namespace AdbTools
             {
                 return;
             }
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} logcat");
+            // SerialArg 已带引号，这里必须传原始序列号，否则会变成 ""序列号"" 导致 adb 找不到设备
+            new DeviceLogWindow(adbPath, device.DeviceMark, device.DeviceInfo).Show();
         }
 
         private void logcatDebugItem_Click(object sender, RoutedEventArgs e)
@@ -615,7 +616,79 @@ namespace AdbTools
             {
                 return;
             }
-            CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} logcat -s DEBUG");
+            new DeviceLogWindow(adbPath, device.DeviceMark, device.DeviceInfo, "DEBUG").Show();
+        }
+
+        private void captureCrashItem_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null) return;
+
+            waitAnimation(true);
+            LogCollector.CaptureCrashAsync(adbPath, device.DeviceMark, device.DeviceInfo,
+                (ok, error, path) =>
+                {
+                    waitAnimation(false);
+                    if (!ok)
+                    {
+                        MessageBox.Show("抓取崩溃日志失败：" + error, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    ShowCollectedResult("崩溃日志已保存：", path);
+                });
+        }
+
+        private void captureBundleItem_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null) return;
+
+            waitAnimation(true);
+            LogCollector.CaptureBundleAsync(adbPath, device.DeviceMark, device.DeviceInfo,
+                (ok, error, path) =>
+                {
+                    waitAnimation(false);
+                    if (!ok)
+                    {
+                        MessageBox.Show("抓取诊断包失败：" + error, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    ShowCollectedResult("诊断包已保存：", path);
+                });
+        }
+
+        private void openLogDirItem_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            string dir = device != null
+                ? LogCollector.GetDeviceLogDirectory(device.DeviceInfo)
+                : Globals.DeviceLogsDirectory;
+
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe", dir);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开目录失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowCollectedResult(string title, string path)
+        {
+            string message = title + "\r\n" + path + "\r\n\r\n是否打开所在位置？";
+            if (MessageBoxResult.Yes == MessageBox.Show(message, "完成",
+                MessageBoxButton.YesNo, MessageBoxImage.Information))
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\"");
+                }
+                catch
+                {
+                    // 打开失败不影响文件本身
+                }
+            }
         }
 
         private void openShell_Click(object sender, RoutedEventArgs e)
@@ -976,67 +1049,24 @@ namespace AdbTools
                 });
         }
 
-        private void systemAppPackagep_Click(object sender, RoutedEventArgs e)
-        {
-            ShowPackageList("-s", "系统安装应用包名");
-        }
-
-        private void thirdPartyAppPackage_Click(object sender, RoutedEventArgs e)
-        {
-            ShowPackageList("-3", "第三方安装应用包名");
-        }
-
-        private void allAppPackage_Click(object sender, RoutedEventArgs e)
-        {
-            ShowPackageList("", "所有安装应用包名");
-        }
-
         /// <summary>
-        /// 获取设备已安装应用包名列表并展示
+        /// 打开应用列表：一次性展示全部应用，并直接在列表里启动、停用、启用、卸载
         /// </summary>
-        /// <param name="arguments">pm list packages 的参数，如 -s / -3</param>
-        /// <param name="title">展示窗口标题</param>
-        private void ShowPackageList(string arguments, string title)
+        private void appList_Click(object sender, RoutedEventArgs e)
         {
             Device device = GetSelectedDevice();
             if (device == null)
             {
                 return;
             }
-            waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.SerialArg} shell pm list packages {arguments}".TrimEnd() }, result =>
-            {
-                List<string> packages = ParsePackageList(result);
-                waitAnimation(false);
-                InfoShowWindow infoShowWindow = new InfoShowWindow()
-                {
-                    Title = title,
-                    DescriptionContent = string.Join("\r\n", packages)
-                };
-                infoShowWindow.Show();
-            },
-            err =>
-            {
-                waitAnimation(false);
-                MessageBox.Show($"设备【{device.ShowDeviceName}】获取{title}失败！\r\n检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return true;
-            });
-        }
 
-        /// <summary>
-        /// 解析 “pm list packages” 输出（兼容cmd回显与提示符行，仅提取 package: 开头的行）
-        /// </summary>
-        private static List<string> ParsePackageList(string result)
-        {
-            if (string.IsNullOrEmpty(result))
+            AppListWindow appListWindow = new AppListWindow()
             {
-                return new List<string>();
-            }
-            return result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => line.Trim())
-                .Where(line => line.StartsWith("package:", StringComparison.OrdinalIgnoreCase))
-                .Select(line => line.Substring("package:".Length).Trim())
-                .ToList();
+                AdbPath = adbPath,
+                DeviceInfo = device,
+                Owner = this
+            };
+            appListWindow.ShowDialog();
         }
 
         private void disableAllAppPackage_Click(object sender, RoutedEventArgs e)

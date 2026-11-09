@@ -104,6 +104,27 @@ namespace AdbTools
         }
 
         /// <summary>
+        /// 设备日志导出目录（%APPDATA%\AdbTools\DeviceLogs），与应用运行日志 logs 分开。
+        /// 内部按设备名称再分子目录。
+        /// </summary>
+        public static string DeviceLogsDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(AppDataDirectory, "DeviceLogs");
+                try
+                {
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                }
+                catch
+                {
+                    // 目录不可写时由调用方处理
+                }
+                return dir;
+            }
+        }
+
+        /// <summary>
         /// 更新安装包下载目录（%APPDATA%\AdbTools\update），不存在时自动创建。
         /// 放在用户目录而不是 %TEMP%，避免临时目录被清理或权限受限。
         /// </summary>

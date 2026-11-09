@@ -270,7 +270,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
-                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                    <!-- Orientation 必须绑定，否则横向滚动条会套用竖向轨道的逻辑，滑块位置反向 -->
+                    <Track x:Name="PART_Track"
+                           Orientation="{TemplateBinding Orientation}"
+                           IsDirectionReversed="True">
                         <Track.Thumb>
                             <Thumb>
                                 <Thumb.Template>
@@ -286,12 +289,20 @@
                             </Thumb>
                         </Track.Thumb>
                         <Track.IncreaseRepeatButton>
-                            <RepeatButton Opacity="0" Command="ScrollBar.PageDownCommand"/>
+                            <RepeatButton x:Name="IncreaseButton" Opacity="0" Command="ScrollBar.PageDownCommand"/>
                         </Track.IncreaseRepeatButton>
                         <Track.DecreaseRepeatButton>
-                            <RepeatButton Opacity="0" Command="ScrollBar.PageUpCommand"/>
+                            <RepeatButton x:Name="DecreaseButton" Opacity="0" Command="ScrollBar.PageUpCommand"/>
                         </Track.DecreaseRepeatButton>
                     </Track>
+                    <ControlTemplate.Triggers>
+                        <!-- 横向：值 0 在最左，翻页改用左右命令 -->
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                            <Setter TargetName="IncreaseButton" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}"/>
+                            <Setter TargetName="DecreaseButton" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

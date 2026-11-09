@@ -16,6 +16,10 @@
             <MenuItem Header="查看日志" Cursor="Hand"   Margin="0,2" >
                 <MenuItem x:Name="logcatItem" Header="实时日志" Cursor="Hand"   Margin="0,2" Click="logcatItem_Click" />
                 <MenuItem x:Name="logcatDebugItem" Header="Debug日志" Cursor="Hand"   Margin="0,2" Click="logcatDebugItem_Click" />
+                <Separator/>
+                <MenuItem x:Name="captureCrashItem" Header="抓取崩溃日志" Cursor="Hand" Margin="0,2" Click="captureCrashItem_Click" />
+                <MenuItem x:Name="captureBundleItem" Header="抓取诊断包" Cursor="Hand" Margin="0,2" Click="captureBundleItem_Click" />
+                <MenuItem x:Name="openLogDirItem" Header="打开日志目录" Cursor="Hand" Margin="0,2" Click="openLogDirItem_Click" />
             </MenuItem>
             <Separator/>
             <MenuItem Header="恢复默认" Cursor="Hand"   Margin="0,2" >
@@ -26,12 +30,7 @@
             <Separator/>
             <MenuItem Header="应用控制" Cursor="Hand"   Margin="0,2">
                 <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand"   Margin="0,2" Click="openShell_Click"/>
-                <Separator/>
-                <MenuItem Header="显示包名" Cursor="Hand"   Margin="0,2">
-                    <MenuItem x:Name="systemAppPackagep" Header="显示系统应用包名" Cursor="Hand"   Margin="0,2" Click="systemAppPackagep_Click" />
-                    <MenuItem x:Name="thirdPartyAppPackage" Header="显示第三方应用包名" Cursor="Hand"   Margin="0,2" Click="thirdPartyAppPackage_Click" />
-                    <MenuItem x:Name="allAppPackage" Header="显示所有应用包名" Cursor="Hand"   Margin="0,2" Click="allAppPackage_Click" />
-                </MenuItem>
+                <MenuItem x:Name="appList" Header="应用列表（卸载/停用/启用）" Cursor="Hand"   Margin="0,2" Click="appList_Click" />
                 <MenuItem Header="指定包名" Cursor="Hand"   Margin="0,2">
                     <MenuItem x:Name="customkEnable" Header="启用应用" Cursor="Hand"   Margin="0,2" Click="customkEnable_Click" />
                     <MenuItem x:Name="customDisable" Header="禁用应用" Cursor="Hand"   Margin="0,2" Click="customDisable_Click" />
