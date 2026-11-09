@@ -18,6 +18,17 @@ scrcpy (server)
 SHA-256   : 764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536
           （与官方发行包 SHA256SUMS.txt 中的值一致）
 
+libwebp
+-------
+版本      : 随 UMapx.Imaging.Webp 8.0.2.1 分发的 x64 构建（libwebp 解码库）
+来源      : https://www.nuget.org/packages/UMapx.Imaging.Webp
+            上游项目  : https://github.com/webmproject/libwebp
+许可      : BSD-3-Clause（libwebp 版权归 Google 及原作者所有）
+随附文件  : libwebp.dll
+SHA-256   : 359C16AC843DB95FA5D7E9A31BF8C59E325EFAE4CD0BFB6FB212E4742C0E22A0
+用途说明  : 解码应用图标里的 WebP 图片。WPF 自带的 WIC 没有内置 WebP 解码器，
+            故随程序附带 libwebp；仅在本机解码图标，不涉及任何网络传输。
+
 SQLite / System.Data.SQLite
 ---------------------------
 版本      : 1.0.119.0（NuGet 包 System.Data.SQLite.Core）

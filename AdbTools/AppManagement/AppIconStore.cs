@@ -1,12 +1,14 @@
 using System;
 using System.IO;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace AdbTools
 {
     /// <summary>
     /// 应用图标缓存。图标直接存成文件：%APPDATA%\AdbTools\data\icons\&lt;包名&gt;.png。
-    /// 文件存在即视为已缓存，不额外维护数据库表；解码失败（如 WebP 缺解码器）时由调用方回退占位图。
+    /// 文件存在即视为已缓存，不额外维护数据库表；解码失败时由调用方回退占位图。
+    /// 缓存里可能出现的格式：png/jpg（WPF 原生支持）、webp（需要 libwebp，见 WebpDecoder）。
     /// </summary>
     internal static class AppIconStore
     {
@@ -54,7 +56,7 @@ namespace AdbTools
             return null;
         }
 
-        /// <summary>写入图标文件；同名旧扩展名的文件一并清掉，避免同一应用留两份。</summary>
+        /// <summary>写入图标文件；WebP 会先转成 PNG，同名旧扩展名的文件一并清掉，避免同一应用留两份。</summary>
         public static void Save(string packageName, byte[] data, string extension)
         {
             if (string.IsNullOrEmpty(packageName) || data == null || data.Length == 0)
@@ -62,10 +64,97 @@ namespace AdbTools
                 return;
             }
 
+            // WebP 只在取图时解码一次，随后以 PNG 落盘：解码器缺失也不会反复失败
+            if (NormalizeExtension(extension) == ".webp" || WebpDecoder.IsWebp(data))
+            {
+                byte[] png = EncodePng(WebpDecoder.Decode(data));
+                if (png != null)
+                {
+                    SaveBytes(packageName, ".png", png);
+                    return;
+                }
+            }
+
+            SaveBytes(packageName, NormalizeExtension(extension), data);
+        }
+
+        /// <summary>保存一张位图（矢量图标渲染结果）：统一转成 PNG。</summary>
+        public static void SaveBitmap(string packageName, BitmapSource image)
+        {
+            byte[] png = EncodePng(image);
+            if (png != null)
+            {
+                SaveBytes(packageName, ".png", png);
+            }
+        }
+
+        /// <summary>从缓存文件加载图标；文件损坏或系统缺少解码器时返回 null。</summary>
+        public static ImageSource Load(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            byte[] data;
+            try
+            {
+                // 先整份读进内存：既能按文件头判断真实格式，也不会一直占着文件
+                data = File.ReadAllBytes(path);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (data.Length == 0)
+            {
+                return null;
+            }
+
+            if (WebpDecoder.IsWebp(data))
+            {
+                BitmapSource decoded = WebpDecoder.Decode(data);
+                if (decoded == null)
+                {
+                    return null;
+                }
+
+                // 旧缓存里的 WebP 顺手转成 PNG，后续启动直接走系统解码器
+                if (string.Equals(Path.GetExtension(path), ".webp", StringComparison.OrdinalIgnoreCase))
+                {
+                    SaveBitmap(Path.GetFileNameWithoutExtension(path), decoded);
+                }
+
+                return decoded;
+            }
+
+            try
+            {
+                using (MemoryStream stream = new MemoryStream(data, false))
+                {
+                    BitmapImage image = new BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.DecodePixelWidth = 64;
+                    image.StreamSource = stream;
+                    image.EndInit();
+                    image.Freeze();
+                    return image;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void SaveBytes(string packageName, string extension, byte[] data)
+        {
             try
             {
                 string dir = IconsDirectory;
-                string target = Path.Combine(dir, packageName + NormalizeExtension(extension));
+                string target = Path.Combine(dir, packageName + extension);
                 File.WriteAllBytes(target, data);
 
                 foreach (string other in KnownExtensions)
@@ -83,27 +172,21 @@ namespace AdbTools
             }
         }
 
-        /// <summary>从缓存文件加载图标；文件损坏或系统缺少解码器时返回 null。</summary>
-        public static BitmapImage Load(string path)
+        private static byte[] EncodePng(BitmapSource image)
         {
-            if (string.IsNullOrEmpty(path))
+            if (image == null)
             {
                 return null;
             }
 
             try
             {
-                // 用文件流而不是 UriSource：路径里出现 # 等字符时不会被当成 URI 片段
-                using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                PngBitmapEncoder encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using (MemoryStream stream = new MemoryStream())
                 {
-                    BitmapImage image = new BitmapImage();
-                    image.BeginInit();
-                    image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.DecodePixelWidth = 64;
-                    image.StreamSource = stream;
-                    image.EndInit();
-                    image.Freeze();
-                    return image;
+                    encoder.Save(stream);
+                    return stream.ToArray();
                 }
             }
             catch

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Windows.Media;
 
 namespace AdbTools
 {
@@ -13,12 +15,21 @@ namespace AdbTools
         private const ushort ChunkXml = 0x0003;
         // ResourceTypes.h：0x0100/0x0101 是命名空间，元素节点是 0x0102/0x0103
         private const ushort ChunkXmlStartElement = 0x0102;
+        private const ushort ChunkXmlEndElement = 0x0103;
         private const ushort ChunkXmlResourceMap = 0x0180;
         private const ushort ChunkTablePackage = 0x0200;
         private const ushort ChunkTableType = 0x0201;
 
         private const byte ValueTypeReference = 0x01;
         private const byte ValueTypeString = 0x03;
+        private const byte ValueTypeFloat = 0x04;
+        private const byte ValueTypeIntDec = 0x10;
+        private const byte ValueTypeIntHex = 0x11;
+        private const byte ValueTypeColorArgb8 = 0x1C;
+        private const byte ValueTypeColorRgb8 = 0x1D;
+        private const byte ValueTypeColorArgb4 = 0x1E;
+        private const byte ValueTypeColorRgb4 = 0x1F;
+        private const byte ValueTypeIntBoolean = 0x12;
 
         /// <summary>android:label / icon / roundIcon / drawable 的属性资源 id。</summary>
         private const uint AndroidLabelAttrId = 0x01010001;
@@ -136,6 +147,518 @@ namespace AdbTools
             }
 
             return 0;
+        }
+
+        /// <summary>读取 adaptive-icon 的 background：只有能确定是纯色时才返回，取不到（如背景也是矢量图）返回 false。</summary>
+        public static bool TryReadAdaptiveIconBackgroundColor(byte[] xml, byte[] arsc, out uint argb)
+        {
+            argb = 0;
+            if (xml == null || xml.Length < 8)
+            {
+                return false;
+            }
+
+            ResStringPool pool = null;
+            int pos = 8;
+            while (pos + 8 <= xml.Length)
+            {
+                ushort type = ChunkReader.U16(xml, pos);
+                ushort headerSize = ChunkReader.U16(xml, pos + 2);
+                uint size = ChunkReader.U32(xml, pos + 4);
+                if (size < 8 || pos + (long)size > xml.Length)
+                {
+                    return false;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(xml, pos);
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(xml, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "background")
+                    {
+                        return TryAttrColorStrict(ReadAttributes(xml, pos, headerSize, pool), "drawable", arsc, out argb);
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return false;
+        }
+
+        // ---------------------------------------------------------------- vector drawable
+
+        /// <summary>
+        /// 解析 VectorDrawable（adaptive-icon 前景层常见的最终形态），取出视口尺寸、路径与颜色。
+        /// 只处理纯色填充/描边；渐变、clip-path 等复杂结构直接忽略，解析失败返回 null。
+        /// </summary>
+        public static VectorIcon ParseVectorDrawable(byte[] xml, byte[] arsc)
+        {
+            if (xml == null || xml.Length < 8)
+            {
+                return null;
+            }
+
+            VectorIcon icon = new VectorIcon { ViewportWidth = 24, ViewportHeight = 24 };
+
+            ResStringPool pool = null;
+            Stack<Matrix> transforms = new Stack<Matrix>();
+            transforms.Push(Matrix.Identity);
+            int pos = 8;
+
+            while (pos + 8 <= xml.Length)
+            {
+                ushort type = ChunkReader.U16(xml, pos);
+                ushort headerSize = ChunkReader.U16(xml, pos + 2);
+                uint size = ChunkReader.U32(xml, pos + 4);
+                if (size < 8 || pos + (long)size > xml.Length)
+                {
+                    break;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(xml, pos);
+                }
+                else if (type == ChunkXmlEndElement)
+                {
+                    // 每个开始元素都压了一层，结束元素对应弹出，保证 group 变换的作用范围正确
+                    if (transforms.Count > 1) transforms.Pop();
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(xml, pos + headerSize + 4);
+                    string element = pool.Get(nameIndex);
+                    List<XmlAttr> attrs = ReadAttributes(xml, pos, headerSize, pool);
+                    Matrix current = transforms.Peek();
+
+                    if (element == "group")
+                    {
+                        current = Matrix.Multiply(current, BuildGroupMatrix(attrs));
+                    }
+                    else if (element == "path")
+                    {
+                        VectorIconPath path = BuildPath(attrs, arsc, current);
+                        if (path != null) icon.Paths.Add(path);
+                    }
+                    else if (element == "vector")
+                    {
+                        icon.ViewportWidth = AttrDouble(attrs, "viewportWidth", icon.ViewportWidth);
+                        icon.ViewportHeight = AttrDouble(attrs, "viewportHeight", icon.ViewportHeight);
+                    }
+
+                    transforms.Push(current);
+                }
+
+                pos += (int)size;
+            }
+
+            return icon.Paths.Count == 0 ? null : icon;
+        }
+
+        private struct XmlAttr
+        {
+            public string Name;
+            public byte ValueType;
+            public uint ValueData;
+            public string Literal;
+        }
+
+        /// <summary>读取一个 XML 开始元素的全部属性（按名字匹配，不依赖资源 id，兼容缺 resource map 的 APK）。</summary>
+        private static List<XmlAttr> ReadAttributes(byte[] data, int chunkPos, int headerSize, ResStringPool pool)
+        {
+            List<XmlAttr> attrs = new List<XmlAttr>();
+            int ext = chunkPos + headerSize;
+            if (ext + 16 > data.Length)
+            {
+                return attrs;
+            }
+
+            int attributeStart = ChunkReader.U16(data, ext + 8);
+            int attributeSize = ChunkReader.U16(data, ext + 10);
+            int attributeCount = ChunkReader.U16(data, ext + 12);
+            if (attributeSize < 20 || attributeCount <= 0)
+            {
+                return attrs;
+            }
+
+            int attrPos = ext + attributeStart;
+            for (int i = 0; i < attributeCount; i++)
+            {
+                int a = attrPos + i * attributeSize;
+                if (a + 20 > data.Length)
+                {
+                    break;
+                }
+
+                XmlAttr attr = new XmlAttr
+                {
+                    Name = pool.Get(ChunkReader.I32(data, a + 4)),
+                    ValueType = data[a + 15],
+                    ValueData = ChunkReader.U32(data, a + 16)
+                };
+
+                if (attr.ValueType == ValueTypeString)
+                {
+                    attr.Literal = pool.Get((int)attr.ValueData);
+                }
+                else
+                {
+                    // 少数属性同时带一份字符串形式的原始值
+                    int rawIndex = ChunkReader.I32(data, a + 8);
+                    if (rawIndex >= 0) attr.Literal = pool.Get(rawIndex);
+                }
+
+                if (!string.IsNullOrEmpty(attr.Name))
+                {
+                    attrs.Add(attr);
+                }
+            }
+
+            return attrs;
+        }
+
+        private static bool TryGetAttr(List<XmlAttr> attrs, string name, out XmlAttr value)
+        {
+            foreach (XmlAttr attr in attrs)
+            {
+                if (attr.Name == name)
+                {
+                    value = attr;
+                    return true;
+                }
+            }
+
+            value = new XmlAttr();
+            return false;
+        }
+
+        private static string AttrString(List<XmlAttr> attrs, string name)
+        {
+            XmlAttr attr;
+            return TryGetAttr(attrs, name, out attr) ? attr.Literal : null;
+        }
+
+        private static double AttrDouble(List<XmlAttr> attrs, string name, double fallback)
+        {
+            XmlAttr attr;
+            if (!TryGetAttr(attrs, name, out attr))
+            {
+                return fallback;
+            }
+
+            switch (attr.ValueType)
+            {
+                case ValueTypeFloat:
+                    return BitConverter.ToSingle(BitConverter.GetBytes(attr.ValueData), 0);
+                case ValueTypeIntDec:
+                case ValueTypeIntHex:
+                    return unchecked((int)attr.ValueData);
+            }
+
+            double parsed;
+            if (attr.Literal != null
+                && double.TryParse(attr.Literal, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+            {
+                return parsed;
+            }
+
+            return fallback;
+        }
+
+        /// <summary>按 Android 的语义合成 group 变换：先移到 pivot 之外，缩放、旋转，再移回去并叠加平移。</summary>
+        private static Matrix BuildGroupMatrix(List<XmlAttr> attrs)
+        {
+            double translateX = AttrDouble(attrs, "translateX", 0);
+            double translateY = AttrDouble(attrs, "translateY", 0);
+            double scaleX = AttrDouble(attrs, "scaleX", 1);
+            double scaleY = AttrDouble(attrs, "scaleY", 1);
+            double rotate = AttrDouble(attrs, "rotate", 0);
+            double pivotX = AttrDouble(attrs, "pivotX", 0);
+            double pivotY = AttrDouble(attrs, "pivotY", 0);
+
+            Matrix matrix = Matrix.Identity;
+            matrix.Translate(-pivotX, -pivotY);
+            matrix.Scale(scaleX, scaleY);
+            matrix.Rotate(rotate);
+            matrix.Translate(pivotX + translateX, pivotY + translateY);
+            return matrix;
+        }
+
+        private static VectorIconPath BuildPath(List<XmlAttr> attrs, byte[] arsc, Matrix transform)
+        {
+            string data = AttrString(attrs, "pathData");
+            if (string.IsNullOrEmpty(data))
+            {
+                return null;
+            }
+
+            double fillAlpha = AttrDouble(attrs, "fillAlpha", 1);
+            VectorIconPath path = new VectorIconPath
+            {
+                Data = data,
+                Transform = transform,
+                FillAlpha = fillAlpha <= 0 ? 1 : fillAlpha,
+                StrokeWidth = AttrDouble(attrs, "strokeWidth", 0),
+                EvenOdd = string.Equals(AttrString(attrs, "fillType"), "evenOdd", StringComparison.OrdinalIgnoreCase)
+            };
+
+            uint color;
+            if (TryGetAttr(attrs, "fillColor", out _) && TryAttrColor(attrs, "fillColor", arsc, out color))
+            {
+                path.HasFill = true;
+                path.FillColor = color;
+            }
+
+            if (TryAttrColor(attrs, "strokeColor", arsc, out color))
+            {
+                path.StrokeColor = color;
+            }
+
+            return path;
+        }
+
+        /// <summary>取颜色属性：字面量色值、编译后的颜色 int、或 @color 引用都支持；取不到时按黑色兜底。</summary>
+        private static bool TryAttrColor(List<XmlAttr> attrs, string name, byte[] arsc, out uint argb)
+        {
+            if (TryAttrColorStrict(attrs, name, arsc, out argb))
+            {
+                return true;
+            }
+
+            argb = 0xFF000000;
+            return TryGetAttr(attrs, name, out _);
+        }
+
+        private static bool TryAttrColorStrict(List<XmlAttr> attrs, string name, byte[] arsc, out uint argb)
+        {
+            argb = 0;
+            XmlAttr attr;
+            if (!TryGetAttr(attrs, name, out attr))
+            {
+                return false;
+            }
+
+            if (TryConvertColor(attr.ValueType, attr.ValueData, out argb))
+            {
+                return true;
+            }
+
+            if (attr.ValueType == ValueTypeString && TryParseColorText(attr.Literal, out argb))
+            {
+                return true;
+            }
+
+            if (attr.ValueType == ValueTypeReference && arsc != null && arsc.Length >= 12)
+            {
+                return new ResTable(arsc).TryResolveColor(attr.ValueData, 0, out argb);
+            }
+
+            return false;
+        }
+
+        private static bool TryConvertColor(byte valueType, uint data, out uint argb)
+        {
+            argb = 0;
+            switch (valueType)
+            {
+                case ValueTypeColorArgb8:
+                    argb = data;
+                    return true;
+                case ValueTypeColorRgb8:
+                    argb = 0xFF000000 | data;
+                    return true;
+                case ValueTypeColorArgb4:
+                    argb = ExpandNibbles((data >> 12) & 0xF, (data >> 8) & 0xF, (data >> 4) & 0xF, data & 0xF);
+                    return true;
+                case ValueTypeColorRgb4:
+                    argb = ExpandNibbles(0xF, (data >> 8) & 0xF, (data >> 4) & 0xF, data & 0xF);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static uint ExpandNibbles(uint a, uint r, uint g, uint b)
+        {
+            return ((a * 0x11) << 24) | ((r * 0x11) << 16) | ((g * 0x11) << 8) | (b * 0x11);
+        }
+
+        /// <summary>解析 #RGB / #ARGB / #RRGGBB / #AARRGGBB 形式的颜色文本。</summary>
+        private static bool TryParseColorText(string text, out uint argb)
+        {
+            argb = 0;
+            if (string.IsNullOrEmpty(text) || text[0] != '#' || text.Length < 4)
+            {
+                return false;
+            }
+
+            string hex = text.Substring(1);
+            uint value;
+            if (!uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value))
+            {
+                return false;
+            }
+
+            switch (hex.Length)
+            {
+                case 3:
+                    argb = ExpandNibbles(0xF, (value >> 8) & 0xF, (value >> 4) & 0xF, value & 0xF);
+                    return true;
+                case 4:
+                    argb = ExpandNibbles((value >> 12) & 0xF, (value >> 8) & 0xF, (value >> 4) & 0xF, value & 0xF);
+                    return true;
+                case 6:
+                    argb = 0xFF000000 | value;
+                    return true;
+                case 8:
+                    argb = value;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // ---------------------------------------------------------------- system service
+
+        /// <summary>
+        /// 判断应用是不是"系统服务"：系统应用里「无桌面入口」或「声明常驻（persistent）」
+        /// 满足其一即算。manifest 取不到时不做判定（保守不标，避免误报）。
+        /// </summary>
+        public static bool IsSystemService(byte[] manifest, bool isSystem)
+        {
+            if (!isSystem)
+            {
+                return false;
+            }
+
+            if (manifest == null || manifest.Length < 8)
+            {
+                return false;
+            }
+
+            return IsPersistentApp(manifest) || !HasLauncherEntry(manifest);
+        }
+
+        /// <summary>manifest 里是否有 activity/activity-alias 声明了 LAUNCHER 或 LEANBACK_LAUNCHER 入口。</summary>
+        public static bool HasLauncherEntry(byte[] manifest)
+        {
+            if (manifest == null || manifest.Length < 8)
+            {
+                return false;
+            }
+
+            ResStringPool pool = null;
+            Stack<string> elements = new Stack<string>();
+            int pos = 8;
+
+            while (pos + 8 <= manifest.Length)
+            {
+                ushort type = ChunkReader.U16(manifest, pos);
+                ushort headerSize = ChunkReader.U16(manifest, pos + 2);
+                uint size = ChunkReader.U32(manifest, pos + 4);
+                if (size < 8 || pos + (long)size > manifest.Length)
+                {
+                    return false;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(manifest, pos);
+                }
+                else if (type == ChunkXmlEndElement)
+                {
+                    if (elements.Count > 0) elements.Pop();
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(manifest, pos + headerSize + 4);
+                    string element = pool.Get(nameIndex);
+
+                    if (element == "category" && IsInsideActivity(elements))
+                    {
+                        string category = AttrString(ReadAttributes(manifest, pos, headerSize, pool), "name");
+                        if (category == "android.intent.category.LAUNCHER"
+                            || category == "android.intent.category.LEANBACK_LAUNCHER")
+                        {
+                            return true;
+                        }
+                    }
+
+                    elements.Push(element);
+                }
+
+                pos += (int)size;
+            }
+
+            return false;
+        }
+
+        /// <summary>manifest 的 application 是否声明 android:persistent="true"（常驻系统进程）。</summary>
+        public static bool IsPersistentApp(byte[] manifest)
+        {
+            if (manifest == null || manifest.Length < 8)
+            {
+                return false;
+            }
+
+            ResStringPool pool = null;
+            int pos = 8;
+            while (pos + 8 <= manifest.Length)
+            {
+                ushort type = ChunkReader.U16(manifest, pos);
+                ushort headerSize = ChunkReader.U16(manifest, pos + 2);
+                uint size = ChunkReader.U32(manifest, pos + 4);
+                if (size < 8 || pos + (long)size > manifest.Length)
+                {
+                    return false;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(manifest, pos);
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(manifest, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "application")
+                    {
+                        XmlAttr attr;
+                        if (TryGetAttr(ReadAttributes(manifest, pos, headerSize, pool), "persistent", out attr))
+                        {
+                            if (attr.ValueType == ValueTypeIntBoolean)
+                            {
+                                return attr.ValueData != 0;
+                            }
+
+                            if (attr.Literal != null)
+                            {
+                                return attr.Literal.Trim().ToLowerInvariant() == "true";
+                            }
+                        }
+                        return false;
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return false;
+        }
+
+        private static bool IsInsideActivity(Stack<string> elements)
+        {
+            foreach (string element in elements)
+            {
+                if (element == "activity" || element == "activity-alias")
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // ---------------------------------------------------------------- manifest
@@ -389,6 +912,55 @@ namespace AdbTools
                 }
 
                 return null;
+            }
+
+            /// <summary>按资源 id 解析颜色（@color/xxx），支持编译后的各种颜色 int 形态。</summary>
+            public bool TryResolveColor(uint resId, int depth, out uint argb)
+            {
+                argb = 0;
+                if (depth > 4)
+                {
+                    return false;
+                }
+
+                uint packageId = resId >> 24;
+                byte typeId = (byte)((resId >> 16) & 0xFF);
+                int entryIndex = (int)(resId & 0xFFFF);
+
+                foreach (PackageChunk package in _packages)
+                {
+                    if (package.Id != packageId)
+                    {
+                        continue;
+                    }
+
+                    byte valueType;
+                    uint valueData;
+                    if (!package.TryGetEntry(typeId, entryIndex, out valueType, out valueData))
+                    {
+                        continue;
+                    }
+
+                    if (valueType == ValueTypeReference)
+                    {
+                        return TryResolveColor(valueData, depth + 1, out argb);
+                    }
+
+                    if (TryConvertColor(valueType, valueData, out argb))
+                    {
+                        return true;
+                    }
+
+                    if (valueType == ValueTypeString && _values != null
+                        && TryParseColorText(_values.Get((int)valueData), out argb))
+                    {
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                return false;
             }
         }
 
