@@ -130,6 +130,9 @@ namespace AdbTools
                         "CREATE TABLE IF NOT EXISTS app_label(" +
                         "package TEXT PRIMARY KEY," +
                         "label TEXT NOT NULL," +
+                        "label_resolved INTEGER NOT NULL DEFAULT 0," +
+                        "is_service INTEGER NOT NULL DEFAULT 0," +
+                        "icon_failed INTEGER NOT NULL DEFAULT 0," +
                         "updated_at INTEGER NOT NULL);");
                 }
 

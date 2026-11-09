@@ -117,9 +117,11 @@ namespace AdbTools
                 AppInfo app = items[index];
                 string label = null;
                 bool transportOk = false;
+                bool? isService = null;
+                bool nameDetermined = false;
                 try
                 {
-                    label = Resolve(app, out transportOk);
+                    label = Resolve(app, out transportOk, out isService, out nameDetermined);
                 }
                 catch (Exception ex)
                 {
@@ -137,9 +139,15 @@ namespace AdbTools
                     AppLabelStore.SetLabel(app.PackageName, label);
                     Interlocked.Exchange(ref _failureStreak, 0);
                 }
+                else if (nameDetermined)
+                {
+                    // 资源齐全仍没名字（部分系统包）：落空标记，下次不再重复拉 arsc
+                    AppLabelStore.SetLabelResolved(app.PackageName);
+                    Interlocked.Exchange(ref _failureStreak, 0);
+                }
                 else if (transportOk)
                 {
-                    // 取数正常但这个应用没有名字（如部分系统包），属于正常情况，不影响后续
+                    // 链路正常但资源没拿全（如超大 arsc），不算失败，下次再试
                     Interlocked.Exchange(ref _failureStreak, 0);
                 }
                 else if (Interlocked.Increment(ref _failureStreak) >= MaxConsecutiveFailures)
@@ -150,10 +158,18 @@ namespace AdbTools
                     return;
                 }
 
+                // 系统服务判定结果写缓存：包名唯一，下次直接命中，不用再解析 manifest
+                if (isService.HasValue)
+                {
+                    AppLabelStore.SetService(app.PackageName, isService.Value);
+                }
+
                 int done = Interlocked.Increment(ref _done);
                 string result = label;
                 _dispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (nameDetermined) app.NameResolved = true;
+                    if (isService.HasValue) app.IsService = isService.Value;
                     Action<AppInfo, string, int, int> handler = ItemResolved;
                     if (handler != null) handler(app, result, done, total);
                 }));
@@ -169,9 +185,11 @@ namespace AdbTools
             }));
         }
 
-        private string Resolve(AppInfo app, out bool transportOk)
+        private string Resolve(AppInfo app, out bool transportOk, out bool? isService, out bool nameDetermined)
         {
             transportOk = false;
+            isService = null;
+            nameDetermined = false;
             if (string.IsNullOrEmpty(app.ApkPath))
             {
                 return null;
@@ -224,13 +242,20 @@ namespace AdbTools
             // 名称与图标一起处理；图标失败只影响显示，不影响名称
             TryResolveIcon(app, manifest, arsc);
 
+            // 系统服务判定不依赖资源表，manifest 到位即可算
+            isService = ApkLabelReader.IsSystemService(manifest, app.IsSystem);
+
+            // 名称已确定：拿到了名字，或 manifest + arsc 都在但确实没名字。
+            // arsc 没拿到（大表/缺失）时不判定，留到下次再试。
+            nameDetermined = label != null || arsc != null;
+
             return label;
         }
 
         /// <summary>
         /// 解析图标：manifest 的 android:icon → 资源表里取文件路径 → 取文件。
-        /// 如果是 adaptive-icon（.xml），再解析出 foreground 后重复一次。
-        /// 取到的图片按包名存进本地缓存，界面会立即回填。
+        /// 如果是 adaptive-icon（.xml），再解析出 foreground 后重复一次；
+        /// 追到底仍是 .xml 说明是矢量图标，本机渲染成 PNG 后缓存。
         /// </summary>
         private void TryResolveIcon(AppInfo app, byte[] manifest, byte[] arsc)
         {
@@ -244,31 +269,55 @@ namespace AdbTools
                 return; // 已有缓存
             }
 
+            if (AppLabelStore.IsIconFailed(app.PackageName))
+            {
+                return; // 之前已尝试且确定拿不到，不再重试
+            }
+
             uint iconId = ApkLabelReader.ReadIconResourceId(manifest);
             if (iconId == 0)
             {
+                AppLabelStore.SetIconFailed(app.PackageName); // 应用没声明图标
                 return;
             }
 
             string path = ApkLabelReader.ResolveFilePath(arsc, iconId);
 
-            // adaptive-icon 只描述"前景 + 背景"，前景层才是真正的图
+            // adaptive-icon 只描述"前景 + 背景"，前景层才是真正的图。
+            // 顺带记下背景色，渲染纯白前景时铺在底下，避免图标看不见。
+            uint backgroundColor = 0;
+            bool hasBackgroundColor = false;
+
             for (int hop = 0; hop < 2 && path != null && IsXml(path); hop++)
             {
                 if (_stopped) return;
 
                 byte[] xml = FetchEntry(app.ApkPath, path);
-                if (xml == null) return;
+                if (xml == null) break;
 
                 uint foregroundId = ApkLabelReader.ParseAdaptiveIconForeground(xml);
-                if (foregroundId == 0) return;
+                if (foregroundId == 0) break;
+
+                if (!hasBackgroundColor)
+                {
+                    hasBackgroundColor = ApkLabelReader.TryReadAdaptiveIconBackgroundColor(
+                        xml, arsc, out backgroundColor);
+                }
 
                 path = ApkLabelReader.ResolveFilePath(arsc, foregroundId);
             }
 
-            if (path == null || IsXml(path) || _stopped)
+            if (path == null || _stopped)
             {
-                return; // 纯矢量图标（.xml）暂不渲染，交给占位显示
+                if (path == null) AppLabelStore.SetIconFailed(app.PackageName); // 资源表里解析不到图标
+                return;
+            }
+
+            // 追完仍是 XML：矢量图标（VectorDrawable），渲染后按 PNG 缓存
+            if (IsXml(path))
+            {
+                TrySaveVectorIcon(app, path, arsc, hasBackgroundColor ? (uint?)backgroundColor : null);
+                return;
             }
 
             byte[] image = FetchEntry(app.ApkPath, path);
@@ -278,6 +327,38 @@ namespace AdbTools
             }
 
             AppIconStore.Save(app.PackageName, image, Path.GetExtension(path));
+            NotifySavedIcon(app);
+        }
+
+        /// <summary>把矢量图标渲染成 PNG 缓存；解析或渲染失败时保持占位图。</summary>
+        private void TrySaveVectorIcon(AppInfo app, string path, byte[] arsc, uint? backgroundColor)
+        {
+            byte[] xml = FetchEntry(app.ApkPath, path);
+            if (xml == null || _stopped)
+            {
+                return;
+            }
+
+            VectorIcon icon = ApkLabelReader.ParseVectorDrawable(xml, arsc);
+            if (icon == null)
+            {
+                AppLabelStore.SetIconFailed(app.PackageName); // 无法解析的矢量结构
+                return;
+            }
+
+            byte[] png = VectorIconRenderer.RenderPng(icon, backgroundColor);
+            if (png == null)
+            {
+                if (!_stopped) AppLabelStore.SetIconFailed(app.PackageName); // 渲染失败
+                return;
+            }
+
+            AppIconStore.Save(app.PackageName, png, ".png");
+            NotifySavedIcon(app);
+        }
+
+        private void NotifySavedIcon(AppInfo app)
+        {
             string saved = AppIconStore.Find(app.PackageName);
             if (saved != null)
             {

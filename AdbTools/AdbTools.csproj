@@ -193,6 +193,8 @@
     <Compile Include="AppManagement\AppLabelStore.cs" />
     <Compile Include="AppManagement\AppStore.cs" />
     <Compile Include="AppManagement\AppLabelResolver.cs" />
+    <Compile Include="AppManagement\VectorIconRenderer.cs" />
+    <Compile Include="AppManagement\WebpDecoder.cs" />
     <Compile Include="bean\AppInfo.cs" />
     <Compile Include="bean\Device.cs" />
     <Compile Include="bean\GithubReleasesAssets.cs" />
@@ -290,6 +292,11 @@
     <!-- SQLite 的 native 组件直接放输出根目录：本程序只发行 64 位，不需要 x64/x86 子目录区分 -->
     <Content Include="Libs\SQLite\native\SQLite.Interop.dll">
       <Link>SQLite.Interop.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- WebP 解码：WPF 没有内置解码器，随程序附带官方 libwebp（x64，BSD-3，见 THIRD_PARTY_NOTICES.txt） -->
+    <Content Include="Libs\libwebp.dll">
+      <Link>libwebp.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="adb.exe">

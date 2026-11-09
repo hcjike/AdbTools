@@ -150,8 +150,10 @@ namespace AdbTools
                 .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // 一次 IN 查询把已缓存的名称全部取回，避免逐条查库
+            // 一次 IN 查询把已缓存的名称、名称解析状态与系统服务标记全部取回，避免逐条查库
             Dictionary<string, string> cachedLabels = AppLabelStore.GetLabels(entries.Select(x => x.Key));
+            Dictionary<string, bool> cachedServices = AppLabelStore.GetServices(entries.Select(x => x.Key));
+            HashSet<string> resolvedNames = AppLabelStore.GetResolvedNames(entries.Select(x => x.Key));
 
             _apps.Clear();
             foreach (KeyValuePair<string, string> entry in entries)
@@ -168,6 +170,20 @@ namespace AdbTools
                 if (cachedLabels.TryGetValue(entry.Key, out cached) && !string.IsNullOrEmpty(cached))
                 {
                     app.DisplayName = cached;
+                    app.FromCache = true;
+                }
+
+                // 名称已解析（含"确定无名称"）：下次不再列入待解析队列，避免反复拉 arsc
+                if (resolvedNames.Contains(entry.Key))
+                {
+                    app.NameResolved = true;
+                }
+
+                // 系统服务标记按包名复用（包名唯一），命中即立即显示，不必等后台解析 manifest
+                bool cachedService;
+                if (cachedServices.TryGetValue(entry.Key, out cachedService))
+                {
+                    app.IsService = cachedService;
                 }
 
                 // 已缓存的图标直接加载，没有则显示占位，等后台解析补齐
@@ -267,7 +283,7 @@ namespace AdbTools
 
         private void StartResolving()
         {
-            List<AppInfo> pending = _apps.Where(a => string.IsNullOrEmpty(a.DisplayName)).ToList();
+            List<AppInfo> pending = _apps.Where(a => !a.NameResolved).ToList();
             if (pending.Count == 0)
             {
                 progressText.Text = string.Empty;
@@ -292,6 +308,16 @@ namespace AdbTools
             if (!string.IsNullOrEmpty(label))
             {
                 app.DisplayName = label;
+            }
+
+            // 系统服务标记是异步回填的：状态栏计数实时刷新；正在按“系统服务”筛选时补入新项
+            if (app.IsService)
+            {
+                UpdateCounts();
+                if (_filterIndex == 4)
+                {
+                    _view.Refresh();
+                }
             }
 
             if (done >= total)
@@ -450,8 +476,9 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 只清理缓存目录。使用 pm clear --cache-only，账号、登录状态、设置等用户数据都会保留；
-        /// 旧系统不支持该参数时直接报错提示，绝不回退到 pm clear（那会清掉全部数据）。
+        /// 只清理缓存目录。使用 pm clear --cache-only，账号、登录状态、设置等用户数据都会保留。
+        /// --cache-only 需要 Android 11（SDK 30）以上；旧设备可能把该参数静默降级为完整 pm clear
+        /// （清掉全部数据且耗时很长），所以执行前先查版本号拦截，避免卡住和误删。
         /// </summary>
         private void ClearCache(AppInfo app)
         {
@@ -462,19 +489,40 @@ namespace AdbTools
                 return;
             }
 
-            RunAction(app, "清除缓存",
-                Command("shell pm clear --cache-only " + app.PackageName),
-                result =>
+            // 先确认设备系统版本，避免 --cache-only 在旧设备上被当成完整 clear 执行
+            CmdExecutor.ExecuteCommandAndReturnAsync(Command("shell getprop ro.build.version.sdk"), sdkResult =>
+            {
+                int sdk = ParseSdk(sdkResult);
+                if (sdk <= 0)
                 {
-                    string failure = CheckPmFailure(result);
-                    if (failure != null && failure.IndexOf("Unknown option", StringComparison.OrdinalIgnoreCase) >= 0)
+                    SetStatus("清除缓存已取消：无法确认设备系统版本", ErrorBrush);
+                    MessageBox.Show(this, "无法确认设备系统版本，为避免误删全部数据，已取消本次清除缓存。",
+                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (sdk < 30)
+                {
+                    SetStatus("清除缓存失败：需要 Android 11 及以上", ErrorBrush);
+                    MessageBox.Show(this, "当前系统不支持仅清理缓存（需要 Android 11 及以上）。\r\n为避免误删全部数据，已取消，未删除任何数据。",
+                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                RunAction(app, "清除缓存",
+                    Command("shell pm clear --cache-only " + app.PackageName),
+                    result =>
                     {
-                        return "当前系统不支持仅清理缓存（需要 Android 11 及以上）";
-                    }
-                    return failure;
-                },
-                result => SetStatus("已清除缓存：" + app.Title, OkBrush),
-                180, true);
+                        string failure = CheckPmFailure(result);
+                        if (failure != null && failure.IndexOf("Unknown option", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return "当前系统不支持仅清理缓存（需要 Android 11 及以上）";
+                        }
+                        return failure;
+                    },
+                    result => SetStatus("已清除缓存：" + app.Title, OkBrush),
+                    180, true);
+            });
         }
 
         /// <summary>清除全部数据：会连同缓存一起删除，不可撤销。</summary>
@@ -616,6 +664,26 @@ namespace AdbTools
             return item;
         }
 
+        /// <summary>从 cmd 回显里解析 SDK 版本号（取第一个能解析为整数的行）。</summary>
+        private static int ParseSdk(string output)
+        {
+            if (string.IsNullOrEmpty(output))
+            {
+                return 0;
+            }
+
+            foreach (string line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int value;
+                if (int.TryParse(line.Trim(), out value))
+                {
+                    return value;
+                }
+            }
+
+            return 0;
+        }
+
         /// <summary>识别 pm/am 命令在 stdout 里返回的失败信息（它们不走 stderr）。</summary>
         private static string CheckPmFailure(string result)
         {
@@ -687,6 +755,7 @@ namespace AdbTools
             if (_filterIndex == 1 && app.IsSystem) return false;
             if (_filterIndex == 2 && !app.IsSystem) return false;
             if (_filterIndex == 3 && !app.IsDisabled) return false;
+            if (_filterIndex == 4 && !app.IsService) return false;
 
             string key = searchBox == null ? null : searchBox.Text;
             if (string.IsNullOrWhiteSpace(key)) return true;
@@ -714,14 +783,16 @@ namespace AdbTools
 
             int system = 0;
             int disabled = 0;
+            int service = 0;
             foreach (AppInfo app in _apps)
             {
                 if (app.IsSystem) system++;
                 if (app.IsDisabled) disabled++;
+                if (app.IsService) service++;
             }
 
-            string text = string.Format("共 {0} 个应用 · 第三方 {1} · 系统 {2} · 已停用 {3}",
-                _apps.Count, _apps.Count - system, system, disabled);
+            string text = string.Format("共 {0} 个应用 · 第三方 {1} · 系统 {2} · 系统服务 {3} · 已停用 {4}",
+                _apps.Count, _apps.Count - system, system, service, disabled);
 
             int visible = 0;
             foreach (object item in _view)
