@@ -1,0 +1,192 @@
+<Window x:Class="AdbTools.AppListWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="应用列表" Height="720" Width="1040" MinHeight="460" MinWidth="760"
+        WindowStartupLocation="CenterOwner" Background="#FFF3F4F6" FontSize="13"
+        Loaded="Window_Loaded" Closed="Window_Closed">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- 行内操作按钮 -->
+        <Style x:Key="RowButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="13,5" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Background" Value="#FF2A9FFF" />
+        </Style>
+
+        <Style x:Key="ToggleButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource RowButtonStyle}">
+            <Setter Property="Background" Value="#FFF59E0B" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDisabled}" Value="True">
+                    <Setter Property="Background" Value="#FF10B981" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="UninstallButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource RowButtonStyle}">
+            <Setter Property="Background" Value="#FFEF4444" />
+        </Style>
+
+        <Style x:Key="MoreButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource RowButtonStyle}">
+            <Setter Property="Background" Value="#FFF1F3F7" />
+            <Setter Property="Foreground" Value="#FF4B5563" />
+        </Style>
+
+        <!-- 列表行：白底卡片，悬停变浅蓝，去掉默认选中底色 -->
+        <Style x:Key="AppItemStyle" TargetType="{x:Type ListBoxItem}">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                        <Border x:Name="card" Background="White" CornerRadius="10"
+                                BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="14,10">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="card" Property="Background" Value="#FFF9FBFE" />
+                                <Setter TargetName="card" Property="BorderBrush" Value="#FFBFD8FF" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="card" Property="BorderBrush" Value="#FF2A9FFF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 工具栏 -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="10" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <TextBox x:Name="searchBox" Height="32" Style="{StaticResource UserTextBox}"
+                             TextChanged="SearchBox_TextChanged" />
+                    <TextBlock x:Name="searchHint" Text="搜索应用名或包名" Foreground="#FF9CA3AF"
+                               Margin="12,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" />
+                </Grid>
+
+                <ComboBox x:Name="filterBox" Grid.Column="1" Width="150" Height="32" Margin="10,0,0,0"
+                          Style="{StaticResource UserComboBox}" SelectedIndex="0"
+                          SelectionChanged="FilterBox_SelectionChanged">
+                    <ComboBoxItem Content="全部应用" Tag="0" />
+                    <ComboBoxItem Content="第三方应用" Tag="1" />
+                    <ComboBoxItem Content="系统应用" Tag="2" />
+                    <ComboBoxItem Content="已停用应用" Tag="3" />
+                </ComboBox>
+
+                <Button x:Name="refreshButton" Grid.Column="2" Content="刷新" Height="32" Margin="10,0,0,0"
+                        Style="{StaticResource RowButtonStyle}" Click="Refresh_Click" />
+            </Grid>
+        </Border>
+
+        <!-- 应用列表 -->
+        <Grid Grid.Row="1" Margin="0,10,0,0">
+            <ListBox x:Name="appList" Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingStackPanel.IsVirtualizing="True"
+                     VirtualizingStackPanel.VirtualizationMode="Recycling"
+                     ItemContainerStyle="{StaticResource AppItemStyle}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- 图标：取不到时用包名首字母 + 固定色块占位 -->
+                                <Border Width="34" Height="34" CornerRadius="9" Background="{Binding AvatarBrush}"
+                                        VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <Grid>
+                                        <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="15"
+                                                   FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}" />
+                                        <Image Source="{Binding Icon}" Stretch="Uniform"
+                                               Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="#FF111827" MaxWidth="420" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,1"
+                                            Background="#FFEFF6FF" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TypeText}" FontSize="11" Foreground="#FF2A9FFF" />
+                                    </Border>
+                                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                            Background="{Binding StatusBackground}" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                                   Foreground="{Binding StatusForeground}" />
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding PackageName}" FontSize="11.5" Foreground="#FF8A94A6"
+                                           Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="1" Text="处理中…" Foreground="#FF9CA3AF" FontSize="12"
+                                       VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                <Button Content="{Binding ActionText}" Style="{StaticResource ToggleButtonStyle}"
+                                        IsEnabled="{Binding IsNotBusy}" Click="ToggleApp_Click" />
+                                <Button Content="卸载" Style="{StaticResource UninstallButtonStyle}"
+                                        IsEnabled="{Binding IsNotBusy}" Click="UninstallApp_Click" />
+                                <Button Content="更多" Style="{StaticResource MoreButtonStyle}"
+                                        IsEnabled="{Binding IsNotBusy}" Click="More_Click" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock x:Name="emptyHint" Text="没有符合条件的应用" Foreground="#FF9CA3AF"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+
+            <Border x:Name="loadingMask" Background="#E6F3F4F6" Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" Width="200" Height="4" BorderThickness="0"
+                                 Foreground="#FF2A9FFF" Background="#FFE5E7EB" />
+                    <TextBlock x:Name="loadingText" Text="正在读取应用列表…" Foreground="#FF6B7280"
+                               Margin="0,12,0,0" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 状态栏 -->
+        <Grid Grid.Row="2" Margin="4,10,4,0">
+            <TextBlock x:Name="statusText" Foreground="#FF6B7280" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,220,0" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <TextBlock x:Name="progressText" Foreground="#FF9CA3AF" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Button x:Name="stopResolveButton" Content="停止获取名称" FontSize="11" Padding="10,3"
+                        Style="{StaticResource MoreButtonStyle}" Visibility="Collapsed" Click="StopResolve_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

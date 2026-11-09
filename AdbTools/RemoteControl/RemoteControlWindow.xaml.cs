@@ -954,7 +954,7 @@ namespace AdbTools.RemoteControl
                 catch
                 {
                     writer = new StreamWriter(
-                        Path.Combine(Path.GetTempPath(), "AdbTools_RemoteControl.log"),
+                        AdbTools.Globals.GetCacheFilePath("RemoteControl.log"),
                         true, System.Text.Encoding.UTF8);
                 }
 

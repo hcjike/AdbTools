@@ -18,6 +18,17 @@ scrcpy (server)
 SHA-256   : 764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536
           （与官方发行包 SHA256SUMS.txt 中的值一致）
 
+SQLite / System.Data.SQLite
+---------------------------
+版本      : 1.0.119.0（NuGet 包 System.Data.SQLite.Core）
+来源      : https://system.data.sqlite.org/
+许可      : Public Domain
+            SQLite 内核      : https://www.sqlite.org/copyright.html
+            ADO.NET 提供程序 : https://system.data.sqlite.org/index.html/doc/trunk/www/copyright.wiki
+随附文件  : System.Data.SQLite.dll、x64\SQLite.Interop.dll
+用途说明  : 保存应用相关数据（%APPDATA%\AdbTools\data\app.db，当前为应用名缓存）。
+            仅使用本机文件数据库，不涉及任何网络传输。
+
 用途说明
 --------
 本程序仅随附 scrcpy 的设备端组件 scrcpy-server，未使用其 PC 端

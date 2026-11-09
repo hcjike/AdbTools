@@ -104,6 +104,80 @@ namespace AdbTools
         }
 
         /// <summary>
+        /// 设备日志导出目录（%APPDATA%\AdbTools\DeviceLogs），与应用运行日志 logs 分开。
+        /// 内部按设备名称再分子目录。
+        /// </summary>
+        public static string DeviceLogsDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(AppDataDirectory, "DeviceLogs");
+                try
+                {
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                }
+                catch
+                {
+                    // 目录不可写时由调用方处理
+                }
+                return dir;
+            }
+        }
+
+        /// <summary>
+        /// 缓存目录（%APPDATA%\AdbTools\cache）：运行期中间文件、更新安装包、兜底日志等可随时丢弃的数据。
+        /// 启动时由 CleanupCacheDirectory 清空，保证不在系统临时目录留东西。
+        /// </summary>
+        public static string CacheDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(AppDataDirectory, "cache");
+                try
+                {
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                }
+                catch
+                {
+                    // 目录不可写时交给调用方处理
+                }
+                return dir;
+            }
+        }
+
+        /// <summary>拼接缓存文件的完整路径。</summary>
+        public static string GetCacheFilePath(string fileName)
+        {
+            return Path.Combine(CacheDirectory, fileName);
+        }
+
+        /// <summary>
+        /// 清理缓存目录：每次启动时调用。这里的文件都允许丢弃，
+        /// 删除失败（被占用）时跳过，下次启动再清。
+        /// </summary>
+        public static void CleanupCacheDirectory()
+        {
+            try
+            {
+                string dir = Path.Combine(AppDataDirectory, "cache");
+                if (!Directory.Exists(dir)) return;
+
+                foreach (string file in Directory.GetFiles(dir))
+                {
+                    try { File.Delete(file); } catch { }
+                }
+                foreach (string sub in Directory.GetDirectories(dir))
+                {
+                    try { Directory.Delete(sub, true); } catch { }
+                }
+            }
+            catch
+            {
+                // 清理失败不影响启动
+            }
+        }
+
+        /// <summary>
         /// Config配置文件读取
         /// </summary>
         public static class AppSettings

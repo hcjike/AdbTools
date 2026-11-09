@@ -35,6 +35,9 @@ namespace AdbTools
                 return;
             }
 
+            // 缓存一律"用完即清理"：启动时清空 cache（含上次残留的更新安装包）
+            Globals.CleanupCacheDirectory();
+
             //UI线程未捕获异常处理事件（UI主线程）
             Current.DispatcherUnhandledException += Current_DispatcherUnhandledException;
             //非UI线程未捕获异常处理事件(例如自己创建的一个子线程)

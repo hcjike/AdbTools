@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -107,6 +107,7 @@
     <Reference Include="System.configuration" />
     <Reference Include="System.Data" />
     <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Xml" />
@@ -123,6 +124,10 @@
     <Reference Include="QRCoder">
       <HintPath>Libs\QRCoder.dll</HintPath>
     </Reference>
+    <Reference Include="System.Data.SQLite">
+      <HintPath>Libs\SQLite\System.Data.SQLite.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
@@ -130,7 +135,7 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="AccessInterface\RequestJson.cs" />
-    <Page Include="AlpsK71v1Window.xaml">
+    <Page Include="AppListWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -154,6 +159,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="DeviceLogWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="InfoShowWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -170,18 +179,30 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Compile Include="AlpsK71v1Window.xaml.cs">
-      <DependentUpon>AlpsK71v1Window.xaml</DependentUpon>
-    </Compile>
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="AppListWindow.xaml.cs">
+      <DependentUpon>AppListWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="AppManagement\ApkLabelReader.cs" />
+    <Compile Include="AppManagement\AppLog.cs" />
+    <Compile Include="AppManagement\AppIconStore.cs" />
+    <Compile Include="AppManagement\AppLabelStore.cs" />
+    <Compile Include="AppManagement\AppStore.cs" />
+    <Compile Include="AppManagement\AppLabelResolver.cs" />
+    <Compile Include="bean\AppInfo.cs" />
     <Compile Include="bean\Device.cs" />
     <Compile Include="bean\GithubReleasesAssets.cs" />
     <Compile Include="bean\GithubReleases.cs" />
-    <Compile Include="bean\OperateLog.cs" />
     <Compile Include="CmdExecutor.cs" />
+    <Compile Include="LogCollector.cs" />
+    <Compile Include="DeviceLogWindow.xaml.cs">
+      <DependentUpon>DeviceLogWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="CustomControl\HintComboBox.xaml.cs">
       <DependentUpon>HintComboBox.xaml</DependentUpon>
     </Compile>
@@ -266,6 +287,11 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <!-- SQLite 的 native 组件直接放输出根目录：本程序只发行 64 位，不需要 x64/x86 子目录区分 -->
+    <Content Include="Libs\SQLite\native\SQLite.Interop.dll">
+      <Link>SQLite.Interop.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="adb.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
