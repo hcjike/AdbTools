@@ -55,10 +55,34 @@ namespace AdbTools
             }
         }
 
+        /// <summary>只保留最近 7 天的应用列表日志，避免日志目录无限增长。</summary>
+        private static void CleanupOldLogs()
+        {
+            try
+            {
+                string dir = Globals.LogDirectory;
+                DateTime limit = DateTime.Now.AddDays(-7);
+                foreach (string file in Directory.GetFiles(dir, "AppList-*.log"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTime(file) < limit) File.Delete(file);
+                    }
+                    catch { }
+                }
+            }
+            catch
+            {
+                // 清理失败不影响写日志
+            }
+        }
+
         private static void Worker()
         {
             try
             {
+                CleanupOldLogs();
+
                 StreamWriter writer = null;
                 string currentDate = null;
                 DateTime lastFlush = DateTime.UtcNow;
@@ -80,9 +104,10 @@ namespace AdbTools
                         }
                         catch
                         {
-                            // 日志目录不可写时退回临时目录，写日志本身不应当成为故障点
+                            // 日志目录不可写时退回程序自己的缓存目录（仍在 %APPDATA%\AdbTools 下，启动时会被清理），
+                            // 绝不写到系统临时目录
                             writer = new StreamWriter(
-                                Path.Combine(Path.GetTempPath(), "AdbTools_AppList.log"), true, Encoding.UTF8);
+                                Globals.GetCacheFilePath("AppList.log"), true, Encoding.UTF8);
                         }
                         currentDate = date;
                     }

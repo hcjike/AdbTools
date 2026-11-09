@@ -750,9 +750,9 @@ namespace AdbTools
                 return;
             }
 
-            // 下载到 %APPDATA%\AdbTools\update：用户目录可写、不占临时目录，
-            // 且每次启动会被 Globals.CleanupUpdateDirectory 清空
-            string targetPath = Path.Combine(Globals.UpdateDirectory,
+            // 下载到 %APPDATA%\AdbTools\cache：与其它临时文件统一管理，
+            // 每次启动由 Globals.CleanupCacheDirectory 清空
+            string targetPath = Globals.GetCacheFilePath(
                 "AdbToolsInstaller_" + githubReleases.tag_name + ".exe");
 
             // 后台下载：不禁用窗口、不改光标、不占用标题，仅在更新图标上提示进度，
@@ -1067,29 +1067,6 @@ namespace AdbTools
                 Owner = this
             };
             appListWindow.ShowDialog();
-        }
-
-        private void disableAllAppPackage_Click(object sender, RoutedEventArgs e)
-        {
-            Device device = GetSelectedDevice();
-            if (device == null)
-            {
-                return;
-            }
-            if (!"alps k71v1_64_bsp".Equals(device.DeviceInfo, StringComparison.OrdinalIgnoreCase))
-            {
-                MessageBox.Show("仅支持操作设备【alps k71v1_64_bsp】", "提示", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            AlpsK71v1Window alpsK71V1Window = new AlpsK71v1Window()
-            {
-                Title = $"一键处理【{device.ShowDeviceName}】多余应用",
-                AdbPath = adbPath,
-                DeviceInfo = device,
-            };
-            alpsK71V1Window.Owner = this;
-            alpsK71V1Window.ShowDialog();
         }
 
         #endregion

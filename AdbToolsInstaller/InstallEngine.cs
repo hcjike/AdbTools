@@ -246,7 +246,11 @@ namespace AdbToolsInstaller
                     }
                     if (target == null) return null;
 
-                    string tmp = Path.Combine(Path.GetTempPath(), "AdbToolsVer_" + Guid.NewGuid().ToString("N") + ".exe");
+                    // 临时文件统一放程序自己的 cache 目录，不散落到系统临时目录
+                    string cacheDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AdbTools", "cache");
+                    Directory.CreateDirectory(cacheDir);
+                    string tmp = Path.Combine(cacheDir, "AdbToolsVer_" + Guid.NewGuid().ToString("N") + ".exe");
                     try
                     {
                         target.ExtractToFile(tmp, true);

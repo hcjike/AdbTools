@@ -125,35 +125,41 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 更新安装包下载目录（%APPDATA%\AdbTools\update），不存在时自动创建。
-        /// 放在用户目录而不是 %TEMP%，避免临时目录被清理或权限受限。
+        /// 缓存目录（%APPDATA%\AdbTools\cache）：运行期中间文件、更新安装包、兜底日志等可随时丢弃的数据。
+        /// 启动时由 CleanupCacheDirectory 清空，保证不在系统临时目录留东西。
         /// </summary>
-        public static string UpdateDirectory
+        public static string CacheDirectory
         {
             get
             {
-                string dir = Path.Combine(AppDataDirectory, "update");
+                string dir = Path.Combine(AppDataDirectory, "cache");
                 try
                 {
                     if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 }
                 catch
                 {
-                    // 目录不可写时由下载流程报错，这里不抛异常
+                    // 目录不可写时交给调用方处理
                 }
                 return dir;
             }
         }
 
+        /// <summary>拼接缓存文件的完整路径。</summary>
+        public static string GetCacheFilePath(string fileName)
+        {
+            return Path.Combine(CacheDirectory, fileName);
+        }
+
         /// <summary>
-        /// 清理更新下载目录：每次启动时调用，删除上次残留的安装包。
-        /// 文件被占用（例如安装程序仍在运行）时跳过，下次启动再清。
+        /// 清理缓存目录：每次启动时调用。这里的文件都允许丢弃，
+        /// 删除失败（被占用）时跳过，下次启动再清。
         /// </summary>
-        public static void CleanupUpdateDirectory()
+        public static void CleanupCacheDirectory()
         {
             try
             {
-                string dir = Path.Combine(AppDataDirectory, "update");
+                string dir = Path.Combine(AppDataDirectory, "cache");
                 if (!Directory.Exists(dir)) return;
 
                 foreach (string file in Directory.GetFiles(dir))

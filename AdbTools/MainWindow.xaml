@@ -30,13 +30,11 @@
             <Separator/>
             <MenuItem Header="应用控制" Cursor="Hand"   Margin="0,2">
                 <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand"   Margin="0,2" Click="openShell_Click"/>
-                <MenuItem x:Name="appList" Header="应用列表（卸载/停用/启用）" Cursor="Hand"   Margin="0,2" Click="appList_Click" />
+                <MenuItem x:Name="appList" Header="应用列表" ToolTip="查看全部应用，可卸载、停用/启用、清除缓存或数据" Cursor="Hand"   Margin="0,2" Click="appList_Click" />
                 <MenuItem Header="指定包名" Cursor="Hand"   Margin="0,2">
                     <MenuItem x:Name="customkEnable" Header="启用应用" Cursor="Hand"   Margin="0,2" Click="customkEnable_Click" />
                     <MenuItem x:Name="customDisable" Header="禁用应用" Cursor="Hand"   Margin="0,2" Click="customDisable_Click" />
                 </MenuItem>
-                <Separator/>
-                <MenuItem x:Name="disableAllAppPackage" Header="一键禁用" ToolTip="仅特殊设备可用" Cursor="Hand"   Margin="0,2" Click="disableAllAppPackage_Click"/>
             </MenuItem>
             <Separator/>
             <MenuItem x:Name="disconnectAllDeviceItem" Header="断开所有设备" Click="disconnectAllDeviceItem_Click" Cursor="Hand"   Margin="0,2" />
