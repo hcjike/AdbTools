@@ -189,6 +189,7 @@
     </Compile>
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
+    <Compile Include="AppManagement\AppIconStore.cs" />
     <Compile Include="AppManagement\AppLabelStore.cs" />
     <Compile Include="AppManagement\AppStore.cs" />
     <Compile Include="AppManagement\AppLabelResolver.cs" />

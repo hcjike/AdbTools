@@ -31,6 +31,9 @@ namespace AdbTools
         private static readonly System.Threading.SemaphoreSlim LargeFetchLock =
             new System.Threading.SemaphoreSlim(1, 1);
 
+        /// <summary>单个图标文件的上限，正常图标远小于此值，超出视为异常直接放弃。</summary>
+        private const int MaxIconBytes = 4 * 1024 * 1024;
+
         private readonly string _adbFile;
         private readonly string _serialArg;
         private readonly Dispatcher _dispatcher;
@@ -45,6 +48,9 @@ namespace AdbTools
 
         /// <summary>单个应用解析完成（label 为空表示解析失败）。回调已在 UI 线程。</summary>
         public event Action<AppInfo, string, int, int> ItemResolved;
+
+        /// <summary>单个应用图标取回并写入缓存（回调已在 UI 线程）。</summary>
+        public event Action<AppInfo, string> ItemIconResolved;
 
         /// <summary>解析被提前终止（设备不支持或设备离线）。</summary>
         public event Action<string> Aborted;
@@ -213,7 +219,96 @@ namespace AdbTools
                 }
             }
 
-            return ApkLabelReader.ReadLabel(manifest, arsc);
+            string label = ApkLabelReader.ReadLabel(manifest, arsc);
+
+            // 名称与图标一起处理；图标失败只影响显示，不影响名称
+            TryResolveIcon(app, manifest, arsc);
+
+            return label;
+        }
+
+        /// <summary>
+        /// 解析图标：manifest 的 android:icon → 资源表里取文件路径 → 取文件。
+        /// 如果是 adaptive-icon（.xml），再解析出 foreground 后重复一次。
+        /// 取到的图片按包名存进本地缓存，界面会立即回填。
+        /// </summary>
+        private void TryResolveIcon(AppInfo app, byte[] manifest, byte[] arsc)
+        {
+            if (_stopped || arsc == null)
+            {
+                return;
+            }
+
+            if (AppIconStore.Find(app.PackageName) != null)
+            {
+                return; // 已有缓存
+            }
+
+            uint iconId = ApkLabelReader.ReadIconResourceId(manifest);
+            if (iconId == 0)
+            {
+                return;
+            }
+
+            string path = ApkLabelReader.ResolveFilePath(arsc, iconId);
+
+            // adaptive-icon 只描述"前景 + 背景"，前景层才是真正的图
+            for (int hop = 0; hop < 2 && path != null && IsXml(path); hop++)
+            {
+                if (_stopped) return;
+
+                byte[] xml = FetchEntry(app.ApkPath, path);
+                if (xml == null) return;
+
+                uint foregroundId = ApkLabelReader.ParseAdaptiveIconForeground(xml);
+                if (foregroundId == 0) return;
+
+                path = ApkLabelReader.ResolveFilePath(arsc, foregroundId);
+            }
+
+            if (path == null || IsXml(path) || _stopped)
+            {
+                return; // 纯矢量图标（.xml）暂不渲染，交给占位显示
+            }
+
+            byte[] image = FetchEntry(app.ApkPath, path);
+            if (image == null || _stopped)
+            {
+                return;
+            }
+
+            AppIconStore.Save(app.PackageName, image, Path.GetExtension(path));
+            string saved = AppIconStore.Find(app.PackageName);
+            if (saved != null)
+            {
+                NotifyIcon(app, saved);
+            }
+        }
+
+        private byte[] FetchEntry(string apkPath, string entryPath)
+        {
+            return RunShellBinary("unzip -p '" + apkPath + "' '" + entryPath + "'", 20000, MaxIconBytes);
+        }
+
+        private static bool IsXml(string path)
+        {
+            return path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void NotifyIcon(AppInfo app, string iconPath)
+        {
+            try
+            {
+                _dispatcher.BeginInvoke(new Action(() =>
+                {
+                    Action<AppInfo, string> handler = ItemIconResolved;
+                    if (handler != null) handler(app, iconPath);
+                }));
+            }
+            catch
+            {
+                // 窗口已关闭
+            }
         }
 
         /// <summary>从 unzip -l 的输出里取 resources.arsc 的原始大小（字节）。</summary>

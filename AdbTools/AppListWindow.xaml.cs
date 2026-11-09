@@ -170,6 +170,9 @@ namespace AdbTools
                     app.DisplayName = cached;
                 }
 
+                // 已缓存的图标直接加载，没有则显示占位，等后台解析补齐
+                app.Icon = AppIconStore.Load(AppIconStore.Find(entry.Key));
+
                 _apps.Add(app);
             }
         }
@@ -276,6 +279,7 @@ namespace AdbTools
             _resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, Dispatcher,
                 message => SetStatus(message, NormalBrush), 6);
             _resolver.ItemResolved += Resolver_ItemResolved;
+            _resolver.ItemIconResolved += Resolver_IconResolved;
             _resolver.Aborted += Resolver_Aborted;
 
             progressText.Text = "应用名 0/" + pending.Count;
@@ -298,6 +302,15 @@ namespace AdbTools
             else
             {
                 progressText.Text = "应用名 " + done + "/" + total;
+            }
+        }
+
+        private void Resolver_IconResolved(AppInfo app, string iconPath)
+        {
+            ImageSource image = AppIconStore.Load(iconPath);
+            if (image != null)
+            {
+                app.Icon = image;
             }
         }
 
@@ -327,6 +340,7 @@ namespace AdbTools
             AppLabelResolver resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, Dispatcher,
                 message => SetStatus(message, NormalBrush), 1);
 
+            resolver.ItemIconResolved += Resolver_IconResolved;
             resolver.ItemResolved += (target, label, done, total) =>
             {
                 target.IsBusy = false;

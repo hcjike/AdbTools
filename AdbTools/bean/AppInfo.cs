@@ -13,15 +13,68 @@ namespace AdbTools.bean
         private static readonly Brush EnabledBackground = CreateBrush(0xEC, 0xFD, 0xF5);
         private static readonly Brush EnabledForeground = CreateBrush(0x05, 0x96, 0x69);
 
+        private static readonly Brush[] AvatarBrushes = CreateAvatarBrushes();
+
         private string _displayName;
         private bool _isDisabled;
         private bool _isBusy;
+        private ImageSource _icon;
 
         public string PackageName { get; set; }
 
         public string ApkPath { get; set; }
 
         public bool IsSystem { get; set; }
+
+        /// <summary>已解析并缓存的图标；为空时界面显示首字母占位。</summary>
+        public ImageSource Icon
+        {
+            get { return _icon; }
+            set
+            {
+                if (ReferenceEquals(_icon, value)) return;
+                _icon = value;
+                Raise("Icon");
+                Raise("HasIcon");
+                Raise("NoIcon");
+            }
+        }
+
+        public bool HasIcon
+        {
+            get { return _icon != null; }
+        }
+
+        public bool NoIcon
+        {
+            get { return _icon == null; }
+        }
+
+        /// <summary>占位字符：包名首字母。</summary>
+        public string Initial
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(PackageName)) return "?";
+                return PackageName.Substring(0, 1).ToUpperInvariant();
+            }
+        }
+
+        /// <summary>占位色块：按包名取固定颜色，同一应用每次打开都一致。</summary>
+        public Brush AvatarBrush
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(PackageName)) return AvatarBrushes[0];
+
+                int hash = 0;
+                foreach (char c in PackageName)
+                {
+                    hash = (hash * 31 + c) & 0x7FFFFFFF;
+                }
+                return AvatarBrushes[hash % AvatarBrushes.Length];
+            }
+        }
 
         /// <summary>解析出的应用名，可能为空（系统包无 label 或解析失败）。</summary>
         public string DisplayName
@@ -116,6 +169,21 @@ namespace AdbTools.bean
             SolidColorBrush brush = new SolidColorBrush(Color.FromRgb(r, g, b));
             brush.Freeze();
             return brush;
+        }
+
+        private static Brush[] CreateAvatarBrushes()
+        {
+            return new[]
+            {
+                CreateBrush(0x60, 0xA5, 0xFA),
+                CreateBrush(0x34, 0xD3, 0x99),
+                CreateBrush(0xFB, 0x92, 0x3C),
+                CreateBrush(0xA7, 0x8B, 0xFA),
+                CreateBrush(0xF4, 0x72, 0xB6),
+                CreateBrush(0x38, 0xBD, 0xF8),
+                CreateBrush(0xFB, 0x71, 0x85),
+                CreateBrush(0x2D, 0xD4, 0xBF)
+            };
         }
     }
 }

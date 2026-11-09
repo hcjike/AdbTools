@@ -20,8 +20,11 @@ namespace AdbTools
         private const byte ValueTypeReference = 0x01;
         private const byte ValueTypeString = 0x03;
 
-        /// <summary>android:label 的属性资源 id。</summary>
+        /// <summary>android:label / icon / roundIcon / drawable 的属性资源 id。</summary>
         private const uint AndroidLabelAttrId = 0x01010001;
+        private const uint AndroidIconAttrId = 0x01010002;
+        private const uint AndroidDrawableAttrId = 0x01010199;
+        private const uint AndroidRoundIconAttrId = 0x0101052C;
 
         /// <summary>
         /// 解析应用名。任一环节失败都返回 null，由调用方回退到包名。
@@ -30,7 +33,7 @@ namespace AdbTools
         {
             uint labelResId;
             string literal;
-            if (!TryReadManifestLabel(manifest, out labelResId, out literal))
+            if (!TryReadApplicationAttribute(manifest, AndroidLabelAttrId, "label", out labelResId, out literal))
             {
                 return null;
             }
@@ -50,9 +53,96 @@ namespace AdbTools
             return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         }
 
+        /// <summary>读取 android:icon（没有时退回 android:roundIcon）的资源 id；0 表示应用没有声明图标。</summary>
+        public static uint ReadIconResourceId(byte[] manifest)
+        {
+            uint resId;
+            string literal;
+
+            if (TryReadApplicationAttribute(manifest, AndroidIconAttrId, "icon", out resId, out literal) && resId != 0)
+            {
+                return resId;
+            }
+
+            if (TryReadApplicationAttribute(manifest, AndroidRoundIconAttrId, "roundIcon", out resId, out literal) && resId != 0)
+            {
+                return resId;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// 按资源 id 取文件在 APK 内的路径（如 res/mipmap-xxxhdpi-v4/ic_launcher.png）。
+        /// 图标通常有多份密度版本，这里取最高密度；adaptive-icon 会返回 .xml 路径。
+        /// </summary>
+        public static string ResolveFilePath(byte[] arsc, uint resId)
+        {
+            if (arsc == null || arsc.Length < 12 || resId == 0)
+            {
+                return null;
+            }
+
+            ResTable table = new ResTable(arsc);
+            return table.ResolveStringByDensity(resId, 0);
+        }
+
+        /// <summary>解析 adaptive-icon XML 中 foreground 的 android:drawable 资源 id；0 表示解析不到。</summary>
+        public static uint ParseAdaptiveIconForeground(byte[] xml)
+        {
+            if (xml == null || xml.Length < 8)
+            {
+                return 0;
+            }
+
+            ResStringPool pool = null;
+            uint[] resourceMap = null;
+            int pos = 8;
+
+            while (pos + 8 <= xml.Length)
+            {
+                ushort type = ChunkReader.U16(xml, pos);
+                ushort headerSize = ChunkReader.U16(xml, pos + 2);
+                uint size = ChunkReader.U32(xml, pos + 4);
+                if (size < 8 || pos + (long)size > xml.Length)
+                {
+                    return 0;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(xml, pos);
+                }
+                else if (type == ChunkXmlResourceMap)
+                {
+                    resourceMap = ReadResourceMap(xml, pos, headerSize, size);
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(xml, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "foreground")
+                    {
+                        uint resId;
+                        string literal;
+                        if (TryReadAttributeValue(xml, pos, headerSize, pool, resourceMap,
+                                AndroidDrawableAttrId, "drawable", out resId, out literal) && resId != 0)
+                        {
+                            return resId;
+                        }
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return 0;
+        }
+
         // ---------------------------------------------------------------- manifest
 
-        private static bool TryReadManifestLabel(byte[] data, out uint resId, out string literal)
+        /// <summary>在 &lt;application&gt; 元素上读取指定属性（按资源 id 或属性名匹配）。</summary>
+        private static bool TryReadApplicationAttribute(byte[] data, uint attrId, string attrName,
+            out uint resId, out string literal)
         {
             resId = 0;
             literal = null;
@@ -81,22 +171,15 @@ namespace AdbTools
                 }
                 else if (type == ChunkXmlResourceMap)
                 {
-                    int count = (int)((size - headerSize) / 4);
-                    if (count > 0)
-                    {
-                        resourceMap = new uint[count];
-                        for (int i = 0; i < count; i++)
-                        {
-                            resourceMap[i] = ChunkReader.U32(data, pos + headerSize + i * 4);
-                        }
-                    }
+                    resourceMap = ReadResourceMap(data, pos, headerSize, size);
                 }
                 else if (type == ChunkXmlStartElement && pool != null)
                 {
                     // ResXMLTree_node 之后是 attrExt：ns(4) 在前，元素名在 +4
                     int nameIndex = ChunkReader.I32(data, pos + headerSize + 4);
                     if (pool.Get(nameIndex) == "application"
-                        && TryReadLabelAttribute(data, pos, headerSize, pool, resourceMap, out resId, out literal))
+                        && TryReadAttributeValue(data, pos, headerSize, pool, resourceMap, attrId, attrName,
+                            out resId, out literal))
                     {
                         return true;
                     }
@@ -108,8 +191,25 @@ namespace AdbTools
             return false;
         }
 
-        private static bool TryReadLabelAttribute(byte[] data, int chunkPos, int headerSize,
-            ResStringPool pool, uint[] resourceMap, out uint resId, out string literal)
+        private static uint[] ReadResourceMap(byte[] data, int chunkPos, int headerSize, uint size)
+        {
+            int count = (int)((size - headerSize) / 4);
+            if (count <= 0)
+            {
+                return null;
+            }
+
+            uint[] map = new uint[count];
+            for (int i = 0; i < count; i++)
+            {
+                map[i] = ChunkReader.U32(data, chunkPos + headerSize + i * 4);
+            }
+            return map;
+        }
+
+        private static bool TryReadAttributeValue(byte[] data, int chunkPos, int headerSize,
+            ResStringPool pool, uint[] resourceMap, uint attrId, string attrName,
+            out uint resId, out string literal)
         {
             resId = 0;
             literal = null;
@@ -142,9 +242,9 @@ namespace AdbTools
                     ? resourceMap[nameIndex]
                     : 0;
 
-                bool isLabel = nameResId == AndroidLabelAttrId
-                    || (nameResId == 0 && pool.Get(nameIndex) == "label");
-                if (!isLabel)
+                bool matched = nameResId == attrId
+                    || (nameResId == 0 && pool.Get(nameIndex) == attrName);
+                if (!matched)
                 {
                     continue;
                 }
@@ -162,7 +262,7 @@ namespace AdbTools
                     return true;
                 }
 
-                // 少数 APK 直接把名称写在 rawValue 里
+                // 少数 APK 直接把值写在 rawValue 里
                 int rawIndex = ChunkReader.I32(data, a + 8);
                 if (rawIndex >= 0)
                 {
@@ -250,6 +350,46 @@ namespace AdbTools
 
                 return null;
             }
+
+            /// <summary>按密度优先取值，用于图标这类"多份密度副本"的资源。</summary>
+            public string ResolveStringByDensity(uint resId, int depth)
+            {
+                if (depth > 4 || _values == null)
+                {
+                    return null;
+                }
+
+                uint packageId = resId >> 24;
+                byte typeId = (byte)((resId >> 16) & 0xFF);
+                int entryIndex = (int)(resId & 0xFFFF);
+
+                foreach (PackageChunk package in _packages)
+                {
+                    if (package.Id != packageId)
+                    {
+                        continue;
+                    }
+
+                    byte valueType;
+                    uint valueData;
+                    if (!package.TryGetEntryByDensity(typeId, entryIndex, out valueType, out valueData))
+                    {
+                        continue;
+                    }
+
+                    if (valueType == ValueTypeString)
+                    {
+                        return _values.Get((int)valueData);
+                    }
+                    if (valueType == ValueTypeReference)
+                    {
+                        return ResolveStringByDensity(valueData, depth + 1);
+                    }
+                    return null;
+                }
+
+                return null;
+            }
         }
 
         private sealed class PackageChunk
@@ -263,6 +403,9 @@ namespace AdbTools
             /// 这里按语言优先级排好序，取值时依次尝试。
             /// </summary>
             private readonly Dictionary<byte, List<int>> _types = new Dictionary<byte, List<int>>();
+
+            /// <summary>同样的 TYPE 块，按密度从高到低排序，供图标这类资源使用。</summary>
+            private readonly Dictionary<byte, List<int>> _typesByDensity = new Dictionary<byte, List<int>>();
 
             public PackageChunk(byte[] data, int start)
             {
@@ -298,9 +441,13 @@ namespace AdbTools
                     pos += (int)size;
                 }
 
-                foreach (List<int> list in _types.Values)
+                foreach (KeyValuePair<byte, List<int>> pair in _types)
                 {
-                    list.Sort((a, b) => ConfigRank(a).CompareTo(ConfigRank(b)));
+                    pair.Value.Sort((a, b) => ConfigRank(a).CompareTo(ConfigRank(b)));
+
+                    List<int> byDensity = new List<int>(pair.Value);
+                    byDensity.Sort((a, b) => DensityRank(a).CompareTo(DensityRank(b)));
+                    _typesByDensity[pair.Key] = byDensity;
                 }
             }
 
@@ -327,6 +474,56 @@ namespace AdbTools
                 }
 
                 return false;
+            }
+
+            /// <summary>按密度从高到低取值：图标有多份副本时取最清晰的那份。</summary>
+            public bool TryGetEntryByDensity(byte typeId, int entryIndex, out byte valueType, out uint valueData)
+            {
+                valueType = 0;
+                valueData = 0;
+
+                List<int> list;
+                if (!_typesByDensity.TryGetValue(typeId, out list))
+                {
+                    return false;
+                }
+
+                foreach (int chunkPos in list)
+                {
+                    if (TryReadEntry(chunkPos, entryIndex, out valueType, out valueData))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// 密度优先级：真实密度越高越靠前；未指定密度按中密度算；
+            /// anydpi/nodpi（一般是矢量或 adaptive-icon 的 XML）排最后，避免抢在真实位图前面。
+            /// </summary>
+            private int DensityRank(int chunkPos)
+            {
+                int headerSize = ChunkReader.U16(_data, chunkPos + 2);
+                int configStart = chunkPos + 20;
+                int configSize = headerSize - 20;
+                // ResTable_config：screenType 在 +12，其中 orientation(1) touchscreen(1) density(2)
+                if (configSize < 16 || configStart + 16 > _data.Length)
+                {
+                    return 12000;
+                }
+
+                int density = ChunkReader.U16(_data, configStart + 14);
+                if (density == 0)
+                {
+                    return 9840; // 未指定，按 mdpi 处理
+                }
+                if (density == 0xFFFE || density == 0xFFFF)
+                {
+                    return 20000; // anydpi / nodpi
+                }
+                return 10000 - density;
             }
 
             /// <summary>

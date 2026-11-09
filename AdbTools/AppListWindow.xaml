@@ -114,7 +114,21 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- 图标：取不到时用包名首字母 + 固定色块占位 -->
+                                <Border Width="34" Height="34" CornerRadius="9" Background="{Binding AvatarBrush}"
+                                        VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <Grid>
+                                        <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="15"
+                                                   FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}" />
+                                        <Image Source="{Binding Icon}" Stretch="Uniform"
+                                               Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
                                                Foreground="#FF111827" MaxWidth="420" VerticalAlignment="Center"
@@ -131,6 +145,7 @@
                                 </StackPanel>
                                 <TextBlock Text="{Binding PackageName}" FontSize="11.5" Foreground="#FF8A94A6"
                                            Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
                             </StackPanel>
 
                             <TextBlock Grid.Column="1" Text="处理中…" Foreground="#FF9CA3AF" FontSize="12"
