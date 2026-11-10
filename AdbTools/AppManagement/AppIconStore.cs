@@ -1,38 +1,109 @@
 using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace AdbTools
 {
     /// <summary>
-    /// 应用图标缓存。图标直接存成文件：%APPDATA%\AdbTools\data\icons\&lt;包名&gt;.png。
-    /// 文件存在即视为已缓存，不额外维护数据库表；解码失败时由调用方回退占位图。
-    /// 缓存里可能出现的格式：png/jpg（WPF 原生支持）、webp（需要 libwebp，见 WebpDecoder）。
+    /// 应用图标缓存，按设备隔离、按内容去重：
+    /// - icon_blob：以图标内容的 SHA1 为主键，同一张图只存一份；
+    /// - app_label.icon_hash：（设备键, 包名）→ 哈希，与名称同一行，不同设备可各自指向不同图标。
+    /// WebP 在入库前统一转成 PNG，后续启动直接走系统解码器。
     /// </summary>
     internal static class AppIconStore
     {
-        private static readonly string[] KnownExtensions = { ".png", ".webp", ".jpg", ".jpeg" };
+        private const int MaxParametersPerQuery = 400;
 
-        private static string IconsDirectory
+        /// <summary>未被任何设备引用的图标内容只清理一次。</summary>
+        private static bool _orphansCleaned;
+
+        /// <summary>批量取某设备下这些包的图标，用于列表首次加载。</summary>
+        public static Dictionary<string, ImageSource> GetIcons(string deviceKey, IEnumerable<string> packages)
         {
-            get
+            Dictionary<string, ImageSource> icons = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+            if (packages == null)
             {
-                string dir = Path.Combine(Globals.AppDataDirectory, "data", "icons");
-                try
-                {
-                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                }
-                catch
-                {
-                    // 目录不可写时由调用方忽略
-                }
-                return dir;
+                return icons;
             }
+
+            List<string> names = new List<string>();
+            foreach (string package in packages)
+            {
+                if (!string.IsNullOrEmpty(package)) names.Add(package);
+            }
+            if (names.Count == 0)
+            {
+                return icons;
+            }
+
+            try
+            {
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return icons;
+
+                    // 同一张图可能被多个包引用，解码一次即可
+                    Dictionary<string, ImageSource> byHash = new Dictionary<string, ImageSource>(StringComparer.Ordinal);
+
+                    for (int offset = 0; offset < names.Count; offset += MaxParametersPerQuery)
+                    {
+                        int count = Math.Min(MaxParametersPerQuery, names.Count - offset);
+                        using (SQLiteCommand command = connection.CreateCommand())
+                        {
+                            StringBuilder sql = new StringBuilder(
+                                "SELECT a.package, a.icon_hash, b.data FROM app_label a " +
+                                "JOIN icon_blob b ON b.icon_hash = a.icon_hash " +
+                                "WHERE a.device_key = @d AND a.package IN (");
+                            command.Parameters.AddWithValue("@d", Key(deviceKey));
+                            for (int i = 0; i < count; i++)
+                            {
+                                if (i > 0) sql.Append(',');
+                                string name = "@p" + i;
+                                sql.Append(name);
+                                command.Parameters.AddWithValue(name, names[offset + i]);
+                            }
+                            sql.Append(");");
+                            command.CommandText = sql.ToString();
+
+                            using (SQLiteDataReader reader = command.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    string package = reader.GetString(0);
+                                    string hash = reader.GetString(1);
+
+                                    ImageSource image;
+                                    if (!byHash.TryGetValue(hash, out image))
+                                    {
+                                        image = Decode((byte[])reader.GetValue(2));
+                                        byHash[hash] = image;
+                                    }
+
+                                    if (image != null)
+                                    {
+                                        icons[package] = image;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("批量读取应用图标失败：{0}", ex.Message);
+            }
+
+            return icons;
         }
 
-        /// <summary>查找已缓存的图标文件，没有则返回 null。</summary>
-        public static string Find(string packageName)
+        /// <summary>取单个包的图标。</summary>
+        public static ImageSource GetIcon(string deviceKey, string packageName)
         {
             if (string.IsNullOrEmpty(packageName))
             {
@@ -41,92 +112,191 @@ namespace AdbTools
 
             try
             {
-                string dir = IconsDirectory;
-                foreach (string extension in KnownExtensions)
+                using (SQLiteConnection connection = AppStore.OpenConnection())
                 {
-                    string path = Path.Combine(dir, packageName + extension);
-                    if (File.Exists(path)) return path;
+                    if (connection == null) return null;
+
+                    using (SQLiteCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText =
+                            "SELECT b.data FROM app_label a JOIN icon_blob b ON b.icon_hash = a.icon_hash " +
+                            "WHERE a.device_key = @d AND a.package = @p LIMIT 1;";
+                        command.Parameters.AddWithValue("@d", Key(deviceKey));
+                        command.Parameters.AddWithValue("@p", packageName);
+
+                        byte[] data = command.ExecuteScalar() as byte[];
+                        return data == null ? null : Decode(data);
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 查询失败按没有缓存处理
+                AppLog.Write("读取应用图标失败：{0}", ex.Message);
+                return null;
             }
-
-            return null;
         }
 
-        /// <summary>写入图标文件；WebP 会先转成 PNG，同名旧扩展名的文件一并清掉，避免同一应用留两份。</summary>
-        public static void Save(string packageName, byte[] data, string extension)
+        /// <summary>该设备下这个包是否已有图标，避免重复拉取。</summary>
+        public static bool HasIcon(string deviceKey, string packageName)
+        {
+            if (string.IsNullOrEmpty(packageName))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return false;
+
+                    using (SQLiteCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText =
+                            "SELECT 1 FROM app_label WHERE device_key = @d AND package = @p " +
+                            "AND icon_hash IS NOT NULL LIMIT 1;";
+                        command.Parameters.AddWithValue("@d", Key(deviceKey));
+                        command.Parameters.AddWithValue("@p", packageName);
+                        return command.ExecuteScalar() != null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("查询应用图标失败：{0}", ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 保存图标：WebP 先转 PNG，内容按 SHA1 去重写入 icon_blob，
+        /// 再记下（设备, 包名）→ 哈希的映射。同一张图不会重复存。
+        /// </summary>
+        public static bool Save(string deviceKey, string packageName, byte[] data, string extension)
         {
             if (string.IsNullOrEmpty(packageName) || data == null || data.Length == 0)
             {
-                return;
+                return false;
             }
 
-            // WebP 只在取图时解码一次，随后以 PNG 落盘：解码器缺失也不会反复失败
-            if (NormalizeExtension(extension) == ".webp" || WebpDecoder.IsWebp(data))
+            // WebP 只在取图时解码一次，随后以 PNG 入库：解码器缺失也不会反复失败
+            if (NormalizeExtension(extension) == "webp" || WebpDecoder.IsWebp(data))
             {
                 byte[] png = EncodePng(WebpDecoder.Decode(data));
-                if (png != null)
+                if (png == null)
                 {
-                    SaveBytes(packageName, ".png", png);
-                    return;
+                    return false;
                 }
+
+                data = png;
+                extension = "png";
             }
 
-            SaveBytes(packageName, NormalizeExtension(extension), data);
-        }
+            string hash = ComputeHash(data);
+            string normalized = NormalizeExtension(extension);
 
-        /// <summary>保存一张位图（矢量图标渲染结果）：统一转成 PNG。</summary>
-        public static void SaveBitmap(string packageName, BitmapSource image)
-        {
-            byte[] png = EncodePng(image);
-            if (png != null)
-            {
-                SaveBytes(packageName, ".png", png);
-            }
-        }
-
-        /// <summary>从缓存文件加载图标；文件损坏或系统缺少解码器时返回 null。</summary>
-        public static ImageSource Load(string path)
-        {
-            if (string.IsNullOrEmpty(path))
-            {
-                return null;
-            }
-
-            byte[] data;
             try
             {
-                // 先整份读进内存：既能按文件头判断真实格式，也不会一直占着文件
-                data = File.ReadAllBytes(path);
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return false;
+
+                    using (SQLiteTransaction transaction = connection.BeginTransaction())
+                    {
+                        using (SQLiteCommand insertBlob = connection.CreateCommand())
+                        {
+                            insertBlob.Transaction = transaction;
+                            insertBlob.CommandText =
+                                "INSERT OR IGNORE INTO icon_blob(icon_hash, extension, size, data, created_at) " +
+                                "VALUES(@h, @e, @s, @b, @t);";
+                            insertBlob.Parameters.AddWithValue("@h", hash);
+                            insertBlob.Parameters.AddWithValue("@e", normalized);
+                            insertBlob.Parameters.AddWithValue("@s", data.Length);
+                            insertBlob.Parameters.AddWithValue("@b", data);
+                            insertBlob.Parameters.AddWithValue("@t", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                            insertBlob.ExecuteNonQuery();
+                        }
+
+                        using (SQLiteCommand upsert = connection.CreateCommand())
+                        {
+                            upsert.Transaction = transaction;
+                            upsert.CommandText =
+                                "INSERT INTO app_label(device_key, package, icon_hash, icon_failed, updated_at) " +
+                                "VALUES(@d, @p, @h, 0, @t) " +
+                                "ON CONFLICT(device_key, package) DO UPDATE SET " +
+                                "icon_hash = excluded.icon_hash, icon_failed = 0, updated_at = excluded.updated_at;";
+                            upsert.Parameters.AddWithValue("@d", Key(deviceKey));
+                            upsert.Parameters.AddWithValue("@p", packageName);
+                            upsert.Parameters.AddWithValue("@h", hash);
+                            upsert.Parameters.AddWithValue("@t", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                            upsert.ExecuteNonQuery();
+                        }
+
+                        transaction.Commit();
+                    }
+                }
+
+                return true;
             }
-            catch
+            catch (Exception ex)
+            {
+                AppLog.Write("保存应用图标失败：{0}", ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>保存一张位图（矢量图标渲染结果）：统一转成 PNG 后入库。</summary>
+        public static bool SaveBitmap(string deviceKey, string packageName, BitmapSource image)
+        {
+            byte[] png = EncodePng(image);
+            return png != null && Save(deviceKey, packageName, png, "png");
+        }
+
+        /// <summary>清理没有任何设备引用的图标内容（应用被卸载、映射被更新后留下）。</summary>
+        public static void CleanupOrphansOnce()
+        {
+            if (_orphansCleaned)
+            {
+                return;
+            }
+            _orphansCleaned = true;
+
+            try
+            {
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return;
+
+                    using (SQLiteCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText =
+                            "DELETE FROM icon_blob WHERE icon_hash NOT IN " +
+                            "(SELECT icon_hash FROM app_label WHERE icon_hash IS NOT NULL);";
+                        int removed = command.ExecuteNonQuery();
+                        if (removed > 0)
+                        {
+                            AppLog.Write("已清理 {0} 个无人引用的图标缓存", removed);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("清理图标缓存失败：{0}", ex.Message);
+            }
+        }
+
+        private static ImageSource Decode(byte[] data)
+        {
+            if (data == null || data.Length == 0)
             {
                 return null;
             }
 
-            if (data.Length == 0)
-            {
-                return null;
-            }
-
+            // 旧数据可能是 WebP：交给 libwebp 解码
             if (WebpDecoder.IsWebp(data))
             {
-                BitmapSource decoded = WebpDecoder.Decode(data);
-                if (decoded == null)
-                {
-                    return null;
-                }
-
-                // 旧缓存里的 WebP 顺手转成 PNG，后续启动直接走系统解码器
-                if (string.Equals(Path.GetExtension(path), ".webp", StringComparison.OrdinalIgnoreCase))
-                {
-                    SaveBitmap(Path.GetFileNameWithoutExtension(path), decoded);
-                }
-
-                return decoded;
+                return WebpDecoder.Decode(data);
             }
 
             try
@@ -145,30 +315,8 @@ namespace AdbTools
             }
             catch
             {
+                // 系统缺解码器（如损坏的图片）时按没有图标处理
                 return null;
-            }
-        }
-
-        private static void SaveBytes(string packageName, string extension, byte[] data)
-        {
-            try
-            {
-                string dir = IconsDirectory;
-                string target = Path.Combine(dir, packageName + extension);
-                File.WriteAllBytes(target, data);
-
-                foreach (string other in KnownExtensions)
-                {
-                    string path = Path.Combine(dir, packageName + other);
-                    if (!string.Equals(path, target, StringComparison.OrdinalIgnoreCase))
-                    {
-                        try { File.Delete(path); } catch { }
-                    }
-                }
-            }
-            catch
-            {
-                // 写图标失败不影响功能，下次再取
             }
         }
 
@@ -195,21 +343,43 @@ namespace AdbTools
             }
         }
 
+        private static string ComputeHash(byte[] data)
+        {
+            using (SHA1 sha = SHA1.Create())
+            {
+                byte[] hash = sha.ComputeHash(data);
+                StringBuilder builder = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash)
+                {
+                    builder.Append(b.ToString("x2"));
+                }
+                return builder.ToString();
+            }
+        }
+
         private static string NormalizeExtension(string extension)
         {
             if (string.IsNullOrEmpty(extension))
             {
-                return ".png";
+                return "png";
             }
 
-            string value = extension.ToLowerInvariant();
-            if (value[0] != '.') value = "." + value;
-
-            foreach (string known in KnownExtensions)
+            string value = extension.Trim().TrimStart('.').ToLowerInvariant();
+            switch (value)
             {
-                if (known == value) return value;
+                case "png":
+                case "webp":
+                case "jpg":
+                case "jpeg":
+                    return value;
+                default:
+                    return "png";
             }
-            return ".png";
+        }
+
+        private static string Key(string deviceKey)
+        {
+            return string.IsNullOrWhiteSpace(deviceKey) ? AppDeviceKey.Unknown : deviceKey;
         }
     }
 }

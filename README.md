@@ -164,7 +164,9 @@
 - **图标**：与名称一起解析，取 APK 里最高密度的图标位图；自适应图标（`mipmap-anydpi-v26/*.xml`）会再读它的前景层；WebP 与矢量图（VectorDrawable）图标由本机解码 / 渲染后缓存。解析不到图标的少数应用显示「应用名首字 + 固定色块」占位，不影响其它信息。
 - **拉取量**：每个应用只取 manifest、资源表和一张图标（多数几十 KB 到几百 KB，**不下载整个 APK**）。325 个应用首次约需 1~2 分钟，状态栏显示进度；可随时点「停止获取名称」中断，关闭窗口也会立即停止。
 - **大应用较慢**：资源表特别大的应用（例如系统「设置」约 104MB）单个约需 1 分钟；超过 160MB 的直接跳过，只显示包名。
-- **缓存**：名称、系统服务标记与解析状态存在 `%APPDATA%\AdbTools\data\app.db`（SQLite），图标存在 `%APPDATA%\AdbTools\data\icons\<包名>.png`，第二次打开直接命中，不再拉取；来自缓存的行会在列表中以「缓存」标签标注。
+- **缓存按设备隔离**：名称、系统服务标记、解析状态与图标都存在 `%APPDATA%\AdbTools\data\AdbTools.db`（SQLite），并按设备键分开。同一个包在不同手机上名称/图标不同时各自保存，互不覆盖；来自缓存的行会在列表中以「缓存」标签标注。
+- **图标去重**：图标内容按 SHA1 存一份，多个应用共用同一张图（或同一应用在多台设备上图标相同）只占一份空间；无人引用的图标会在下次打开列表时清理。
+- **设备键**：依次取 `ro.serialno` → `ro.boot.serialno` → `android_id`，都由设备自身返回，同一台手机用 USB / IP / 无线调试连接时结果相同，因此多种连接方式共用一份缓存；三者都取不到时才退回连接序列号（此时各连接方式会各存一份）。
 - **仍显示包名的情况**：少数系统包（如部分 apex 虚拟化组件）本身没有 `android:label`，只能显示包名。
 - **不影响操作**：名称只用于显示，卸载 / 停用 / 启用 / 清除缓存等功能随时可用，不必等名称解析完成。
 - **WiFi 调试注意**：数据经 adb 通道传输，WiFi 下会占用带宽；解析期间同时使用远程控制可能互相影响，可先点「停止获取名称」。
@@ -243,7 +245,7 @@
 - **清晰度下拉里少了几个档位**：设备原生分辨率达不到的档位会在启动时隐藏，验证失败的档位会被移除，属正常行为。
 - **帧率正常但操作有粘滞感**：状态栏显示的是真实上屏帧率；粘滞主要来自设备端采集编码与 adb 往返（约 100~200 ms），切到更低的分辨率档位可缓解。
 - **关闭窗口时停在「正在关闭…」**：正在后台停止取流、清理设备端服务与转发，完成后窗口会自动关闭；这是为了避免清理阻塞 UI 线程导致主界面卡顿。
-- **日志在哪里**：远程控制日志 `%APPDATA%\AdbTools\logs\RemoteControl-yyyyMMdd.log`、应用列表日志 `%APPDATA%\AdbTools\logs\AppList-yyyyMMdd.log`（按天分文件，自动保留 7 天）；抓取的设备日志与诊断包位于 `%APPDATA%\AdbTools\DeviceLogs\<设备名称>\`；配置与设备历史位于 `%APPDATA%\AdbTools\AdbTools.config`；应用数据（应用名缓存）位于 `%APPDATA%\AdbTools\data\app.db`；所有临时文件统一放在 `%APPDATA%\AdbTools\cache`，每次启动自动清空，不会写到系统临时目录。
+- **日志在哪里**：远程控制日志 `%APPDATA%\AdbTools\logs\RemoteControl-yyyyMMdd.log`、应用列表日志 `%APPDATA%\AdbTools\logs\AppList-yyyyMMdd.log`（按天分文件，自动保留 7 天）；抓取的设备日志与诊断包位于 `%APPDATA%\AdbTools\DeviceLogs\<设备名称>\`；配置与设备历史位于 `%APPDATA%\AdbTools\AdbTools.config`；应用数据（应用名与图标缓存）位于 `%APPDATA%\AdbTools\data\AdbTools.db`；所有临时文件统一放在 `%APPDATA%\AdbTools\cache`，每次启动自动清空，不会写到系统临时目录。
 
 ## 第三方组件
 

@@ -28,6 +28,7 @@ namespace AdbTools
         private readonly DispatcherTimer _statusTimer = new DispatcherTimer();
 
         private AppLabelResolver _resolver;
+        private string _deviceKey;
         private bool _loading;
         private bool _resolveStoppedByUser;
         private int _filterIndex;
@@ -89,7 +90,17 @@ namespace AdbTools
             SetStatus("正在读取应用列表…", NormalBrush, false);
             progressText.Text = string.Empty;
 
-            // 三个查询分开执行：单条命令更稳，失败时也能各自降级处理
+            // 缓存按设备隔离：先确定设备键（硬件序列号，USB / IP / 无线一致），再读列表
+            AppDeviceKey.ResolveAsync(AdbPath, DeviceInfo.SerialArg, DeviceInfo.DeviceMark, key =>
+            {
+                _deviceKey = key;
+                LoadPackageList();
+            });
+        }
+
+        /// <summary>三条查询分开执行：单条命令更稳，失败时也能各自降级处理。</summary>
+        private void LoadPackageList()
+        {
             CmdExecutor.ExecuteCommandAndReturnAsync(
                 new[] { Command("shell pm list packages -f") },
                 all => LoadSystemFlags(all),
@@ -150,10 +161,16 @@ namespace AdbTools
                 .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // 一次 IN 查询把已缓存的名称、名称解析状态与系统服务标记全部取回，避免逐条查库
-            Dictionary<string, string> cachedLabels = AppLabelStore.GetLabels(entries.Select(x => x.Key));
-            Dictionary<string, bool> cachedServices = AppLabelStore.GetServices(entries.Select(x => x.Key));
-            HashSet<string> resolvedNames = AppLabelStore.GetResolvedNames(entries.Select(x => x.Key));
+            // 一次 IN 查询把该设备已缓存的名称、解析状态、服务标记与图标全部取回，避免逐条查库
+            Dictionary<string, string> cachedLabels =
+                AppLabelStore.GetLabels(_deviceKey, entries.Select(x => x.Key));
+            Dictionary<string, bool> cachedServices =
+                AppLabelStore.GetServices(_deviceKey, entries.Select(x => x.Key));
+            HashSet<string> resolvedNames =
+                AppLabelStore.GetResolvedNames(_deviceKey, entries.Select(x => x.Key));
+            Dictionary<string, ImageSource> cachedIcons =
+                AppIconStore.GetIcons(_deviceKey, entries.Select(x => x.Key));
+            AppIconStore.CleanupOrphansOnce();
 
             _apps.Clear();
             foreach (KeyValuePair<string, string> entry in entries)
@@ -186,8 +203,12 @@ namespace AdbTools
                     app.IsService = cachedService;
                 }
 
-                // 已缓存的图标直接加载，没有则显示占位，等后台解析补齐
-                app.Icon = AppIconStore.Load(AppIconStore.Find(entry.Key));
+                // 已缓存的图标直接用，没有则显示占位，等后台解析补齐
+                ImageSource icon;
+                if (cachedIcons.TryGetValue(entry.Key, out icon))
+                {
+                    app.Icon = icon;
+                }
 
                 _apps.Add(app);
             }
@@ -292,7 +313,7 @@ namespace AdbTools
             }
 
             // 每个应用要读两次 APK，单次几十到几百毫秒，多开几个并发才能在有几百个应用时快速填满
-            _resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, Dispatcher,
+            _resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, _deviceKey, Dispatcher,
                 message => SetStatus(message, NormalBrush), 6);
             _resolver.ItemResolved += Resolver_ItemResolved;
             _resolver.ItemIconResolved += Resolver_IconResolved;
@@ -331,9 +352,9 @@ namespace AdbTools
             }
         }
 
-        private void Resolver_IconResolved(AppInfo app, string iconPath)
+        private void Resolver_IconResolved(AppInfo app)
         {
-            ImageSource image = AppIconStore.Load(iconPath);
+            ImageSource image = AppIconStore.GetIcon(_deviceKey, app.PackageName);
             if (image != null)
             {
                 app.Icon = image;
@@ -363,7 +384,7 @@ namespace AdbTools
             app.DisplayName = null;
             app.IsBusy = true;
 
-            AppLabelResolver resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, Dispatcher,
+            AppLabelResolver resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, _deviceKey, Dispatcher,
                 message => SetStatus(message, NormalBrush), 1);
 
             resolver.ItemIconResolved += Resolver_IconResolved;
