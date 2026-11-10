@@ -37,7 +37,7 @@ SQLite / System.Data.SQLite
             SQLite 内核      : https://www.sqlite.org/copyright.html
             ADO.NET 提供程序 : https://system.data.sqlite.org/index.html/doc/trunk/www/copyright.wiki
 随附文件  : System.Data.SQLite.dll、x64\SQLite.Interop.dll
-用途说明  : 保存应用相关数据（%APPDATA%\AdbTools\data\app.db，当前为应用名缓存）。
+用途说明  : 保存应用相关数据（%APPDATA%\AdbTools\data\AdbTools.db，当前为按设备隔离的应用名与图标缓存）。
             仅使用本机文件数据库，不涉及任何网络传输。
 
 用途说明

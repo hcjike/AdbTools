@@ -92,6 +92,7 @@
                     <ComboBoxItem Content="系统应用" Tag="2" />
                     <ComboBoxItem Content="系统服务" Tag="4" />
                     <ComboBoxItem Content="已停用应用" Tag="3" />
+                    <ComboBoxItem Content="已卸载应用" Tag="5" />
                 </ComboBox>
 
                 <Button x:Name="refreshButton" Grid.Column="2" Content="刷新" Height="32" Margin="10,0,0,0"
@@ -195,7 +196,8 @@
                                 <Button Content="{Binding ActionText}" Style="{StaticResource ToggleButtonStyle}"
                                         IsEnabled="{Binding IsNotBusy}" Click="ToggleApp_Click" />
                                 <Button Content="卸载" Style="{StaticResource UninstallButtonStyle}"
-                                        IsEnabled="{Binding IsNotBusy}" Click="UninstallApp_Click" />
+                                        IsEnabled="{Binding IsNotBusy}" Click="UninstallApp_Click"
+                                        Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVis}}" />
                                 <Button Content="更多" Style="{StaticResource MoreButtonStyle}"
                                         IsEnabled="{Binding IsNotBusy}" Click="More_Click" />
                             </StackPanel>

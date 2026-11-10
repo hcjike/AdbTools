@@ -36,6 +36,7 @@ namespace AdbTools
 
         private readonly string _adbFile;
         private readonly string _serialArg;
+        private readonly string _deviceKey;
         private readonly Dispatcher _dispatcher;
         private readonly Action<string> _log;
         private readonly int _concurrency;
@@ -49,17 +50,18 @@ namespace AdbTools
         /// <summary>单个应用解析完成（label 为空表示解析失败）。回调已在 UI 线程。</summary>
         public event Action<AppInfo, string, int, int> ItemResolved;
 
-        /// <summary>单个应用图标取回并写入缓存（回调已在 UI 线程）。</summary>
-        public event Action<AppInfo, string> ItemIconResolved;
+        /// <summary>单个应用图标已写入缓存（回调已在 UI 线程）。</summary>
+        public event Action<AppInfo> ItemIconResolved;
 
         /// <summary>解析被提前终止（设备不支持或设备离线）。</summary>
         public event Action<string> Aborted;
 
-        public AppLabelResolver(string adbPath, string serialArg, Dispatcher dispatcher,
+        public AppLabelResolver(string adbPath, string serialArg, string deviceKey, Dispatcher dispatcher,
             Action<string> log, int concurrency)
         {
             _adbFile = (adbPath ?? string.Empty).Trim('"');
             _serialArg = serialArg ?? string.Empty;
+            _deviceKey = AppDeviceKey.Normalize(deviceKey);
             _dispatcher = dispatcher;
             _log = log;
             _concurrency = concurrency < 1 ? 1 : concurrency;
@@ -136,13 +138,13 @@ namespace AdbTools
 
                 if (label != null)
                 {
-                    AppLabelStore.SetLabel(app.PackageName, label);
+                    AppLabelStore.SetLabel(_deviceKey, app.PackageName, label);
                     Interlocked.Exchange(ref _failureStreak, 0);
                 }
                 else if (nameDetermined)
                 {
                     // 资源齐全仍没名字（部分系统包）：落空标记，下次不再重复拉 arsc
-                    AppLabelStore.SetLabelResolved(app.PackageName);
+                    AppLabelStore.SetLabelResolved(_deviceKey, app.PackageName);
                     Interlocked.Exchange(ref _failureStreak, 0);
                 }
                 else if (transportOk)
@@ -161,7 +163,7 @@ namespace AdbTools
                 // 系统服务判定结果写缓存：包名唯一，下次直接命中，不用再解析 manifest
                 if (isService.HasValue)
                 {
-                    AppLabelStore.SetService(app.PackageName, isService.Value);
+                    AppLabelStore.SetService(_deviceKey, app.PackageName, isService.Value);
                 }
 
                 int done = Interlocked.Increment(ref _done);
@@ -264,12 +266,12 @@ namespace AdbTools
                 return;
             }
 
-            if (AppIconStore.Find(app.PackageName) != null)
+            if (AppIconStore.HasIcon(_deviceKey, app.PackageName))
             {
-                return; // 已有缓存
+                return; // 该设备下已有缓存
             }
 
-            if (AppLabelStore.IsIconFailed(app.PackageName))
+            if (AppLabelStore.IsIconFailed(_deviceKey, app.PackageName))
             {
                 return; // 之前已尝试且确定拿不到，不再重试
             }
@@ -277,7 +279,7 @@ namespace AdbTools
             uint iconId = ApkLabelReader.ReadIconResourceId(manifest);
             if (iconId == 0)
             {
-                AppLabelStore.SetIconFailed(app.PackageName); // 应用没声明图标
+                AppLabelStore.SetIconFailed(_deviceKey, app.PackageName); // 应用没声明图标
                 return;
             }
 
@@ -309,7 +311,7 @@ namespace AdbTools
 
             if (path == null || _stopped)
             {
-                if (path == null) AppLabelStore.SetIconFailed(app.PackageName); // 资源表里解析不到图标
+                if (path == null) AppLabelStore.SetIconFailed(_deviceKey, app.PackageName); // 资源表里解析不到图标
                 return;
             }
 
@@ -326,8 +328,10 @@ namespace AdbTools
                 return;
             }
 
-            AppIconStore.Save(app.PackageName, image, Path.GetExtension(path));
-            NotifySavedIcon(app);
+            if (AppIconStore.Save(_deviceKey, app.PackageName, image, Path.GetExtension(path)))
+            {
+                NotifyIcon(app);
+            }
         }
 
         /// <summary>把矢量图标渲染成 PNG 缓存；解析或渲染失败时保持占位图。</summary>
@@ -342,27 +346,20 @@ namespace AdbTools
             VectorIcon icon = ApkLabelReader.ParseVectorDrawable(xml, arsc);
             if (icon == null)
             {
-                AppLabelStore.SetIconFailed(app.PackageName); // 无法解析的矢量结构
+                AppLabelStore.SetIconFailed(_deviceKey, app.PackageName); // 无法解析的矢量结构
                 return;
             }
 
             byte[] png = VectorIconRenderer.RenderPng(icon, backgroundColor);
             if (png == null)
             {
-                if (!_stopped) AppLabelStore.SetIconFailed(app.PackageName); // 渲染失败
+                if (!_stopped) AppLabelStore.SetIconFailed(_deviceKey, app.PackageName); // 渲染失败
                 return;
             }
 
-            AppIconStore.Save(app.PackageName, png, ".png");
-            NotifySavedIcon(app);
-        }
-
-        private void NotifySavedIcon(AppInfo app)
-        {
-            string saved = AppIconStore.Find(app.PackageName);
-            if (saved != null)
+            if (AppIconStore.Save(_deviceKey, app.PackageName, png, ".png"))
             {
-                NotifyIcon(app, saved);
+                NotifyIcon(app);
             }
         }
 
@@ -376,14 +373,14 @@ namespace AdbTools
             return path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void NotifyIcon(AppInfo app, string iconPath)
+        private void NotifyIcon(AppInfo app)
         {
             try
             {
                 _dispatcher.BeginInvoke(new Action(() =>
                 {
-                    Action<AppInfo, string> handler = ItemIconResolved;
-                    if (handler != null) handler(app, iconPath);
+                    Action<AppInfo> handler = ItemIconResolved;
+                    if (handler != null) handler(app);
                 }));
             }
             catch
