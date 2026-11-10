@@ -83,6 +83,46 @@ namespace AdbTools
             return 0;
         }
 
+        /// <summary>读取 &lt;manifest&gt; 上的 package 属性（安装包名）；读不到返回 null。</summary>
+        public static string ReadPackageName(byte[] manifest)
+        {
+            if (manifest == null || manifest.Length < 8)
+            {
+                return null;
+            }
+
+            ResStringPool pool = null;
+            int pos = 8; // 跳过文件头
+
+            while (pos + 8 <= manifest.Length)
+            {
+                ushort type = ChunkReader.U16(manifest, pos);
+                ushort headerSize = ChunkReader.U16(manifest, pos + 2);
+                uint size = ChunkReader.U32(manifest, pos + 4);
+                if (size < 8 || pos + (long)size > manifest.Length)
+                {
+                    return null;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(manifest, pos);
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(manifest, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "manifest")
+                    {
+                        return ReadStringAttribute(manifest, pos, headerSize, pool, "package");
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// 按资源 id 取文件在 APK 内的路径（如 res/mipmap-xxxhdpi-v4/ic_launcher.png）。
         /// 图标通常有多份密度版本，这里取最高密度；adaptive-icon 会返回 .xml 路径。
@@ -728,6 +768,51 @@ namespace AdbTools
                 map[i] = ChunkReader.U32(data, chunkPos + headerSize + i * 4);
             }
             return map;
+        }
+
+        /// <summary>
+        /// 在起始元素上按属性名取字符串值：package、versionName 这类属性没有 android 资源 id，
+        /// 只能按名字匹配。
+        /// </summary>
+        private static string ReadStringAttribute(byte[] data, int chunkPos, int headerSize,
+            ResStringPool pool, string attrName)
+        {
+            int ext = chunkPos + headerSize;
+            if (ext + 16 > data.Length)
+            {
+                return null;
+            }
+
+            int attributeStart = ChunkReader.U16(data, ext + 8);
+            int attributeSize = ChunkReader.U16(data, ext + 10);
+            int attributeCount = ChunkReader.U16(data, ext + 12);
+            if (attributeSize < 20 || attributeCount <= 0)
+            {
+                return null;
+            }
+
+            int attrPos = ext + attributeStart;
+            for (int i = 0; i < attributeCount; i++)
+            {
+                int a = attrPos + i * attributeSize;
+                if (a + 20 > data.Length)
+                {
+                    return null;
+                }
+
+                int nameIndex = ChunkReader.I32(data, a + 4);
+                if (pool.Get(nameIndex) != attrName)
+                {
+                    continue;
+                }
+
+                // 只有字符串类型才有意义，引用类型不在这里解析
+                return data[a + 15] == ValueTypeString
+                    ? pool.Get((int)ChunkReader.U32(data, a + 16))
+                    : null;
+            }
+
+            return null;
         }
 
         private static bool TryReadAttributeValue(byte[] data, int chunkPos, int headerSize,

@@ -405,7 +405,8 @@ namespace AdbTools
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
-                Filter = "APK Files (*.apk)|*.apk",
+                // 只认标准 APK 与分批改名文件（xxx.apk.1），不提供"所有文件"
+                Filter = "APK 文件 (*.apk;*.apk.*)|*.apk;*.apk.*",
                 FilterIndex = 1,
                 Multiselect = true,
                 RestoreDirectory = true
@@ -1140,7 +1141,7 @@ namespace AdbTools
                             ? $"文件过多（超过 {maxFileCount} 个）"
                             : dragFilevalid
                                 ? $"松手{(apkList.Count <= 1 ? "" : "依次")}安装 {apkList.Count} 个文件"
-                                : "未检测到有效的“.apk”文件!";
+                                : "未检测到有效的 APK 文件!";
                         dragLabel.Foreground = dragFilevalid ? Brushes.LightGreen : Brushes.LightCoral;
                         dragLabel.FontWeight = FontWeights.Bold;
                     }
@@ -1202,16 +1203,19 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 从拖放的数据中提取所有.apk文件（支持目录递归，无权限目录自动跳过）
+        /// 从拖放的数据中提取所有 APK 文件（支持目录递归，无权限目录自动跳过）
         /// </summary>
         private static List<string> GetAllApkFilesFromDrop(string[] files)
         {
             var apkFiles = new List<string>();
+            // "*.apk.*" 的通配语义也会命中 a.apk，两个模式会重叠，按路径去重
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (string path in files)
             {
                 if (File.Exists(path))
                 {
-                    if (Path.GetExtension(path).Equals(".apk", StringComparison.OrdinalIgnoreCase))
+                    if (IsApkFile(path) && seen.Add(path))
                     {
                         apkFiles.Add(path);
                     }
@@ -1221,7 +1225,15 @@ namespace AdbTools
                     // 使用 Directory.EnumerateFiles 递归搜索所有.apk文件
                     try
                     {
-                        apkFiles.AddRange(Directory.EnumerateFiles(path, "*.apk", SearchOption.AllDirectories));
+                        foreach (string found in Directory.EnumerateFiles(path, "*.apk", SearchOption.AllDirectories))
+                        {
+                            if (seen.Add(found)) apkFiles.Add(found);
+                        }
+                        // 微信等分发工具会把 xxx.apk 存成 xxx.apk.1，一并找出来
+                        foreach (string found in Directory.EnumerateFiles(path, "*.apk.*", SearchOption.AllDirectories))
+                        {
+                            if (seen.Add(found)) apkFiles.Add(found);
+                        }
                     }
                     catch (Exception)
                     {
@@ -1230,6 +1242,66 @@ namespace AdbTools
                 }
             }
             return apkFiles;
+        }
+
+        /// <summary>
+        /// 是否为可安装的 APK 文件：常规以 .apk 结尾；
+        /// 微信、QQ 等分发工具会把文件存成 xxx.apk.1 / xxx.apk.2，这类也认作 APK。
+        /// </summary>
+        private static bool IsApkFile(string path)
+        {
+            string name = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            return name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)
+                || name.IndexOf(".apk.", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// 安装前准备可用的文件路径：非 .apk 后缀（如 xxx.apk.1）复制一份到缓存目录，
+        /// 避免安装器按后缀校验失败；原文件不动，安装结束后删除临时副本。
+        /// </summary>
+        private static string PrepareInstallFile(string apkPath)
+        {
+            if (apkPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+            {
+                return apkPath;
+            }
+
+            string target = Globals.GetCacheFilePath("install-" + Guid.NewGuid().ToString("N") + ".apk");
+            File.Copy(apkPath, target, true);
+            return target;
+        }
+
+        /// <summary>
+        /// 删除为安装生成的临时副本。路径与原文件相同说明没有复制过，直接跳过；
+        /// 另外只删缓存目录里的文件，确保无论如何都不会碰到用户的原始文件。
+        /// </summary>
+        private static void DeleteTempInstallFile(string installPath, string originalPath)
+        {
+            if (string.Equals(installPath, originalPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            string cacheRoot = Globals.CacheDirectory.TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (!installPath.StartsWith(cacheRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(installPath);
+            }
+            catch (Exception)
+            {
+                // 被占用时留给启动时的缓存清理
+            }
         }
 
         /// <summary>
@@ -1242,16 +1314,42 @@ namespace AdbTools
                 return;
             }
             string apkFilePath = apkList[index];
-            if (MessageBoxResult.OK != MessageBox.Show($"确定要安装应用【{apkFilePath}】到设备【{targetDevice.ShowDeviceName}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            // 从 APK 里读出应用名与包名，让用户在确认前看清装的是什么
+            string label;
+            string packageName;
+            ApkInfoReader.Read(apkFilePath, out label, out packageName);
+
+            InstallConfirmWindow confirm = new InstallConfirmWindow(
+                label, packageName, apkFilePath, targetDevice.ShowDeviceName)
+            {
+                Owner = this
+            };
+
+            if (confirm.ShowDialog() != true)
             {
                 HandleApkInstallation(apkList, index + 1, targetDevice);
                 return;
             }
+
+            // 微信等来源的文件名是 xxx.apk.1，安装前复制成 .apk 的临时副本
+            string installPath;
+            try
+            {
+                installPath = PrepareInstallFile(apkFilePath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"无法读取文件【{apkFilePath}】：\r\n{ex.Message}", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                HandleApkInstallation(apkList, index + 1, targetDevice);
+                return;
+            }
+
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {targetDevice.SerialArg} install \"{apkFilePath}\"" },
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {targetDevice.SerialArg} install \"{installPath}\"" },
                 result =>
                 {
                     waitAnimation(false);
+                    DeleteTempInstallFile(installPath, apkFilePath);
                     if (Globals.ContainsAny(result, "Success"))
                     {
                         MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
@@ -1262,6 +1360,7 @@ namespace AdbTools
                 err =>
                 {
                     waitAnimation(false);
+                    DeleteTempInstallFile(installPath, apkFilePath);
                     if (Globals.ContainsAny(err, "adb: failed to install", "device offline", "Error: closed"))
                     {
                         MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用失败！\r\n1.请确认安卓设备是否允许安装应用；\r\n2.应用签名是否不符；\r\n3.检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);

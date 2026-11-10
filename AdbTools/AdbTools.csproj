@@ -171,6 +171,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="InstallConfirmWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -187,6 +191,7 @@
       <DependentUpon>AppListWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="AppManagement\ApkInfoReader.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
     <Compile Include="AppManagement\AppDeviceKey.cs" />
@@ -227,6 +232,9 @@
     </Compile>
     <Compile Include="InputWindow.xaml.cs">
       <DependentUpon>InputWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="InstallConfirmWindow.xaml.cs">
+      <DependentUpon>InstallConfirmWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>

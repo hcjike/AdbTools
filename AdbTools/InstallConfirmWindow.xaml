@@ -1,0 +1,60 @@
+<Window x:Class="AdbTools.InstallConfirmWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="安装应用" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#FFF3F4F6" FontSize="13"
+        ShowInTaskbar="False" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Grid Margin="10">
+        <Border Background="White" CornerRadius="12" BorderBrush="#FFE5E7EB" BorderThickness="1">
+            <StackPanel>
+                <!-- 应用信息：浅蓝底 + 左侧蓝条，名称深色、包名蓝色等宽 -->
+                <Border Background="#FFF3F8FF" CornerRadius="12,12,0,0" Padding="13,11,13,11">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Width="4" CornerRadius="2" Background="#FF2A9FFF" Margin="0,3,10,3"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock x:Name="appNameText" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="#FF1F2937" TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                                <Border Background="#FFE1EDFF" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                    <TextBlock Text="包名" FontSize="10.5" Foreground="#FF2A9FFF"/>
+                                </Border>
+                                <TextBlock x:Name="packageText" FontFamily="Consolas" FontSize="12"
+                                           Foreground="#FF2563EB" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <StackPanel Margin="13,9,13,0">
+                    <TextBlock Text="安装文件" FontSize="11" Foreground="#FF6B7280"/>
+                    <TextBlock x:Name="fileText" FontSize="12" Foreground="#FF374151"
+                               TextWrapping="Wrap" Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="13,9,13,0">
+                    <Border Background="#FFE7F8F1" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                        <TextBlock Text="设备" FontSize="10.5" Foreground="#FF059669"/>
+                    </Border>
+                    <TextBlock x:Name="deviceText" FontSize="12.5" FontWeight="SemiBold"
+                               Foreground="#FF111827" Margin="8,0,0,0" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <Border Height="1" Background="#FFF0F2F5" Margin="13,10,13,0"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="13,9,13,11">
+                    <Button Content="取消 (ESC)" Style="{StaticResource UserButtonStyle}" IsCancel="True"
+                            Width="104" Height="32" Background="#FFE5E7EB" Foreground="#FF374151"/>
+                    <Button Content="安装 (Enter)" Style="{StaticResource UserButtonStyle}" IsDefault="True"
+                            Width="104" Height="32" Margin="10,0,0,0" Background="#FF2A9FFF"
+                            Foreground="White" Click="install_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
