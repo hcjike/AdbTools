@@ -12,35 +12,47 @@
     <Window.Resources>
         <!-- 标签文字 -->
         <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FF6B7280"/>
+            <Setter Property="Foreground" Value="#FF4B5563"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,0,5,0"/>
         </Style>
 
-        <!-- 次要按钮：浅灰底，悬停加深 -->
+        <!-- 通用按钮：白底 + 描边 + 圆角；悬停/按下用半透明遮罩统一加深，
+             这样各色按钮共用一套模板，只靠颜色区分 -->
         <Style x:Key="ToolButton" TargetType="Button">
-            <Setter Property="Padding" Value="11,4"/>
+            <Setter Property="Padding" Value="12,4"/>
             <Setter Property="Margin" Value="6,0,0,0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="#FF374151"/>
-            <Setter Property="Background" Value="#FFF3F4F6"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#FF1F2937"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#FFC9D0DA"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}"
-                                CornerRadius="5" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="5"/>
+                            <Border x:Name="shade" Background="Black" CornerRadius="5" Opacity="0"/>
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#FFE5E7EB"/>
+                                <Setter TargetName="shade" Property="Opacity" Value="0.07"/>
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#FF94A0AF"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#FFD5D9DF"/>
+                                <Setter TargetName="shade" Property="Opacity" Value="0.14"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+                                <Setter Property="Foreground" Value="#FF9CA3AF"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -48,28 +60,32 @@
             </Setter>
         </Style>
 
-        <!-- 主按钮：主题蓝 -->
+        <!-- 主操作：保存（蓝） -->
         <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="#FF2A9FFF"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}"
-                                CornerRadius="5" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#FF1E8AE5"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#FF1878C9"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="BorderBrush" Value="#FF1E8AE5"/>
+        </Style>
+
+        <!-- 暂停 / 继续（琥珀） -->
+        <Style x:Key="WarnButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Setter Property="Foreground" Value="#FF6B3F05"/>
+            <Setter Property="Background" Value="#FFFFF4DE"/>
+            <Setter Property="BorderBrush" Value="#FFE8B44E"/>
+        </Style>
+
+        <!-- 清空（红，危险操作） -->
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Setter Property="Foreground" Value="#FF8F1414"/>
+            <Setter Property="Background" Value="#FFFEEAEA"/>
+            <Setter Property="BorderBrush" Value="#FFE99393"/>
+        </Style>
+
+        <!-- 重连（绿，恢复连接） -->
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Setter Property="Foreground" Value="#FF04543C"/>
+            <Setter Property="Background" Value="#FFE7FBF1"/>
+            <Setter Property="BorderBrush" Value="#FF6FCFA8"/>
         </Style>
 
         <!-- 圆角输入框 -->
@@ -80,8 +96,12 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
                         <Border x:Name="bd" Background="White" BorderBrush="#FFD5D9DF"
-                                BorderThickness="1" CornerRadius="5" Padding="7,3">
-                            <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+                                BorderThickness="1" CornerRadius="5" Padding="7,3,10,3">
+                            <!-- PART_ContentHost 要占满可用区域并显式隐藏滚动条；
+                                 单行文本框滚到末尾时光标会贴住右边界，右侧多留 3px 避免最后一个字被切 -->
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsKeyboardFocusWithin" Value="True">
@@ -102,37 +122,45 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 工具栏 -->
+        <!-- 工具栏：只放筛选条件，过滤框跟随窗口宽度；操作按钮统一放在右下角 -->
         <!-- 不加 DropShadowEffect：Effect 会把整块内容栅格化，导致卡片里的文字发虚 -->
         <Border Grid.Row="0" Background="White" CornerRadius="8" Padding="8"
                 BorderBrush="#FFE5E7EB" BorderThickness="1">
-            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="缓冲" Style="{StaticResource FieldLabel}"/>
-                <ComboBox x:Name="bufferBox" Width="144" Height="28" Margin="0,0,10,0"
-                          IsEditable="False" ToolTipService.ShowDuration="20000"
-                          SelectionChanged="Buffer_SelectionChanged"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-                <TextBlock Text="级别" Style="{StaticResource FieldLabel}"/>
-                <ComboBox x:Name="levelBox" Width="144" Height="28" Margin="0,0,10,0"
-                          IsEditable="False" ToolTipService.ShowDuration="20000"
-                          SelectionChanged="Level_SelectionChanged"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="缓冲" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="bufferBox" Width="132" Height="28" Margin="0,0,16,0"
+                              IsEditable="False" ToolTipService.ShowDuration="20000"
+                              SelectionChanged="Buffer_SelectionChanged"/>
+                </StackPanel>
 
-                <TextBlock Text="过滤" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="filterBox" Width="180" Height="26" Margin="0,0,10,0"
-                         VerticalContentAlignment="Center" Style="{StaticResource SearchBox}"
-                         TextChanged="Filter_TextChanged"
-                         ToolTip="按关键字过滤（不区分大小写）"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="级别" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="levelBox" Width="132" Height="28" Margin="0,0,16,0"
+                              IsEditable="False" ToolTipService.ShowDuration="20000"
+                              SelectionChanged="Level_SelectionChanged"/>
+                </StackPanel>
 
-                <CheckBox x:Name="autoScrollBox" Content="自动滚动" IsChecked="True"
-                          FontSize="13" Foreground="#FF374151"
-                          VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Grid Grid.Column="2" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <Button x:Name="pauseButton" Content="暂停" Style="{StaticResource ToolButton}" Click="Pause_Click"/>
-                <Button Content="清空" Style="{StaticResource ToolButton}" Click="Clear_Click"/>
-                <Button Content="保存" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
-                <Button Content="打开目录" Style="{StaticResource ToolButton}" Click="OpenDir_Click"/>
-                <Button Content="重连" Style="{StaticResource ToolButton}" Click="Restart_Click"/>
-            </WrapPanel>
+                    <TextBlock Text="过滤" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="filterBox" Grid.Column="1" Height="26"
+                             HorizontalAlignment="Stretch"
+                             VerticalContentAlignment="Center" Style="{StaticResource SearchBox}"
+                             TextChanged="Filter_TextChanged"
+                             ToolTip="按关键字过滤（不区分大小写）"/>
+                </Grid>
+            </Grid>
         </Border>
 
         <!-- 日志区：深色控制台风格 -->
@@ -179,11 +207,30 @@
             </ListBox>
         </Border>
 
-        <!-- 状态栏 -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="6,7,0,0">
-            <Ellipse x:Name="statusDot" Width="7" Height="7" Fill="#FF34C38F"
-                     VerticalAlignment="Center" Margin="0,1,6,0"/>
-            <TextBlock x:Name="statusText" Foreground="#FF6B7280" FontSize="13" VerticalAlignment="Center"/>
-        </StackPanel>
+        <!-- 底栏：左侧状态，右侧操作按钮 -->
+        <Grid Grid.Row="2" Margin="6,7,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                <Ellipse x:Name="statusDot" Width="7" Height="7" Fill="#FF34C38F"
+                         VerticalAlignment="Center" Margin="0,1,6,0"/>
+                <TextBlock x:Name="statusText" Foreground="#FF4B5563" FontSize="13"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <CheckBox x:Name="autoScrollBox" Content="自动滚动" IsChecked="True"
+                          FontSize="13" Foreground="#FF1F2937"
+                          VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button x:Name="pauseButton" Content="暂停" Style="{StaticResource WarnButton}" Click="Pause_Click"/>
+                <Button Content="清空" Style="{StaticResource DangerButton}" Click="Clear_Click"/>
+                <Button Content="保存" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>
+                <Button Content="打开目录" Style="{StaticResource ToolButton}" Click="OpenDir_Click"/>
+                <Button Content="重连" Style="{StaticResource SuccessButton}" Click="Restart_Click"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>
