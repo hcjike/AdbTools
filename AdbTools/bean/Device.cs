@@ -43,59 +43,97 @@ namespace AdbTools.bean
         {
             UpdateShow();
 
-            if (string.IsNullOrWhiteSpace(DeviceBrand))
+            bool needBrand = string.IsNullOrWhiteSpace(DeviceBrand);
+            bool needModel = string.IsNullOrWhiteSpace(DeviceModel);
+            if (needBrand || needModel)
             {
-                QueryProp("ro.product.brand", value => DeviceBrand = value);
-            }
-            if (string.IsNullOrWhiteSpace(DeviceModel))
-            {
-                QueryProp("ro.product.model", value => DeviceModel = value);
+                QueryBrandAndModel(needBrand, needModel);
             }
         }
 
         /// <summary>
-        /// 异步查询系统属性
+        /// 一次取回品牌与型号：两条 getprop 合并成一条命令，比分开查省一次 adb 往返。
+        /// 输出用 @@B / @@M 分段，某个属性为空时也不会张冠李戴。
         /// </summary>
-        private void QueryProp(string prop, Action<string> setter)
+        private void QueryBrandAndModel(bool needBrand, bool needModel)
         {
-            CmdExecutor.ExecuteCommandAndReturnAsync($"{MainWindow.adbPath} -s {SerialArg} shell getprop {prop}", result =>
+            string command = MainWindow.adbPath + " -s " + SerialArg
+                + " shell \"echo @@B; getprop ro.product.brand; echo @@M; getprop ro.product.model\"";
+
+            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { command }, result =>
             {
                 // 回调已在UI线程，可直接更新；解析失败时保留原值，避免名字被清空
-                string value = ParsePropValue(result, prop);
-                if (!string.IsNullOrWhiteSpace(value))
+                string brand;
+                string model;
+                ParseBrandAndModel(result, out brand, out model);
+
+                bool changed = false;
+                if (needBrand && !string.IsNullOrWhiteSpace(brand))
                 {
-                    setter(value);
+                    DeviceBrand = brand;
+                    changed = true;
+                }
+                if (needModel && !string.IsNullOrWhiteSpace(model))
+                {
+                    DeviceModel = model;
+                    changed = true;
+                }
+
+                if (changed)
+                {
                     UpdateShow();
                 }
-            });
+            },
+            err => true, 15);
         }
 
         /// <summary>
-        /// 从 cmd 回显的输出中解析 getprop 的结果（取命令回显行的下一行）
+        /// 解析 "echo @@B; getprop brand; echo @@M; getprop model" 的输出：
+        /// 跳过命令回显行，按 @@B / @@M 分段，各段取最后一个有效行作为值。
         /// </summary>
-        private static string ParsePropValue(string result, string prop)
+        private static void ParseBrandAndModel(string result, out string brand, out string model)
         {
+            brand = null;
+            model = null;
             if (string.IsNullOrEmpty(result))
             {
-                return string.Empty;
+                return;
             }
 
-            // 必须用RemoveEmptyEntries：\r\n会被拆成两个分隔符，
-            // 保留空行会导致每个值前面多一个空行，取不到正确内容
-            string[] lines = result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i + 1 < lines.Length; i++)
+            string section = null;
+            foreach (string raw in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
-                if (lines[i].Contains($"shell getprop {prop}"))
+                string line = raw.Trim();
+                if (line.Length == 0) continue;
+
+                // 命令回显行里同时含 shell 与 getprop，不能当成分段标记
+                if (line.IndexOf("shell", StringComparison.OrdinalIgnoreCase) >= 0
+                    && line.IndexOf("getprop", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    // 跳过 cmd 提示符行（如 “C:\>exit”），防止取到错误内容
-                    string value = lines[i + 1].Trim();
-                    if (!value.Contains(">"))
-                    {
-                        return value;
-                    }
+                    continue;
                 }
+
+                if (line == "@@B") { section = "b"; continue; }
+                if (line == "@@M") { section = "m"; continue; }
+
+                // 提示符行与 adb 错误信息都不是属性值
+                if (line.Contains(">") || LooksLikeError(line)) continue;
+
+                if (section == "b") brand = line;
+                else if (section == "m") model = line;
             }
-            return string.Empty;
+        }
+
+        /// <summary>
+        /// 设备掉线或未授权时，adb 会把错误写进输出（如 "adb.exe: device 'xxx' not found"），
+        /// 这类文本不能当作属性值，否则设备名会变成错误信息。
+        /// </summary>
+        private static bool LooksLikeError(string value)
+        {
+            return value.IndexOf("adb.exe:", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.IndexOf("unauthorized", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void UpdateShow()

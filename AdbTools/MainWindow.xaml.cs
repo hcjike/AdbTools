@@ -220,7 +220,8 @@ namespace AdbTools
             {
                 waitAnimation(true);
             }
-            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} devices", content =>
+            // 带 -l 取 product/model 字段：设备一出现就能显示型号，不必等 getprop 返回
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} devices -l", content =>
             {
                 refreshRunning = false;
                 RefreshDeviceList(content);
@@ -229,6 +230,24 @@ namespace AdbTools
                     waitAnimation(false);
                 }
             });
+        }
+
+        /// <summary>从 "product:xx model:yy device:zz" 里取指定前缀的值，取不到返回 null。</summary>
+        private static string ExtractField(string fields, string prefix)
+        {
+            if (string.IsNullOrEmpty(fields))
+            {
+                return null;
+            }
+
+            foreach (string part in fields.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (part.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return part.Substring(prefix.Length);
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -249,26 +268,43 @@ namespace AdbTools
             foreach (string line in content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string trimmed = line.TrimEnd();
-                if (!trimmed.EndsWith("device"))
+                if (trimmed.Length == 0)
                 {
-                    // 跳过 unauthorized、offline 等非就绪状态及cmd回显行
                     continue;
                 }
 
-                // 序列号与状态之间用 tab 分隔（adb devices 默认格式）；
-                // 个别 adb 版本用空格分隔时，按行尾状态词 "device" 截取。
-                // 序列号本身可能含空格（mDNS/TLS 连接名），必须用 tab 或尾部截取，
-                // 不能用 Replace("device","")，否则会误删序列号内的 device 子串。
-                string address;
-                int tab = trimmed.LastIndexOf('\t');
-                if (tab >= 0)
+                // adb devices -l 的格式：<序列号> <状态> [product:.. model:.. device:.. transport_id:..]
+                // Windows 下 adb 用空格分隔（不是 tab），且序列号本身可能含空格（mDNS 连接名），
+                // 所以从行尾剥掉 "key:value" 附加字段：剩下的最后一个是状态，之前的都是序列号。
+                string[] parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+
+                int end = parts.Length - 1;
+                while (end >= 0 && parts[end].IndexOf(':') > 0)
                 {
-                    address = trimmed.Substring(0, tab).Trim();
+                    end--;
                 }
-                else
+
+                if (end < 1)
                 {
-                    address = trimmed.Substring(0, Math.Max(0, trimmed.Length - "device".Length)).Trim();
+                    continue; // 既没有序列号也没有状态，多半是 cmd 回显行
                 }
+
+                // 跳过 unauthorized、offline、no permissions 等非就绪状态
+                if (!string.Equals(parts[end], "device", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string address = string.Join(" ", parts, 0, end);
+                if (address.Length == 0)
+                {
+                    continue;
+                }
+
+                string props = end + 1 < parts.Length
+                    ? string.Join(" ", parts, end + 1, parts.Length - end - 1)
+                    : string.Empty;
+                string model = ExtractField(props, "model:");
                 deviceMarks.Add(address);
 
                 Device exist = deviceAddressList.FirstOrDefault(o => o.DeviceMark == address);
@@ -278,9 +314,10 @@ namespace AdbTools
                     {
                         IsWifiConnect = Globals.IsValidIPEndPoint(address),
                         DeviceMark = address,
-                        // 品牌型号读取完成前先显示默认名称
-                        DeviceInfo = Device.UnknownName,
-                        ShowDeviceName = Device.UnknownName
+                        // 先用 devices -l 里的型号顶上，后台再用 getprop 补品牌
+                        DeviceModel = model,
+                        DeviceInfo = string.IsNullOrEmpty(model) ? Device.UnknownName : model,
+                        ShowDeviceName = string.IsNullOrEmpty(model) ? Device.UnknownName : model
                     });
                 }
                 else

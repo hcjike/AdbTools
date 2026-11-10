@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -138,11 +139,18 @@ namespace AdbTools
             retry.Start();
         }
 
-        /// <summary>三条查询分开执行：单条命令更稳，失败时也能各自降级处理。</summary>
-        private void LoadPackageList()
+        /// <summary>
+        /// 三条查询分开执行：单条命令更稳，失败时也能各自降级。
+        /// -u 表示连同"已卸载但安装文件还在"的应用一起列出；老系统不支持时自动退回。
+        /// </summary>
+        private void LoadPackageList(bool includeUninstalled = true)
         {
+            string tail = includeUninstalled
+                ? "shell pm list packages -f -u"
+                : "shell pm list packages -f";
+
             CmdExecutor.ExecuteCommandAndReturnAsync(
-                new[] { Command("shell pm list packages -f") },
+                new[] { Command(tail) },
                 all =>
                 {
                     _listAttempts = 0;
@@ -150,10 +158,17 @@ namespace AdbTools
                 },
                 err =>
                 {
+                    if (includeUninstalled)
+                    {
+                        // 少数系统不支持 -u：退回只列已安装的应用
+                        RetryLater(() => LoadPackageList(false));
+                        return true;
+                    }
+
                     // adb 刚拉起时首条命令可能拿不到输出：重试一次再报错
                     if (_listAttempts++ < 1)
                     {
-                        RetryLater(LoadPackageList);
+                        RetryLater(() => LoadPackageList(false));
                         return true;
                     }
 
@@ -180,24 +195,47 @@ namespace AdbTools
         {
             CmdExecutor.ExecuteCommandAndReturnAsync(
                 new[] { Command("shell pm list packages -d") },
-                disabled =>
-                {
-                    BuildApps(allOutput, systemOutput, disabled);
-                    FinishLoad(null);
-                },
+                disabled => LoadInstalledPackages(allOutput, systemOutput, disabled, null),
                 err =>
                 {
-                    BuildApps(allOutput, systemOutput, null);
-                    FinishLoad("未能读取已停用应用列表，停用状态可能不准确");
+                    LoadInstalledPackages(allOutput, systemOutput, null,
+                        "未能读取已停用应用列表，停用状态可能不准确");
                     return true;
                 });
         }
 
-        /// <summary>把三次查询结果组装成列表：包名、APK 路径、系统应用、停用状态。</summary>
-        private void BuildApps(string allOutput, string systemOutput, string disabledOutput)
+        /// <summary>
+        /// 取"仅已安装"的包名集合：上面的 -f -u 会带出已卸载的包，需要用这个集合区分。
+        /// 读不到时按"全部已安装"处理，列表仍可用，只是不显示已卸载状态。
+        /// </summary>
+        private void LoadInstalledPackages(string allOutput, string systemOutput, string disabledOutput,
+            string warning)
+        {
+            CmdExecutor.ExecuteCommandAndReturnAsync(
+                new[] { Command("shell pm list packages") },
+                installed =>
+                {
+                    BuildApps(allOutput, systemOutput, disabledOutput, installed);
+                    FinishLoad(warning);
+                },
+                err =>
+                {
+                    BuildApps(allOutput, systemOutput, disabledOutput, null);
+                    FinishLoad(warning);
+                    return true;
+                });
+        }
+
+        /// <summary>把查询结果组装成列表：包名、APK 路径、系统应用、停用状态、是否已卸载。</summary>
+        private void BuildApps(string allOutput, string systemOutput, string disabledOutput, string installedOutput)
         {
             HashSet<string> system = ParsePackageNames(systemOutput);
             HashSet<string> disabled = ParsePackageNames(disabledOutput);
+
+            // 读不到已安装集合时视为全部已安装，避免误标"已卸载"
+            HashSet<string> installed = string.IsNullOrEmpty(installedOutput)
+                ? null
+                : ParsePackageNames(installedOutput);
 
             if (_resolver != null)
             {
@@ -205,11 +243,12 @@ namespace AdbTools
                 _resolver = null;
             }
 
-            // 第三方应用在前：这类才是一般要处理的对象，系统应用数量多且大多不用动
+            // 排序：第三方在前（常处理），其次系统应用，已卸载的排最后
             List<KeyValuePair<string, string>> entries = ParsePackagePaths(allOutput)
                 .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
-                .OrderBy(x => system.Contains(x.Key) ? 1 : 0)
+                .OrderBy(x => installed != null && !installed.Contains(x.Key) ? 2 : 0)
+                .ThenBy(x => system.Contains(x.Key) ? 1 : 0)
                 .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -227,12 +266,27 @@ namespace AdbTools
             _apps.Clear();
             foreach (KeyValuePair<string, string> entry in entries)
             {
+                // pm list packages -s 只列"已安装"的系统应用，卸载后会缺失；
+                // APK 位于系统分区同样是预装应用的证据，两者取或
+                bool isSystem = system.Contains(entry.Key) || IsSystemPartitionPath(entry.Value);
+
+                // 出现在 -u 列表里、但不在"已安装"集合中：说明已从手机上移除
+                bool isUninstalled = installed != null && !installed.Contains(entry.Key);
+
+                // 只有系统预装的安装文件还在，install-existing 才能装回来；
+                // 第三方应用是完整卸载（APK 已删除），列出来也只能恢复失败，直接跳过
+                if (isUninstalled && !isSystem)
+                {
+                    continue;
+                }
+
                 AppInfo app = new AppInfo
                 {
                     PackageName = entry.Key,
                     ApkPath = entry.Value,
-                    IsSystem = system.Contains(entry.Key),
-                    IsDisabled = disabled.Contains(entry.Key)
+                    IsSystem = isSystem,
+                    IsDisabled = disabled.Contains(entry.Key),
+                    IsUninstalled = isUninstalled
                 };
 
                 string cached;
@@ -319,6 +373,33 @@ namespace AdbTools
             return entries;
         }
 
+        /// <summary>
+        /// APK 是否位于系统只读分区：这类文件不随卸载被删除，install-existing 能装回来；
+        /// 第三方应用装在 /data/app，完整卸载后文件已删，恢复会失败。
+        /// </summary>
+        private static bool IsSystemPartitionPath(string apkPath)
+        {
+            if (string.IsNullOrEmpty(apkPath))
+            {
+                return false;
+            }
+
+            string[] roots =
+            {
+                "/system/", "/system_ext/", "/product/", "/vendor/",
+                "/odm/", "/oem/", "/apex/", "/my_"
+            };
+
+            foreach (string root in roots)
+            {
+                if (apkPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>解析 “pm list packages -s/-d” 的输出：每行 package:&lt;包名&gt;。</summary>
         private static HashSet<string> ParsePackageNames(string output)
         {
@@ -356,7 +437,8 @@ namespace AdbTools
 
         private void StartResolving()
         {
-            List<AppInfo> pending = _apps.Where(a => !a.NameResolved).ToList();
+            // 已卸载的应用不参与自动解析：先恢复才有意义，避免白拉几百 MB 资源
+            List<AppInfo> pending = _apps.Where(a => !a.NameResolved && !a.IsUninstalled).ToList();
             if (pending.Count == 0)
             {
                 progressText.Text = string.Empty;
@@ -459,26 +541,69 @@ namespace AdbTools
 
         // ------------------------------------------------------------ 行内操作
 
+        /// <summary>
+        /// 统一的操作确认：系统应用 / 系统服务会先提示风险并使用警告图标，
+        /// 普通应用只显示操作说明。返回 true 表示用户确认继续。
+        /// </summary>
+        private bool ConfirmAction(AppInfo app, string title, string normal, string risk,
+            MessageBoxImage normalIcon = MessageBoxImage.Question)
+        {
+            bool sensitive = app != null && (app.IsSystem || app.IsService);
+            MessageBoxImage icon = sensitive ? MessageBoxImage.Warning : normalIcon;
+
+            return MessageBox.Show(this, BuildConfirmText(app, normal, risk), title,
+                MessageBoxButton.OKCancel, icon) == MessageBoxResult.OK;
+        }
+
+        /// <summary>
+        /// 构造确认文案：系统应用 / 系统服务先说明身份与风险，再写操作本身；
+        /// 普通应用只有操作说明。拆成静态方法便于单独验证文案。
+        /// </summary>
+        internal static string BuildConfirmText(AppInfo app, string normal, string risk)
+        {
+            if (app == null || (!app.IsSystem && !app.IsService))
+            {
+                return normal ?? string.Empty;
+            }
+
+            StringBuilder text = new StringBuilder();
+            text.AppendLine(app.IsService
+                ? "注意：【" + app.Title + "】是系统服务（没有桌面入口的预装组件）。"
+                : "注意：【" + app.Title + "】是系统应用（随系统预装）。");
+            text.AppendLine(risk);
+            text.AppendLine();
+            text.Append(normal);
+            return text.ToString();
+        }
+
         private void ToggleApp_Click(object sender, RoutedEventArgs e)
         {
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
-            bool disable = !app.IsDisabled;
-            string action = disable ? "停用" : "启用";
-
-            if (disable)
+            // 已卸载的应用：这个按钮用于恢复
+            if (app.IsUninstalled)
             {
-                string tip = app.IsSystem
-                    ? "【" + app.Title + "】是系统应用，停用后相关系统功能可能异常。\r\n确定停用吗？"
-                    : "确定停用【" + app.Title + "】吗？\r\n停用后可在本列表中重新启用。";
-                if (MessageBox.Show(this, tip, "确认停用", MessageBoxButton.OKCancel, MessageBoxImage.Question)
-                    != MessageBoxResult.OK)
-                {
-                    return;
-                }
+                RestoreApp(app);
+                return;
             }
 
+            bool disable = !app.IsDisabled;
+
+            // 停用/启用都先确认：系统类应用额外说明风险
+            if (!ConfirmAction(app,
+                    disable ? "确认停用" : "确认启用",
+                    disable
+                        ? "停用后应用图标将被隐藏且无法启动，用户数据仍保留，可随时重新启用。"
+                        : "启用后应用将恢复可用。",
+                    disable
+                        ? "停用系统组件可能导致依赖它的功能异常、桌面或系统界面异常，严重时需要刷机恢复。"
+                        : "启用系统组件一般无风险，但可能使之前被有意屏蔽的功能重新生效。"))
+            {
+                return;
+            }
+
+            string action = disable ? "停用" : "启用";
             string command = disable
                 ? Command("shell pm disable-user --user 0 " + app.PackageName)
                 : Command("shell pm enable " + app.PackageName);
@@ -492,16 +617,66 @@ namespace AdbTools
             });
         }
 
+        /// <summary>
+        /// 恢复已卸载的应用：系统里的安装文件还在，用 install-existing 重新装回来，
+        /// 不需要重新下载 APK。
+        /// </summary>
+        private void RestoreApp(AppInfo app)
+        {
+            if (!ConfirmAction(app, "确认恢复",
+                    "将重新安装该应用，安装后可以正常使用。",
+                    "恢复系统组件一般没有风险，恢复后会重新出现在桌面上。"))
+            {
+                return;
+            }
+
+            RunAction(app, "恢复",
+                Command("shell pm install-existing --user 0 " + app.PackageName),
+                result =>
+                {
+                    string failure = CheckPmFailure(result);
+                    if (failure == null)
+                    {
+                        return null;
+                    }
+
+                    // 老系统没有这个命令，或者安装文件已被清理，给出可操作的提示
+                    if (failure.IndexOf("unknown", StringComparison.OrdinalIgnoreCase) >= 0
+                        || failure.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return "当前系统不支持恢复命令，请用应用商店重新安装";
+                    }
+                    if (failure.IndexOf("doesn't exist", StringComparison.OrdinalIgnoreCase) >= 0
+                        || failure.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0
+                        || failure.IndexOf("no such", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return "系统里找不到该应用的安装文件，无法恢复，请重新安装";
+                    }
+                    return failure;
+                },
+                result =>
+                {
+                    app.IsUninstalled = false;
+                    app.IsDisabled = false;
+                    _view.Refresh();
+                    UpdateCounts();
+                    SetStatus("已恢复 " + app.Title, OkBrush);
+                });
+        }
+
         private void UninstallApp_Click(object sender, RoutedEventArgs e)
         {
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
-            string tip = app.IsSystem
-                ? "确定卸载系统应用【" + app.Title + "】吗？\r\n只会对当前用户卸载，但仍可能影响系统功能。"
-                : "确定卸载【" + app.Title + "】吗？\r\n应用的本地数据会一并删除。";
-            if (MessageBox.Show(this, tip, "确认卸载", MessageBoxButton.OKCancel, MessageBoxImage.Warning)
-                != MessageBoxResult.OK)
+            if (!ConfirmAction(app, "确认卸载",
+                    app.IsSystem
+                        ? "从手机上移除，系统自带的安装文件仍保留在系统分区。\r\n" +
+                          "刷新列表后，可在「已卸载应用」里点「恢复」重新装回来，但账号与数据已被清除。\r\n" +
+                          "若只想暂时隐藏并保留数据，建议改用「停用」。"
+                        : "将卸载该应用并删除本地数据，不可撤销。",
+                    "卸载系统组件可能导致系统功能缺失或桌面异常，之后需要重新安装才能恢复。",
+                    MessageBoxImage.Warning))
             {
                 return;
             }
@@ -543,6 +718,13 @@ namespace AdbTools
 
         private void ForceStop(AppInfo app)
         {
+            if (!ConfirmAction(app, "确认强制停止",
+                    "将结束该应用的进程，正在进行的任务会被中断。",
+                    "强制停止系统组件可能导致相关功能短暂异常，部分组件会自动重启。"))
+            {
+                return;
+            }
+
             RunAction(app, "强制停止", Command("shell am force-stop " + app.PackageName), CheckPmFailure,
                 result => SetStatus("已强制停止 " + app.Title, OkBrush));
         }
@@ -550,9 +732,10 @@ namespace AdbTools
         /// <summary>清除全部数据：会连同缓存一起删除，不可撤销。</summary>
         private void ClearData(AppInfo app)
         {
-            if (MessageBox.Show(this,
-                    "确定清除【" + app.Title + "】的全部数据吗？\r\n会删除账号、登录状态、设置、缓存等所有内容，且不可撤销。",
-                    "确认清除数据", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            if (!ConfirmAction(app, "确认清除数据",
+                    "会删除该应用的账号、登录状态、设置与缓存，不可撤销。",
+                    "清除系统组件的数据可能导致系统设置丢失或组件首次启动异常。",
+                    MessageBoxImage.Warning))
             {
                 return;
             }
@@ -758,6 +941,7 @@ namespace AdbTools
             if (_filterIndex == 2 && !app.IsSystem) return false;
             if (_filterIndex == 3 && !app.IsDisabled) return false;
             if (_filterIndex == 4 && !app.IsService) return false;
+            if (_filterIndex == 5 && !app.IsUninstalled) return false;
 
             string key = searchBox == null ? null : searchBox.Text;
             if (string.IsNullOrWhiteSpace(key)) return true;
@@ -786,15 +970,17 @@ namespace AdbTools
             int system = 0;
             int disabled = 0;
             int service = 0;
+            int uninstalled = 0;
             foreach (AppInfo app in _apps)
             {
                 if (app.IsSystem) system++;
                 if (app.IsDisabled) disabled++;
                 if (app.IsService) service++;
+                if (app.IsUninstalled) uninstalled++;
             }
 
-            string text = string.Format("共 {0} 个应用 · 第三方 {1} · 系统 {2} · 系统服务 {3} · 已停用 {4}",
-                _apps.Count, _apps.Count - system, system, service, disabled);
+            string text = string.Format("共 {0} 个应用 · 第三方 {1} · 系统 {2} · 系统服务 {3} · 已停用 {4} · 已卸载 {5}",
+                _apps.Count, _apps.Count - system, system, service, disabled, uninstalled);
 
             int visible = 0;
             foreach (object item in _view)

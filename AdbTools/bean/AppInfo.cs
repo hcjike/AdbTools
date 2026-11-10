@@ -12,6 +12,8 @@ namespace AdbTools.bean
         private static readonly Brush DisabledForeground = CreateBrush(0xD9, 0x77, 0x06);
         private static readonly Brush EnabledBackground = CreateBrush(0xEC, 0xFD, 0xF5);
         private static readonly Brush EnabledForeground = CreateBrush(0x05, 0x96, 0x69);
+        private static readonly Brush UninstalledBackground = CreateBrush(0xF3, 0xF4, 0xF6);
+        private static readonly Brush UninstalledForeground = CreateBrush(0x6B, 0x72, 0x80);
 
         private static readonly Brush[] AvatarBrushes = CreateAvatarBrushes();
 
@@ -21,6 +23,7 @@ namespace AdbTools.bean
         private bool _isService;
         private bool _nameResolved;
         private bool _fromCache;
+        private bool _isUninstalled;
         private ImageSource _icon;
 
         public string PackageName { get; set; }
@@ -168,24 +171,63 @@ namespace AdbTools.bean
             }
         }
 
+        /// <summary>该应用已从手机上移除，但安装文件仍在，可以恢复。</summary>
+        public bool IsUninstalled
+        {
+            get { return _isUninstalled; }
+            set
+            {
+                if (_isUninstalled == value) return;
+                _isUninstalled = value;
+                Raise("IsUninstalled");
+                Raise("IsInstalled");
+                Raise("StatusText");
+                Raise("ActionText");
+                Raise("StatusBackground");
+                Raise("StatusForeground");
+            }
+        }
+
+        /// <summary>是否处于已安装状态（未卸载），用于控制"卸载"按钮的显示。</summary>
+        public bool IsInstalled
+        {
+            get { return !_isUninstalled; }
+        }
+
         public string StatusText
         {
-            get { return _isDisabled ? "已停用" : "已启用"; }
+            get
+            {
+                if (_isUninstalled) return "已卸载";
+                return _isDisabled ? "已停用" : "已启用";
+            }
         }
 
         public string ActionText
         {
-            get { return _isDisabled ? "启用" : "停用"; }
+            get
+            {
+                if (_isUninstalled) return "恢复";
+                return _isDisabled ? "启用" : "停用";
+            }
         }
 
         public Brush StatusBackground
         {
-            get { return _isDisabled ? DisabledBackground : EnabledBackground; }
+            get
+            {
+                if (_isUninstalled) return UninstalledBackground;
+                return _isDisabled ? DisabledBackground : EnabledBackground;
+            }
         }
 
         public Brush StatusForeground
         {
-            get { return _isDisabled ? DisabledForeground : EnabledForeground; }
+            get
+            {
+                if (_isUninstalled) return UninstalledForeground;
+                return _isDisabled ? DisabledForeground : EnabledForeground;
+            }
         }
 
         /// <summary>该行正在执行命令，按钮暂时禁用。</summary>
