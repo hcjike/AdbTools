@@ -245,13 +245,6 @@ namespace AdbTools
             }
         }
 
-        /// <summary>保存一张位图（矢量图标渲染结果）：统一转成 PNG 后入库。</summary>
-        public static bool SaveBitmap(string deviceKey, string packageName, BitmapSource image)
-        {
-            byte[] png = EncodePng(image);
-            return png != null && Save(deviceKey, packageName, png, "png");
-        }
-
         /// <summary>清理没有任何设备引用的图标内容（应用被卸载、映射被更新后留下）。</summary>
         public static void CleanupOrphansOnce()
         {
@@ -259,12 +252,12 @@ namespace AdbTools
             {
                 return;
             }
-            _orphansCleaned = true;
 
             try
             {
                 using (SQLiteConnection connection = AppStore.OpenConnection())
                 {
+                    // 库暂时不可用时不要标记，下次打开列表再试
                     if (connection == null) return;
 
                     using (SQLiteCommand command = connection.CreateCommand())
@@ -278,6 +271,8 @@ namespace AdbTools
                             AppLog.Write("已清理 {0} 个无人引用的图标缓存", removed);
                         }
                     }
+
+                    _orphansCleaned = true;
                 }
             }
             catch (Exception ex)

@@ -44,6 +44,8 @@ namespace AdbTools
         {
             if (index >= KeyCommands.Length)
             {
+                // 记一条日志：这种情况缓存会按连接方式分裂，排查时能对上
+                AppLog.Write("未能读取设备硬件序列号，缓存按连接序列号区分：{0}", fallbackKey);
                 done(fallbackKey);
                 return;
             }
@@ -107,6 +109,13 @@ namespace AdbTools
 
             string lower = text.ToLowerInvariant();
             if (lower == "unknown" || lower == "null" || lower == "none" || lower == "n/a" || lower == "0")
+            {
+                return false;
+            }
+
+            // adb 偶发把错误写到 stdout（如 "error: device offline"），不能当成设备键
+            if (lower.Contains("error") || lower.Contains("offline")
+                || lower.Contains("unauthorized") || lower.Contains("failure"))
             {
                 return false;
             }

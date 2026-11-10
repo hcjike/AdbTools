@@ -179,6 +179,7 @@ namespace AdbTools
         /// <summary>
         /// 旧版本可能留下同版本号但结构不同的库文件（例如早期没有 device_key 的表），
         /// 缺列/缺表时整库重建，避免后续 SQL 全部失败。数据可重新解析，不做迁移。
+        /// 注意：以后给 app_label 加列时，对应的 ColumnExists 检查也要加在这里。
         /// </summary>
         private static void EnsureSchemaShape(SQLiteConnection connection)
         {

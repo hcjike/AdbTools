@@ -29,6 +29,9 @@ namespace AdbTools
 
         private AppLabelResolver _resolver;
         private string _deviceKey;
+        private bool _deviceKeyUsable;
+        private int _deviceKeyAttempts;
+        private int _listAttempts;
         private bool _loading;
         private bool _resolveStoppedByUser;
         private int _filterIndex;
@@ -90,12 +93,49 @@ namespace AdbTools
             SetStatus("正在读取应用列表…", NormalBrush, false);
             progressText.Text = string.Empty;
 
-            // 缓存按设备隔离：先确定设备键（硬件序列号，USB / IP / 无线一致），再读列表
+            // 已拿到硬件序列号时直接复用，省一次 adb 调用；
+            // 回退成连接序列号的情况不固化，下次刷新会重新尝试拿硬件序列号
+            if (_deviceKeyUsable && !string.IsNullOrEmpty(_deviceKey))
+            {
+                LoadPackageList();
+                return;
+            }
+
+            ResolveDeviceKey();
+        }
+
+        /// <summary>
+        /// 取设备键。adb 冷启动时首条命令偶尔拿不到输出，会退化成连接序列号；
+        /// 这种情况延迟重试一次，避免缓存键漂移、列表也读不出来。
+        /// </summary>
+        private void ResolveDeviceKey()
+        {
             AppDeviceKey.ResolveAsync(AdbPath, DeviceInfo.SerialArg, DeviceInfo.DeviceMark, key =>
             {
                 _deviceKey = key;
+                _deviceKeyUsable = key != AppDeviceKey.Normalize(DeviceInfo.DeviceMark);
+
+                if (!_deviceKeyUsable && _deviceKeyAttempts++ < 1)
+                {
+                    RetryLater(ResolveDeviceKey);
+                    return;
+                }
+
+                _deviceKeyAttempts = 0;
                 LoadPackageList();
             });
+        }
+
+        /// <summary>延迟 400ms 重试（adb 刚拉起时首条命令容易拿不到输出）。</summary>
+        private void RetryLater(Action action)
+        {
+            DispatcherTimer retry = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            retry.Tick += (s, e) =>
+            {
+                retry.Stop();
+                action();
+            };
+            retry.Start();
         }
 
         /// <summary>三条查询分开执行：单条命令更稳，失败时也能各自降级处理。</summary>
@@ -103,9 +143,21 @@ namespace AdbTools
         {
             CmdExecutor.ExecuteCommandAndReturnAsync(
                 new[] { Command("shell pm list packages -f") },
-                all => LoadSystemFlags(all),
+                all =>
+                {
+                    _listAttempts = 0;
+                    LoadSystemFlags(all);
+                },
                 err =>
                 {
+                    // adb 刚拉起时首条命令可能拿不到输出：重试一次再报错
+                    if (_listAttempts++ < 1)
+                    {
+                        RetryLater(LoadPackageList);
+                        return true;
+                    }
+
+                    _listAttempts = 0;
                     FinishLoad("读取应用列表失败：" + FirstLine(err));
                     return true;
                 });
@@ -477,7 +529,6 @@ namespace AdbTools
             Style itemStyle = TryFindResource("UserMenuItemStyle") as Style;
             ContextMenu menu = new ContextMenu();
 
-            menu.Items.Add(CreateMenuItem("清除缓存", itemStyle, () => ClearCache(app)));
             menu.Items.Add(CreateMenuItem("清除数据", itemStyle, () => ClearData(app)));
             menu.Items.Add(CreateMenuItem("强制停止", itemStyle, () => ForceStop(app)));
             menu.Items.Add(new Separator());
@@ -494,56 +545,6 @@ namespace AdbTools
         {
             RunAction(app, "强制停止", Command("shell am force-stop " + app.PackageName), CheckPmFailure,
                 result => SetStatus("已强制停止 " + app.Title, OkBrush));
-        }
-
-        /// <summary>
-        /// 只清理缓存目录。使用 pm clear --cache-only，账号、登录状态、设置等用户数据都会保留。
-        /// --cache-only 需要 Android 11（SDK 30）以上；旧设备可能把该参数静默降级为完整 pm clear
-        /// （清掉全部数据且耗时很长），所以执行前先查版本号拦截，避免卡住和误删。
-        /// </summary>
-        private void ClearCache(AppInfo app)
-        {
-            if (MessageBox.Show(this,
-                    "确定清除【" + app.Title + "】的缓存吗？\r\n只删除缓存文件，账号、登录状态与设置都会保留。",
-                    "确认清除缓存", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
-            {
-                return;
-            }
-
-            // 先确认设备系统版本，避免 --cache-only 在旧设备上被当成完整 clear 执行
-            CmdExecutor.ExecuteCommandAndReturnAsync(Command("shell getprop ro.build.version.sdk"), sdkResult =>
-            {
-                int sdk = ParseSdk(sdkResult);
-                if (sdk <= 0)
-                {
-                    SetStatus("清除缓存已取消：无法确认设备系统版本", ErrorBrush);
-                    MessageBox.Show(this, "无法确认设备系统版本，为避免误删全部数据，已取消本次清除缓存。",
-                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (sdk < 30)
-                {
-                    SetStatus("清除缓存失败：需要 Android 11 及以上", ErrorBrush);
-                    MessageBox.Show(this, "当前系统不支持仅清理缓存（需要 Android 11 及以上）。\r\n为避免误删全部数据，已取消，未删除任何数据。",
-                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                RunAction(app, "清除缓存",
-                    Command("shell pm clear --cache-only " + app.PackageName),
-                    result =>
-                    {
-                        string failure = CheckPmFailure(result);
-                        if (failure != null && failure.IndexOf("Unknown option", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            return "当前系统不支持仅清理缓存（需要 Android 11 及以上）";
-                        }
-                        return failure;
-                    },
-                    result => SetStatus("已清除缓存：" + app.Title, OkBrush),
-                    180, true);
-            });
         }
 
         /// <summary>清除全部数据：会连同缓存一起删除，不可撤销。</summary>
@@ -683,26 +684,6 @@ namespace AdbTools
             if (style != null) item.Style = style;
             item.Click += (s, e) => action();
             return item;
-        }
-
-        /// <summary>从 cmd 回显里解析 SDK 版本号（取第一个能解析为整数的行）。</summary>
-        private static int ParseSdk(string output)
-        {
-            if (string.IsNullOrEmpty(output))
-            {
-                return 0;
-            }
-
-            foreach (string line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                int value;
-                if (int.TryParse(line.Trim(), out value))
-                {
-                    return value;
-                }
-            }
-
-            return 0;
         }
 
         /// <summary>识别 pm/am 命令在 stdout 里返回的失败信息（它们不走 stderr）。</summary>

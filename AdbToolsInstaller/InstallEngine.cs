@@ -34,6 +34,11 @@ namespace AdbToolsInstaller
             "AdbWinApi.dll",
             "AdbWinUsbApi.dll",
             "QRCoder.dll",
+            // 应用缓存数据库与图标 WebP 解码（旧版安装没有清单，只能按文件名清理）
+            "System.Data.SQLite.dll",
+            "SQLite.Interop.dll",
+            "libwebp.dll",
+            "AdbTools.exe.config",
             // scrcpy 5.0.1 设备端 server 与授权文件（新版本安装清单会记录，这里兼容旧版残留清理）
             "scrcpy-server",
             "scrcpy-LICENSE.txt",

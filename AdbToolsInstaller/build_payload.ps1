@@ -92,6 +92,14 @@ foreach ($extra in $extraFiles) {
     Copy-Item $srcFile (Join-Path $STAGE $extra) -Force
     Write-Host ("Staged bundled file -> " + $extra)
 }
+# 运行时配置（只有 .NET 版本声明）：带上更稳妥，缺失时不阻断打包
+$appConfig = Join-Path $SRC "AdbTools.exe.config"
+if (Test-Path $appConfig) {
+    Copy-Item $appConfig (Join-Path $STAGE "AdbTools.exe.config") -Force
+    Write-Host "Staged AdbTools.exe.config"
+} else {
+    Write-Host "WARNING: AdbTools.exe.config not found, skipped."
+}
 Write-Host ("Staged " + $count + " files -> " + $STAGE)
 
 # 2.1) 把独立卸载器作为 uninstall.exe 打包（安装时释放到安装目录，避免复制整个安装器）
