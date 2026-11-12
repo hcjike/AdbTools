@@ -181,10 +181,35 @@
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="MaxWidth" Value="360" />
         </Style>
+
+        <!-- 状态栏小工具按钮（例如 1:1）：深色圆角，悬停提亮 -->
+        <Style x:Key="ToolIconButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="#FFF2F2F2" />
+            <Setter Property="Background" Value="#FF2A2A33" />
+            <Setter Property="BorderBrush" Value="#FF3F3F46" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="bg" CornerRadius="4" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#FF3A3A45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!-- 四行：状态栏 / 手机外框（占满剩余空间）/ 虚拟按键栏 / 隐藏输入框 -->
-    <Grid>
+    <Grid x:Name="_root">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -192,8 +217,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 顶部：左侧状态文字，右侧分辨率菜单，整条栏固定高度并统一底色 -->
-        <Grid Grid.Row="0" Height="26" Background="Transparent">
+        <!-- 顶部：左侧状态文字，右侧 1:1 与分辨率菜单。
+             上下留白让这一栏与窗口边缘、画面区分开，不显得贴在一起 -->
+        <Grid x:Name="_topBar" Grid.Row="0" Height="28" Margin="6,2,6,2" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -201,14 +227,22 @@
             <!-- 与运行时格式一致，避免首帧前闪一下别的文案 -->
             <TextBlock x:Name="_status" Grid.Column="0" Text="- → -   0 fps"
                        Style="{StaticResource StatusTextStyle}" />
-            <ComboBox x:Name="_resolutionBox" Grid.Column="1"
-                      Width="132" Height="22" Margin="0,0,6,0"
-                      VerticalAlignment="Center" Foreground="White" Cursor="Hand"
-                      FocusVisualStyle="{x:Null}"
-                      ToolTip="采集分辨率：原画不缩放，其他档位按长边缩放&#10;鼠标悬停到各项可查看清晰度与速度的取舍说明"
-                      Template="{StaticResource ResolutionComboTemplate}"
-                      ItemTemplate="{StaticResource ResolutionItemTemplate}"
-                      ItemContainerStyle="{StaticResource ResolutionComboItemStyle}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="8,0,0,0">
+                <!-- 按画面像素调整窗口：画面 1 个像素 = 屏幕 1 个像素 -->
+                <Button x:Name="_pixelFitButton" Content="1:1" Width="36" Height="22"
+                        Margin="0,0,6,0" Style="{StaticResource ToolIconButtonStyle}"
+                        Click="PixelFit_Click"
+                        ToolTip="按画面像素调整窗口大小（1:1 显示）&#10;屏幕放不下时会自动缩小并提示" />
+                <ComboBox x:Name="_resolutionBox"
+                          Width="132" Height="22"
+                          VerticalAlignment="Center" Foreground="White" Cursor="Hand"
+                          FocusVisualStyle="{x:Null}"
+                          ToolTip="采集分辨率：原画不缩放，其他档位按长边缩放&#10;鼠标悬停到各项可查看清晰度与速度的取舍说明"
+                          Template="{StaticResource ResolutionComboTemplate}"
+                          ItemTemplate="{StaticResource ResolutionItemTemplate}"
+                          ItemContainerStyle="{StaticResource ResolutionComboItemStyle}" />
+            </StackPanel>
         </Grid>
 
         <!-- 画面：等比填充在手机外框内部，外框尺寸随窗口缩放同步调整 -->
@@ -247,6 +281,15 @@
                                Foreground="#FF9CA3AF" FontSize="12" TextAlignment="Center"
                                TextWrapping="Wrap" Margin="0,10,0,0" />
                 </StackPanel>
+            </Border>
+
+            <!-- 操作提示浮层：1:1 调整结果等短暂提示，几秒后自动隐藏，不参与启动/息屏卡片的状态判断 -->
+            <Border x:Name="_toast" Background="#EE1A1A22" BorderBrush="#FF3F3F46" BorderThickness="1"
+                    CornerRadius="8" Padding="14,8" Margin="0,0,0,16"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Visibility="Collapsed" IsHitTestVisible="False">
+                <TextBlock x:Name="_toastText" Foreground="#FFF2F2F2" FontSize="12.5"
+                           TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
             </Border>
         </Grid>
 

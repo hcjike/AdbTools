@@ -12,7 +12,7 @@ namespace AdbTools
     internal static class AppStore
     {
         /// <summary>库结构版本。新增表/字段时 +1，并在 Upgrade 里补对应分支。</summary>
-        public const int SchemaVersion = 1;
+        public const int SchemaVersion = 2;
 
         /// <summary>旧版本用过的库文件名，启动时清理，避免残留占空间。</summary>
         private static readonly string[] LegacyDatabaseNames = { "app.db", "apps.db", "database.db" };
@@ -172,6 +172,19 @@ namespace AdbTools
                     "created_at INTEGER NOT NULL);");
                 Execute(connection, transaction,
                     "CREATE INDEX IF NOT EXISTS idx_app_label_icon_hash ON app_label(icon_hash);");
+
+                // v2：远程控制窗口的用户尺寸，横屏、竖屏各一份
+                // （NULL 表示该方向还没调整过）。放在这里用 IF NOT EXISTS，
+                // 旧库升级时只会补建这张表，不影响已有缓存。
+                Execute(connection, transaction,
+                    "CREATE TABLE IF NOT EXISTS remote_window(" +
+                    "device_key TEXT PRIMARY KEY," +
+                    "landscape_width REAL," +
+                    "landscape_height REAL," +
+                    "portrait_width REAL," +
+                    "portrait_height REAL," +
+                    "updated_at INTEGER NOT NULL);");
+
                 transaction.Commit();
             }
         }
@@ -185,6 +198,7 @@ namespace AdbTools
         {
             bool ok = TableExists(connection, "icon_blob")
                 && TableExists(connection, "app_label")
+                && TableExists(connection, "remote_window")
                 && ColumnExists(connection, "app_label", "device_key")
                 && ColumnExists(connection, "app_label", "label_resolved")
                 && ColumnExists(connection, "app_label", "is_service")

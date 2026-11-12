@@ -106,25 +106,37 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 取设备键。adb 冷启动时首条命令偶尔拿不到输出，会退化成连接序列号；
+        /// 取设备键。设备列表刷新时已顺带读回硬件序列号，可直接使用；
+        /// 没有时再发命令，adb 冷启动偶尔拿不到输出会退化成连接序列号，
         /// 这种情况延迟重试一次，避免缓存键漂移、列表也读不出来。
         /// </summary>
         private void ResolveDeviceKey()
         {
-            AppDeviceKey.ResolveAsync(AdbPath, DeviceInfo.SerialArg, DeviceInfo.DeviceMark, key =>
+            string cached = DeviceInfo == null ? null : DeviceInfo.HardwareKey;
+            if (!string.IsNullOrEmpty(cached))
             {
-                _deviceKey = key;
-                _deviceKeyUsable = key != AppDeviceKey.Normalize(DeviceInfo.DeviceMark);
+                ApplyDeviceKey(cached, true);
+                return;
+            }
 
-                if (!_deviceKeyUsable && _deviceKeyAttempts++ < 1)
-                {
-                    RetryLater(ResolveDeviceKey);
-                    return;
-                }
+            AppDeviceKey.ResolveAsync(AdbPath, DeviceInfo.SerialArg, DeviceInfo.DeviceMark,
+                key => ApplyDeviceKey(key, false));
+        }
 
-                _deviceKeyAttempts = 0;
-                LoadPackageList();
-            });
+        /// <summary>写入设备键并开始加载列表。fromDeviceList 表示值已在设备列表阶段取到，无需重试。</summary>
+        private void ApplyDeviceKey(string key, bool fromDeviceList)
+        {
+            _deviceKey = key;
+            _deviceKeyUsable = fromDeviceList || key != AppDeviceKey.Normalize(DeviceInfo.DeviceMark);
+
+            if (!_deviceKeyUsable && _deviceKeyAttempts++ < 1)
+            {
+                RetryLater(ResolveDeviceKey);
+                return;
+            }
+
+            _deviceKeyAttempts = 0;
+            LoadPackageList();
         }
 
         /// <summary>延迟 400ms 重试（adb 刚拉起时首条命令容易拿不到输出）。</summary>

@@ -198,6 +198,7 @@
     <Compile Include="AppManagement\AppIconStore.cs" />
     <Compile Include="AppManagement\AppLabelStore.cs" />
     <Compile Include="AppManagement\AppStore.cs" />
+    <Compile Include="AppManagement\RemoteWindowStore.cs" />
     <Compile Include="AppManagement\AppLabelResolver.cs" />
     <Compile Include="AppManagement\VectorIconRenderer.cs" />
     <Compile Include="AppManagement\WebpDecoder.cs" />

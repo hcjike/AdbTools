@@ -94,7 +94,7 @@ namespace AdbTools
         }
 
         /// <summary>值是否可用：排除空值、占位值（unknown/null）与全 0。</summary>
-        private static bool IsUsable(string value)
+        internal static bool IsUsable(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
             {

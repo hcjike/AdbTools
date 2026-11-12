@@ -17,6 +17,16 @@ namespace AdbTools.bean
 
         public string DeviceModel { get; set; }
 
+        /// <summary>
+        /// 硬件序列号（ro.serialno，取不到时用 ro.boot.serialno）。
+        /// 同一台手机用 USB / IP / 无线连接时相同，用于按设备去重与缓存；
+        /// 读取随品牌型号一起完成，打开应用列表时可直接使用，不必再发命令。
+        /// </summary>
+        public string HardwareKey { get; set; }
+
+        /// <summary>序列号是否已尝试读取过：失败时不反复查询，避免定时刷新持续发命令。</summary>
+        private bool _keyQueried;
+
         public bool IsWifiConnect { get; set; }
 
         public string ShowDeviceName { get; set; }
@@ -37,7 +47,7 @@ namespace AdbTools.bean
 
 
         /// <summary>
-        /// 刷新设备信息（品牌、型号缺失时才查询，查询为异步，完成后自动更新界面）
+        /// 刷新设备信息（品牌、型号、硬件序列号缺失时才查询，查询为异步，完成后自动更新界面）
         /// </summary>
         public void Refresh()
         {
@@ -45,27 +55,39 @@ namespace AdbTools.bean
 
             bool needBrand = string.IsNullOrWhiteSpace(DeviceBrand);
             bool needModel = string.IsNullOrWhiteSpace(DeviceModel);
-            if (needBrand || needModel)
+            // 序列号只查一次：个别设备取不到时不反复尝试，避免定时刷新持续发命令
+            bool needKey = string.IsNullOrWhiteSpace(HardwareKey) && !_keyQueried;
+
+            if (needBrand || needModel || needKey)
             {
-                QueryBrandAndModel(needBrand, needModel);
+                QueryDeviceProps(needBrand, needModel, needKey);
             }
         }
 
         /// <summary>
-        /// 一次取回品牌与型号：两条 getprop 合并成一条命令，比分开查省一次 adb 往返。
-        /// 输出用 @@B / @@M 分段，某个属性为空时也不会张冠李戴。
+        /// 一次取回品牌、型号与硬件序列号：都合并在同一条 shell 命令里，
+        /// 比分开查省几次 adb 往返。输出用 @@B / @@M / @@S / @@K 分段，
+        /// 某个属性为空时也不会张冠李戴。
         /// </summary>
-        private void QueryBrandAndModel(bool needBrand, bool needModel)
+        private void QueryDeviceProps(bool needBrand, bool needModel, bool needKey)
         {
+            if (needKey)
+            {
+                _keyQueried = true;
+            }
+
             string command = MainWindow.adbPath + " -s " + SerialArg
-                + " shell \"echo @@B; getprop ro.product.brand; echo @@M; getprop ro.product.model\"";
+                + " shell \"echo @@B; getprop ro.product.brand; echo @@M; getprop ro.product.model"
+                + "; echo @@S; getprop ro.serialno; echo @@K; getprop ro.boot.serialno\"";
 
             CmdExecutor.ExecuteCommandAndReturnAsync(new[] { command }, result =>
             {
                 // 回调已在UI线程，可直接更新；解析失败时保留原值，避免名字被清空
                 string brand;
                 string model;
-                ParseBrandAndModel(result, out brand, out model);
+                string serial;
+                string bootSerial;
+                ParseDeviceProps(result, out brand, out model, out serial, out bootSerial);
 
                 bool changed = false;
                 if (needBrand && !string.IsNullOrWhiteSpace(brand))
@@ -79,6 +101,15 @@ namespace AdbTools.bean
                     changed = true;
                 }
 
+                if (needKey)
+                {
+                    string key = PickHardwareKey(serial, bootSerial);
+                    if (key != null)
+                    {
+                        HardwareKey = key;
+                    }
+                }
+
                 if (changed)
                 {
                     UpdateShow();
@@ -87,14 +118,31 @@ namespace AdbTools.bean
             err => true, 15);
         }
 
+        /// <summary>硬件序列号优先取 ro.serialno，其次 ro.boot.serialno；占位值与错误文本都跳过。</summary>
+        private static string PickHardwareKey(string serial, string bootSerial)
+        {
+            if (AppDeviceKey.IsUsable(serial))
+            {
+                return AppDeviceKey.Normalize(serial);
+            }
+            if (AppDeviceKey.IsUsable(bootSerial))
+            {
+                return AppDeviceKey.Normalize(bootSerial);
+            }
+            return null;
+        }
+
         /// <summary>
-        /// 解析 "echo @@B; getprop brand; echo @@M; getprop model" 的输出：
-        /// 跳过命令回显行，按 @@B / @@M 分段，各段取最后一个有效行作为值。
+        /// 解析 "echo @@B; getprop brand; echo @@M; getprop model; echo @@S; ..." 的输出：
+        /// 跳过命令回显行，按分段标记取值，各段取最后一个有效行。
         /// </summary>
-        private static void ParseBrandAndModel(string result, out string brand, out string model)
+        private static void ParseDeviceProps(string result, out string brand, out string model,
+            out string serial, out string bootSerial)
         {
             brand = null;
             model = null;
+            serial = null;
+            bootSerial = null;
             if (string.IsNullOrEmpty(result))
             {
                 return;
@@ -115,12 +163,16 @@ namespace AdbTools.bean
 
                 if (line == "@@B") { section = "b"; continue; }
                 if (line == "@@M") { section = "m"; continue; }
+                if (line == "@@S") { section = "s"; continue; }
+                if (line == "@@K") { section = "k"; continue; }
 
                 // 提示符行与 adb 错误信息都不是属性值
                 if (line.Contains(">") || LooksLikeError(line)) continue;
 
                 if (section == "b") brand = line;
                 else if (section == "m") model = line;
+                else if (section == "s") serial = line;
+                else if (section == "k") bootSerial = line;
             }
         }
 
