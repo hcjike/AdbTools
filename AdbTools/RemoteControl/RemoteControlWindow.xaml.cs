@@ -8,6 +8,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -177,8 +178,40 @@ namespace AdbTools.RemoteControl
         private DispatcherTimer _rotationTimer;
         private DispatcherTimer _stateTimer;
 
+        /// <summary>操作提示浮层的自动隐藏计时器。</summary>
+        private readonly DispatcherTimer _toastTimer = new DispatcherTimer();
+
         /// <summary>是否已按首帧画面比例自动调整过窗口尺寸。</summary>
         private bool _autoFitted;
+
+        /// <summary>Win32 消息：用户拖动边框/标题栏结束，窗口尺寸与位置最终确定。</summary>
+        private const int WmExitSizeMove = 0x0232;
+
+        /// <summary>Win32 矩形，用于实测窗口外框与客户区的差值。</summary>
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        /// <summary>
+        /// 用户在本次窗口会话中手动调整过大小。设为 true 后不再按画面比例自动改窗口尺寸，
+        /// 只跟随用户设定；关闭窗口即失效，不写入配置。
+        /// </summary>
+        private bool _userResized;
+
+        /// <summary>用户调整后的窗口尺寸，横屏、竖屏各记一份，切换方向时各用自己的。</summary>
+        private Size? _userSizeLandscape;
+        private Size? _userSizePortrait;
 
         private IVideoStream _stream;
         private H264DecoderMft _decoder;
@@ -319,7 +352,10 @@ namespace AdbTools.RemoteControl
         private int _logicalWidth;
         private int _logicalHeight;
 
-        public RemoteControlWindow(string adbPath, string serial, string size, int bitRate)
+        /// <summary>设备键（硬件序列号）：窗口尺寸按它保存，与应用缓存使用同一套设备身份。</summary>
+        private readonly string _deviceKey;
+
+        public RemoteControlWindow(string adbPath, string serial, string size, int bitRate, string deviceKey = null)
         {
             // 先加载 XAML，生成界面元素与 x:Name 字段
             InitializeComponent();
@@ -327,7 +363,12 @@ namespace AdbTools.RemoteControl
             var ctorWatch = System.Diagnostics.Stopwatch.StartNew();
             _adbPath = adbPath;
             _serial = serial;
+            _deviceKey = AppDeviceKey.Normalize(
+                string.IsNullOrEmpty(deviceKey) ? serial : deviceKey);
             LogToFile("=== 打开远程控制: adb=" + adbPath + " serial=" + serial + " size=" + size + " ===");
+
+            // 先取回该设备保存的窗口尺寸，首帧适配时直接按用户设定显示
+            LoadSavedSize();
             // 分辨率查询放到后台线程（见 StartCaptureAsync），这里不做阻塞的 adb 调用
 
             Title = "远程控制 - " + serial;
@@ -395,6 +436,14 @@ namespace AdbTools.RemoteControl
                 try { CheckDeviceState(); } catch { }
             });
             _stateTimer.Start();
+
+            // 操作提示浮层：显示几秒后自动隐藏
+            _toastTimer.Interval = TimeSpan.FromSeconds(2.6);
+            _toastTimer.Tick += (s, e) =>
+            {
+                _toastTimer.Stop();
+                _toast.Visibility = Visibility.Collapsed;
+            };
 
             LogToFile("窗口创建完成，耗时 " + ctorWatch.ElapsedMilliseconds + " ms（取流准备在后台进行）");
         }
@@ -525,6 +574,24 @@ namespace AdbTools.RemoteControl
             }
             catch (Exception ex)
             {
+                // Windows N/KN 版与部分精简系统不带 Media Foundation，
+                // 表现为找不到 mfplat.dll 或 H.264 解码器 COM 类未注册。
+                // 这种情况和设备连接无关，提示要指向真正的原因。
+                bool missingMedia =
+                    ex is DllNotFoundException
+                    || ex is EntryPointNotFoundException
+                    || (ex is System.Runtime.InteropServices.COMException
+                        && (uint)ex.HResult == 0x80040154);
+
+                if (missingMedia)
+                {
+                    LogToFile("启动取流失败（缺少媒体组件）：" + ex.Message);
+                    SetStartupStep("系统缺少媒体组件",
+                        "未找到 H.264 解码器（Media Foundation）\r\n"
+                        + "Windows N 版或精简系统需先安装“媒体功能包”");
+                    return;
+                }
+
                 LogToFile("启动取流失败：" + ex.Message);
                 SetStartupStep("启动取流失败", "请检查设备连接后重试");
             }
@@ -1470,6 +1537,286 @@ namespace AdbTools.RemoteControl
             catch { }
         }
 
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            HwndSource source = PresentationSource.FromVisual(this) as HwndSource;
+            if (source != null)
+            {
+                source.AddHook(WindowProc);
+            }
+        }
+
+        /// <summary>
+        /// 只在用户拖动边框结束时记录尺寸：程序自己设置 Width/Height 不会产生该消息，
+        /// 所以不必额外判断"这次变化是不是用户干的"。
+        /// </summary>
+        private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WmExitSizeMove && WindowState == WindowState.Normal)
+            {
+                RememberUserSize();
+            }
+            return IntPtr.Zero;
+        }
+
+        /// <summary>记下用户调整后的尺寸，按当前画面方向分别保存。</summary>
+        private void RememberUserSize()
+        {
+            if (!IsLoaded || WindowState != WindowState.Normal) return;
+
+            // 用实际尺寸而不是 Width 属性：1:1 走 Win32 调整后属性可能还没同步
+            double actualWidth = ActualWidth;
+            double actualHeight = ActualHeight;
+            if (actualWidth < MinWidth || actualHeight < MinHeight) return;
+
+            bool landscape = IsLandscapeView();
+            _userResized = true;
+
+            Size size = new Size(actualWidth, actualHeight);
+            if (landscape)
+            {
+                _userSizeLandscape = size;
+            }
+            else
+            {
+                _userSizePortrait = size;
+            }
+
+            LogToFile(string.Format("记录用户调整的窗口尺寸: {0:F0}x{1:F0}（{2}）",
+                size.Width, size.Height, landscape ? "横屏" : "竖屏"));
+
+            // 持久化到数据库：下次打开该设备沿用，另一个方向不受影响
+            RemoteWindowStore.SaveSize(_deviceKey, landscape, size.Width, size.Height);
+        }
+
+        /// <summary>
+        /// 读取该设备保存过的窗口尺寸：横竖各一份。有记录就按用户设定显示，
+        /// 不再按画面比例自动适配；没有记录（首次使用）仍走原来的自动适配。
+        /// </summary>
+        private void LoadSavedSize()
+        {
+            double landscapeWidth, landscapeHeight, portraitWidth, portraitHeight;
+            RemoteWindowStore.Load(_deviceKey, out landscapeWidth, out landscapeHeight,
+                out portraitWidth, out portraitHeight);
+
+            if (landscapeWidth > 0 && landscapeHeight > 0)
+            {
+                _userSizeLandscape = new Size(landscapeWidth, landscapeHeight);
+            }
+            if (portraitWidth > 0 && portraitHeight > 0)
+            {
+                _userSizePortrait = new Size(portraitWidth, portraitHeight);
+            }
+
+            _userResized = _userSizeLandscape.HasValue || _userSizePortrait.HasValue;
+            if (_userResized)
+            {
+                LogToFile(string.Format("已加载保存的窗口尺寸：横屏 {0}，竖屏 {1}",
+                    Describe(_userSizeLandscape), Describe(_userSizePortrait)));
+            }
+        }
+
+        private static string Describe(Size? size)
+        {
+            return size.HasValue
+                ? string.Format("{0:F0}x{1:F0}", size.Value.Width, size.Value.Height)
+                : "未设置";
+        }
+
+        /// <summary>当前画面是否为横屏：优先用已解码的画面，其次用设备分辨率，最后看窗口形状。</summary>
+        private bool IsLandscapeView()
+        {
+            if (_bitmap != null)
+            {
+                return _bitmap.PixelWidth > _bitmap.PixelHeight;
+            }
+            if (_deviceWidth > 0 && _deviceHeight > 0)
+            {
+                return _deviceWidth > _deviceHeight;
+            }
+            return Width > Height;
+        }
+
+        /// <summary>
+        /// 用户手动调整过窗口时，切换横竖屏沿用该方向记录过的尺寸；
+        /// 这个方向还没调整过就保持当前大小，避免旋转一次就把用户设定冲掉。
+        /// 位置不记录：恢复后按屏幕居中，并把尺寸限制在工作区内，确保不会超出屏幕。
+        /// </summary>
+        private void ApplyUserSize(bool landscape)
+        {
+            Size? saved = landscape ? _userSizeLandscape : _userSizePortrait;
+
+            if (saved.HasValue)
+            {
+                Rect workArea = SystemParameters.WorkArea;
+
+                // 尺寸先夹到工作区：窗口比屏幕还大时，怎么摆都会超出
+                double width = Math.Min(Math.Max(MinWidth, saved.Value.Width), Math.Max(MinWidth, workArea.Width));
+                double height = Math.Min(Math.Max(MinHeight, saved.Value.Height), Math.Max(MinHeight, workArea.Height));
+
+                Width = width;
+                Height = height;
+
+                // 不恢复上次的位置（换显示器后旧坐标会跑到屏幕外），一律居中
+                Left = workArea.Left + Math.Max(0, (workArea.Width - width) / 2);
+                Top = workArea.Top + Math.Max(0, (workArea.Height - height) / 2);
+
+                LogToFile(string.Format("沿用用户调整的窗口尺寸: {0:F0}x{1:F0}（{2}，已居中）",
+                    Width, Height, landscape ? "横屏" : "竖屏"));
+            }
+            else
+            {
+                LogToFile("用户已调整窗口，保持当前尺寸（" + (landscape ? "横屏" : "竖屏") + "）");
+            }
+
+            // 窗口尺寸可能没变，仍要让机身按新画面比例铺满，延迟到布局完成再算
+            Dispatcher.BeginInvoke(new Action(UpdatePhoneFrame), DispatcherPriority.Loaded);
+        }
+
+        /// <summary>
+        /// 「1:1」按钮：把窗口调整到当前输出画面的像素尺寸（画面 1 像素 = 屏幕 1 像素）。
+        /// 受屏幕工作区限制，放不下就按比例缩小，并用浮层说明实际比例。
+        /// </summary>
+        private void PixelFit_Click(object sender, RoutedEventArgs e)
+        {
+            if (_bitmap == null)
+            {
+                ShowToast("画面尚未就绪，请稍候再试");
+                return;
+            }
+
+            // 最大化/最小化时设置 Width/Height 无效，先还原，等布局完成再调整
+            if (WindowState != WindowState.Normal)
+            {
+                WindowState = WindowState.Normal;
+                Dispatcher.BeginInvoke(new Action(ApplyPixelFit), DispatcherPriority.Loaded);
+                return;
+            }
+
+            ApplyPixelFit();
+        }
+
+        /// <summary>按当前画面像素计算窗口尺寸并应用，结果用浮层提示是否为精确 1:1。</summary>
+        private void ApplyPixelFit()
+        {
+            if (_bitmap == null) return;
+
+            double pixelWidth = _bitmap.PixelWidth;
+            double pixelHeight = _bitmap.PixelHeight;
+            if (pixelWidth <= 0 || pixelHeight <= 0) return;
+
+            // 高 DPI 下窗口尺寸是 DIP，要换算成物理像素才能做到真正的 1:1
+            double dpiX = 1.0;
+            double dpiY = 1.0;
+            PresentationSource source = PresentationSource.FromVisual(this);
+            if (source != null && source.CompositionTarget != null)
+            {
+                System.Windows.Media.Matrix transform = source.CompositionTarget.TransformToDevice;
+                if (transform.M11 > 0) dpiX = transform.M11;
+                if (transform.M22 > 0) dpiY = transform.M22;
+            }
+
+            double statusHeight = _topBar != null && _topBar.ActualHeight > 0
+                ? _topBar.ActualHeight + _topBar.Margin.Top + _topBar.Margin.Bottom
+                : 32;
+            double navHeight = _navBar != null && _navBar.ActualHeight > 0
+                ? _navBar.ActualHeight + _navBar.Margin.Top + _navBar.Margin.Bottom
+                : 46;
+            navHeight = Math.Max(navHeight, 46);
+
+            double bezel = _phoneFrame.Padding.Left + _phoneFrame.Padding.Right
+                + _phoneFrame.BorderThickness.Left + _phoneFrame.BorderThickness.Right;
+            double bezelV = _phoneFrame.Padding.Top + _phoneFrame.Padding.Bottom
+                + _phoneFrame.BorderThickness.Top + _phoneFrame.BorderThickness.Bottom;
+
+            // 客户区目标：状态栏 + 机身（画面 1:1 + 边框）+ 导航栏
+            double clientWidth = pixelWidth / dpiX + bezel;
+            double clientHeight = pixelHeight / dpiY + bezelV + statusHeight + navHeight;
+
+            // 本次按像素精确设尺寸，期间不要让自动适配插进来重新算
+            _autoFitted = true;
+
+            // 窗口外框与客户区的差值用 Win32 实测：WPF 的 ActualWidth 在布局未完成时
+            // 与内容宽不同步，按它算会把边框漏掉，导致宽度少一截、画面缩小后上下留白
+            double chromeWidth = 0;
+            double chromeHeight = 0;
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero)
+            {
+                RECT windowRect;
+                RECT clientRect;
+                if (GetWindowRect(hwnd, out windowRect) && GetClientRect(hwnd, out clientRect))
+                {
+                    chromeWidth = ((windowRect.Right - windowRect.Left) - clientRect.Right) / dpiX;
+                    chromeHeight = ((windowRect.Bottom - windowRect.Top) - clientRect.Bottom) / dpiY;
+                }
+            }
+
+            double targetWidth = clientWidth + Math.Max(0, chromeWidth);
+            double targetHeight = clientHeight + Math.Max(0, chromeHeight);
+
+            Rect workArea = SystemParameters.WorkArea;
+            double scale = 1.0;
+            if (targetWidth > workArea.Width || targetHeight > workArea.Height)
+            {
+                scale = Math.Min(workArea.Width / targetWidth, workArea.Height / targetHeight);
+            }
+
+            double finalWidth = Math.Max(MinWidth, Math.Round(targetWidth * scale));
+            double finalHeight = Math.Max(MinHeight, Math.Round(targetHeight * scale));
+
+            Width = finalWidth;
+            Height = finalHeight;
+
+            // 位置不记录：调整后按屏幕居中，保证不会超出屏幕
+            Left = workArea.Left + Math.Max(0, (workArea.Width - finalWidth) / 2);
+            Top = workArea.Top + Math.Max(0, (workArea.Height - finalHeight) / 2);
+            UpdateLayout();
+
+            // 这次调整视为用户定制尺寸：记进数据库，之后旋转也沿用
+            RememberUserSize();
+            Dispatcher.BeginInvoke(new Action(UpdatePhoneFrame), DispatcherPriority.Loaded);
+
+            // 实际显示比例 = 最终窗口尺寸与目标窗口尺寸之比。
+            // 不读 _root.ActualWidth：布局回读会有滞后；这个比值本身已包含屏幕缩放，
+            // 也包含被最小窗口尺寸撑大的情况（此时会大于 100%）。
+            double actual = Math.Min(finalWidth / Math.Max(1, targetWidth),
+                finalHeight / Math.Max(1, targetHeight));
+            int percent = (int)Math.Round(actual * 100);
+
+            string pixelText = (int)pixelWidth + " × " + (int)pixelHeight;
+            if (Math.Abs(percent - 100) <= 1)
+            {
+                ShowToast("已按 1:1 像素显示（" + pixelText + "）");
+            }
+            else if (percent < 100)
+            {
+                ShowToast("屏幕放不下 " + pixelText + "，已缩小到 " + percent + "% 显示");
+            }
+            else
+            {
+                ShowToast("窗口已到最小尺寸，画面按 " + percent + "% 显示");
+            }
+
+            LogToFile(string.Format(
+                "1:1 调整：画面 {0}x{1}，客户区目标 {2:F1}x{3:F1}，边框 {4:F1}x{5:F1}，"
+                + "目标窗口 {6:F1}x{7:F1}，缩放 {8:P0}，最终 {9:F0}x{10:F0}，实际比例 {11}%",
+                (int)pixelWidth, (int)pixelHeight, clientWidth, clientHeight,
+                chromeWidth, chromeHeight, targetWidth, targetHeight, scale,
+                finalWidth, finalHeight, percent));
+        }
+
+        /// <summary>在画面底部显示一条操作提示，几秒后自动隐藏。</summary>
+        private void ShowToast(string message)
+        {
+            _toastText.Text = message;
+            _toast.Visibility = Visibility.Visible;
+            _toastTimer.Stop();
+            _toastTimer.Start();
+        }
+
         /// <summary>
         /// 按画面宽高比计算手机外框尺寸：外框 = 画面显示区域 + 四周内边距，
         /// 这样画面正好填满机身内部，不会在机身里再出现黑边。
@@ -1533,8 +1880,19 @@ namespace AdbTools.RemoteControl
 
             _autoFitted = true;
 
+            bool landscape = _bitmap.PixelWidth > _bitmap.PixelHeight;
+
+            // 用户手动调整过窗口：不再按画面比例改尺寸，横竖屏各沿用自己那份
+            if (_userResized)
+            {
+                ApplyUserSize(landscape);
+                return;
+            }
+
             // 状态栏固定单行（NoWrap），按实际高度取值，避免多算高度让机身上下出现多余空白
-            double statusHeight = Math.Max(_status.ActualHeight, 26);
+            double statusHeight = _topBar != null && _topBar.ActualHeight > 0
+                ? _topBar.ActualHeight + _topBar.Margin.Top + _topBar.Margin.Bottom
+                : 32;
             double navHeight = _navBar != null && _navBar.ActualHeight > 0
                 ? _navBar.ActualHeight + _navBar.Margin.Top + _navBar.Margin.Bottom
                 : 46;
@@ -1548,7 +1906,6 @@ namespace AdbTools.RemoteControl
 
             // 横屏窗口会被撑到接近整屏宽度，显得过大：宽度收到六成半左右；
             // 竖屏接近手机比例，仍按高度尽量铺满。
-            bool landscape = _bitmap.PixelWidth > _bitmap.PixelHeight;
             double maxWindowHeight = Math.Min(SystemParameters.WorkArea.Height * (landscape ? 0.74 : 0.92), 1000);
             double maxWindowWidth = SystemParameters.WorkArea.Width * (landscape ? 0.65 : 0.95);
             double availableHeight = Math.Max(200, maxWindowHeight - statusHeight - navHeight - bezelV - outerMargin);

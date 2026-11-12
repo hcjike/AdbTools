@@ -53,6 +53,9 @@ namespace AdbTools
         /// <summary>已打开的远程控制窗口（按设备序列号索引，重复点击时激活同一窗口）</summary>
         private readonly Dictionary<string, RemoteControlWindow> remoteWindows = new Dictionary<string, RemoteControlWindow>();
 
+        /// <summary>已打开的应用列表窗口（按设备标识索引，同一设备只允许一个实例）</summary>
+        private readonly Dictionary<string, AppListWindow> appListWindows = new Dictionary<string, AppListWindow>();
+
         public MainWindow()
         {
             InitializeComponent();
@@ -192,6 +195,13 @@ namespace AdbTools
                 try { window.Close(); } catch { }
             }
             remoteWindows.Clear();
+
+            // 应用列表是独立窗口，主界面退出时一并关闭，避免后台解析继续跑
+            foreach (var window in appListWindows.Values.ToList())
+            {
+                try { window.Close(); } catch { }
+            }
+            appListWindows.Clear();
         }
 
         private void Timer_Tick(object sender, EventArgs e)
@@ -446,11 +456,14 @@ namespace AdbTools
             {
                 return;
             }
-            OpenRemoteControl(device.DeviceMark);
+            OpenRemoteControl(device.DeviceMark, device.HardwareKey);
         }
 
-        /// <summary>按设备序列号打开（或激活）远程控制窗口。</summary>
-        private void OpenRemoteControl(string deviceMark)
+        /// <summary>
+        /// 按设备序列号打开（或激活）远程控制窗口。
+        /// deviceKey 为硬件序列号，用于保存窗口尺寸；命令行启动时没有设备对象，退回连接序列号。
+        /// </summary>
+        private void OpenRemoteControl(string deviceMark, string deviceKey = null)
         {
             if (string.IsNullOrEmpty(deviceMark))
             {
@@ -482,7 +495,7 @@ namespace AdbTools
                     return;
                 }
 
-                window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000);
+                window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000, deviceKey);
                 window.Closed += (s, args) => remoteWindows.Remove(deviceMark);
                 remoteWindows[deviceMark] = window;
                 window.Show();
@@ -1088,7 +1101,8 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 打开应用列表：一次性展示全部应用，并直接在列表里启动、停用、启用、卸载
+        /// 打开应用列表：一次性展示全部应用，并直接在列表里启动、停用、启用、卸载。
+        /// 独立窗口（不依附主窗口），同一台设备只保留一个实例，重复点击时把已有窗口带到前台。
         /// </summary>
         private void appList_Click(object sender, RoutedEventArgs e)
         {
@@ -1098,13 +1112,75 @@ namespace AdbTools
                 return;
             }
 
-            AppListWindow appListWindow = new AppListWindow()
+            // 设备列表刷新时已顺带读回硬件序列号，直接用；同一台手机 USB / IP / 无线只开一个窗口
+            if (!string.IsNullOrEmpty(device.HardwareKey))
+            {
+                OpenAppListWindow(device, device.HardwareKey);
+                return;
+            }
+
+            // 老设备或读取失败：现补一次，取不到时 AppDeviceKey 会退回连接序列号
+            AppDeviceKey.ResolveAsync(adbPath, device.SerialArg, device.DeviceMark,
+                key => OpenAppListWindow(device, key));
+        }
+
+        /// <summary>
+        /// 按设备键打开（或激活）应用列表窗口：键相同说明是同一台手机，
+        /// 已经有窗口就还原并带到前台，不重复创建。
+        /// </summary>
+        private void OpenAppListWindow(Device device, string deviceKey)
+        {
+            string key = BuildAppListWindowKey(device, deviceKey);
+
+            AppListWindow opened;
+            if (appListWindows.TryGetValue(key, out opened))
+            {
+                if (opened.IsLoaded)
+                {
+                    if (opened.WindowState == WindowState.Minimized)
+                    {
+                        opened.WindowState = WindowState.Normal;
+                    }
+                    opened.Activate();
+                    return;
+                }
+                appListWindows.Remove(key);
+            }
+
+            AppListWindow window = new AppListWindow
             {
                 AdbPath = adbPath,
-                DeviceInfo = device,
-                Owner = this
+                DeviceInfo = device
             };
-            appListWindow.ShowDialog();
+            window.Closed += (s, args) => appListWindows.Remove(key);
+            appListWindows[key] = window;
+            window.Show();
+        }
+
+        /// <summary>
+        /// 窗口去重键：序列号能唯一标识设备时用它，USB 与无线连接会落到同一个键上；
+        /// 模拟器、克隆机常见通用序列号（如 0123456789ABCDEF）重复度高，
+        /// 此时退回连接标识，避免两台不同设备被当成同一台。
+        /// </summary>
+        private static string BuildAppListWindowKey(Device device, string deviceKey)
+        {
+            const string SimulatorSerial = "0123456789ABCDEF";
+
+            bool serialUsable = !string.IsNullOrEmpty(deviceKey)
+                && !string.Equals(deviceKey, AppDeviceKey.Unknown, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(deviceKey, SimulatorSerial, StringComparison.OrdinalIgnoreCase);
+
+            if (serialUsable)
+            {
+                return "serial:" + deviceKey;
+            }
+
+            string fallback = device.DeviceMark;
+            if (string.IsNullOrEmpty(fallback))
+            {
+                fallback = device.SerialArg;
+            }
+            return "mark:" + (fallback ?? string.Empty);
         }
 
         #endregion
