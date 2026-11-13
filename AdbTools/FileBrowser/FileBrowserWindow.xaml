@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="文件管理" Height="740" Width="1020" MinHeight="640" MinWidth="960"
         WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="13"
-        Loaded="Window_Loaded" Closing="Window_Closing" Closed="Window_Closed">
+        Loaded="Window_Loaded" Closing="Window_Closing" Closed="Window_Closed"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <!-- 工具栏按钮：全局蓝底白字圆角风格，统一字体大小 -->
         <Style TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
@@ -68,7 +69,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox x:Name="pathBox" Padding="6,5" VerticalContentAlignment="Center" KeyDown="pathBox_KeyDown"/>
+                <TextBox x:Name="pathBox" Padding="6,5" VerticalContentAlignment="Center"/>
                 <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0" Click="go_Click" ToolTip="前往输入框中的路径">
                     <TextBlock Text="GO" FontSize="12" FontWeight="Bold" Foreground="White"/>
                 </Button>
@@ -118,7 +119,7 @@
                       PreviewMouseLeftButtonDown="fileList_PreviewMouseLeftButtonDown"
                       PreviewMouseMove="fileList_PreviewMouseMove"
                       PreviewMouseLeftButtonUp="fileList_PreviewMouseLeftButtonUp"
-                      SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick" KeyDown="fileList_KeyDown"
+                      SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick"
                       SelectionChanged="fileList_SelectionChanged">
                 <ListView.View>
                     <GridView>

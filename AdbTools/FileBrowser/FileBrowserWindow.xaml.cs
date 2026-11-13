@@ -234,14 +234,6 @@ namespace AdbTools.FileBrowser
             Navigate(pathBox.Text);
         }
 
-        private void pathBox_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter)
-            {
-                Navigate(pathBox.Text);
-                e.Handled = true;
-            }
-        }
 
         private void fileList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
@@ -311,14 +303,23 @@ namespace AdbTools.FileBrowser
             thread.Start();
         }
 
-        private void fileList_KeyDown(object sender, KeyEventArgs e)
+        /// <summary>
+        /// 窗口级快捷键：不依赖焦点在哪个控件上。
+        /// 路径输入框获得焦点时只接管 Enter（跳转），其余按键保留给输入框编辑。
+        /// </summary>
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Delete)
+            if (pathBox.IsKeyboardFocusWithin)
             {
-                DeleteSelected();
-                e.Handled = true;
+                if (e.Key == Key.Enter)
+                {
+                    Navigate(pathBox.Text);
+                    e.Handled = true;
+                }
+                return;
             }
-            else if (e.Key == Key.F5)
+
+            if (e.Key == Key.F5)
             {
                 Navigate(_currentPath);
                 e.Handled = true;
@@ -326,6 +327,11 @@ namespace AdbTools.FileBrowser
             else if (e.Key == Key.Back)
             {
                 Navigate(DeviceFileService.ParentPath(_currentPath));
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Delete)
+            {
+                DeleteSelected();
                 e.Handled = true;
             }
         }

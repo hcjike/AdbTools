@@ -766,6 +766,16 @@ namespace AdbTools
             RefreshDevices(false);
         }
 
+        /// <summary>托盘菜单：设置定时刷新间隔（秒，0 表示关闭），与主界面设置共用同一配置。</summary>
+        internal void TraySetRefreshInterval(int seconds)
+        {
+            if (!IsValidRefreshInterval(seconds)) return;
+
+            refreshIntervalSeconds = seconds;
+            Globals.AppSettings.REFRESH_INTERVAL = seconds;
+            ApplyRefreshInterval(seconds > 0);
+        }
+
         /// <summary>托盘菜单使用的设备快照：复制一份，避免菜单操作影响列表本身。</summary>
         internal List<Device> GetTrayDevices()
         {

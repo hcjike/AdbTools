@@ -37,12 +37,20 @@
                         <Border x:Name="bg" Background="Transparent" CornerRadius="4" SnapsToDevicePixels="True"/>
                         <Grid Margin="{TemplateBinding Padding}">
                             <Grid.ColumnDefinitions>
+                                <!-- 勾选列：Auto，只有可勾选的项才占位；其余菜单项左侧不留白 -->
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                            <!-- 勾选占位块：IsCheckable 时占 18px（未选中也占位，保证同组文字对齐） -->
+                            <Border x:Name="checkBox" Grid.Column="0" Width="18" Height="18" Visibility="Collapsed">
+                                <Path x:Name="check" Data="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+                                      Fill="#FF2A9FFF" Width="14" Height="14" Stretch="Uniform"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
                             <!-- 子菜单箭头（仅含子项的菜单显示） -->
-                            <Path x:Name="arrow" Grid.Column="1" Data="M0,0 L4.5,4.5 L0,9 Z" Fill="#FF9CA3AF" Margin="10,0,2,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            <Path x:Name="arrow" Grid.Column="2" Data="M0,0 L4.5,4.5 L0,9 Z" Fill="#FF9CA3AF" Margin="10,0,2,0" VerticalAlignment="Center" Visibility="Collapsed"/>
                         </Grid>
                         <!-- 子菜单弹窗 -->
                         <Popup x:Name="SubMenuPopup" AllowsTransparency="True" Focusable="False" HorizontalOffset="0" VerticalOffset="0"
@@ -60,6 +68,13 @@
                         </Popup>
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <!-- 只有可勾选的项才让出勾选列，避免其他菜单左侧留白 -->
+                        <Trigger Property="IsCheckable" Value="True">
+                            <Setter TargetName="checkBox" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="check" Property="Visibility" Value="Visible"/>
+                        </Trigger>
                         <Trigger Property="Role" Value="TopLevelHeader">
                             <Setter TargetName="arrow" Property="Visibility" Value="Visible"/>
                         </Trigger>

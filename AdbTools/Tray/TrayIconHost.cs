@@ -19,6 +19,8 @@ namespace AdbTools.Tray
         private readonly MenuItem _appListMenuItem;
         private readonly MenuItem _fileMenuItem;
         private readonly MenuItem _shellMenuItem;
+        private readonly MenuItem _refreshIntervalMenuItem;
+        private readonly List<MenuItem> _refreshIntervalItems = new List<MenuItem>();
 
         private bool _disposed;
 
@@ -28,6 +30,18 @@ namespace AdbTools.Tray
             _appListMenuItem = new MenuItem { Header = "应用列表" };
             _fileMenuItem = new MenuItem { Header = "文件管理" };
             _shellMenuItem = new MenuItem { Header = "Shell 窗口" };
+
+            // 定时刷新子菜单：与主界面设置共用同一配置，展开时同步勾选
+            _refreshIntervalMenuItem = new MenuItem { Header = "定时刷新" };
+            AddRefreshIntervalItem("关闭", 0);
+            AddRefreshIntervalItem("3 秒", 3);
+            AddRefreshIntervalItem("5 秒", 5);
+            AddRefreshIntervalItem("10 秒", 10);
+            AddRefreshIntervalItem("15 秒", 15);
+            AddRefreshIntervalItem("20 秒", 20);
+            AddRefreshIntervalItem("30 秒", 30);
+            AddRefreshIntervalItem("60 秒", 60);
+            _refreshIntervalMenuItem.SubmenuOpened += (s, e) => UpdateRefreshIntervalChecks();
 
             // 先放占位项，保证没有设备时子菜单箭头也能显示，展开时会被真实内容替换
             _remoteMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
@@ -42,13 +56,14 @@ namespace AdbTools.Tray
             _shellMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_shellMenuItem, OpenShellDevice);
 
             ContextMenu menu = new ContextMenu();
-            menu.Items.Add(CreateItem("显示主界面", (s, e) => App.ShowMainWindow()));
             menu.Items.Add(CreateItem("刷新设备", (s, e) => App.MainWindowInstance?.TrayRefreshDevices()));
+            menu.Items.Add(_refreshIntervalMenuItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(_remoteMenuItem);
             menu.Items.Add(_appListMenuItem);
             menu.Items.Add(_fileMenuItem);
             menu.Items.Add(_shellMenuItem);
+            menu.Items.Add(new Separator());
             menu.Items.Add(CreateItem("断开全部设备", (s, e) => App.MainWindowInstance?.TrayDisconnectAll()));
             menu.Items.Add(new Separator());
             menu.Items.Add(CreateItem("检查更新", (s, e) => App.MainWindowInstance?.TrayCheckUpdate()));
@@ -141,6 +156,29 @@ namespace AdbTools.Tray
         private static void OpenFileBrowserDevice(Device device)
         {
             App.MainWindowInstance?.TrayOpenFileBrowser(device);
+        }
+
+        /// <summary>向定时刷新子菜单追加一个间隔选项（秒，0 表示关闭）。</summary>
+        private void AddRefreshIntervalItem(string header, int seconds)
+        {
+            MenuItem item = new MenuItem { Header = header, IsCheckable = true, Tag = seconds };
+            item.Click += (s, e) =>
+            {
+                App.MainWindowInstance?.TraySetRefreshInterval(seconds);
+                UpdateRefreshIntervalChecks();
+            };
+            _refreshIntervalItems.Add(item);
+            _refreshIntervalMenuItem.Items.Add(item);
+        }
+
+        /// <summary>同步勾选状态：只有当前生效的间隔被勾选。</summary>
+        private void UpdateRefreshIntervalChecks()
+        {
+            int current = Globals.AppSettings.REFRESH_INTERVAL;
+            foreach (MenuItem item in _refreshIntervalItems)
+            {
+                item.IsChecked = item.Tag is int && (int)item.Tag == current;
+            }
         }
 
         private static MenuItem CreateItem(string header, RoutedEventHandler handler)
