@@ -43,6 +43,11 @@ namespace AdbTools.FileBrowser
         private volatile bool _closed;
         private int _itemCount;
 
+        // Ctrl + 左键划过多选：是否处于按下状态、是否已真正开始滑动、起点
+        private bool _ctrlDragSelecting;
+        private bool _ctrlDragActive;
+        private Point _dragStartPoint;
+
         public FileBrowserWindow(string adbPath, string serial, string deviceName)
         {
             InitializeComponent();
@@ -323,6 +328,93 @@ namespace AdbTools.FileBrowser
                 Navigate(DeviceFileService.ParentPath(_currentPath));
                 e.Handled = true;
             }
+        }
+
+        // ---------------------------------------------------------------- Ctrl + 左键划过多选
+
+        private void fileList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // 只支持按住 Ctrl 的划过选择；点在滚动条上交给滚动条
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0
+                || IsOverScrollBar(e.OriginalSource as DependencyObject))
+            {
+                _ctrlDragSelecting = false;
+                return;
+            }
+
+            _ctrlDragSelecting = true;
+            _ctrlDragActive = false;
+            _dragStartPoint = e.GetPosition(fileList);
+        }
+
+        private void fileList_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_ctrlDragSelecting || e.LeftButton != MouseButtonState.Pressed)
+            {
+                return;
+            }
+
+            // 中途松开 Ctrl 视为结束
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
+            {
+                _ctrlDragSelecting = false;
+                _ctrlDragActive = false;
+                return;
+            }
+
+            Point point = e.GetPosition(fileList);
+
+            // 移动超过阈值才开始选中，避免 Ctrl + 单击时误触
+            if (!_ctrlDragActive)
+            {
+                if (Math.Abs(point.X - _dragStartPoint.X) < 5 && Math.Abs(point.Y - _dragStartPoint.Y) < 5)
+                {
+                    return;
+                }
+
+                _ctrlDragActive = true;
+            }
+
+            System.Windows.Controls.ListViewItem item = GetItemAt(point);
+            if (item != null && !item.IsSelected)
+            {
+                item.IsSelected = true;
+            }
+
+            e.Handled = true;
+        }
+
+        private void fileList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            _ctrlDragSelecting = false;
+            _ctrlDragActive = false;
+        }
+
+        /// <summary>取坐标点下的列表项（不在任何项上时返回 null）。</summary>
+        private System.Windows.Controls.ListViewItem GetItemAt(Point point)
+        {
+            HitTestResult hit = VisualTreeHelper.HitTest(fileList, point);
+            if (hit == null) return null;
+
+            return System.Windows.Controls.ItemsControl.ContainerFromElement(fileList, hit.VisualHit)
+                as System.Windows.Controls.ListViewItem;
+        }
+
+        private static bool IsOverScrollBar(DependencyObject source)
+        {
+            while (source != null)
+            {
+                if (source is System.Windows.Controls.Primitives.ScrollBar) return true;
+                try
+                {
+                    source = VisualTreeHelper.GetParent(source);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            return false;
         }
 
         #endregion
