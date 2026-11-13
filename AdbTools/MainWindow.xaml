@@ -206,7 +206,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <!-- 设置主菜单卡片（展开选项中不改变自身尺寸） -->
-                        <Border Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFD5D9DF" BorderThickness="0,1,1,1">
+                        <Border x:Name="setupMainCard" Grid.Column="0" VerticalAlignment="Top" Background="White" Padding="4" CornerRadius="0,0,8,8" BorderBrush="#FFD5D9DF" BorderThickness="0,1,1,1">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
@@ -223,7 +223,7 @@
                                     </Grid>
                                 </Button>
                                 <!-- 定时刷新：鼠标划过即在右侧展开刷新间隔选项，离开即收起 -->
-                                <Button x:Name="refreshIntervalBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" MouseEnter="refreshInterval_MouseEnter" MouseLeave="refreshInterval_MouseLeave">
+                                <Button x:Name="refreshIntervalBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" MouseEnter="refreshInterval_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                     <Grid MinWidth="96">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="16"/>
@@ -234,6 +234,30 @@
                                         <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
+                                <!-- 消息提醒：鼠标划过即在右侧以二级菜单展开，可多选要接收的系统通知 -->
+                                <Button x:Name="notifyBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" ToolTip="选择要接收的系统通知" MouseEnter="notifyBtn_MouseEnter" MouseLeave="optionItem_MouseLeave">
+                                    <Grid MinWidth="96">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="16"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="1" Text="消息提醒" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <!-- 关闭方式：鼠标划过展开二级菜单，单选 -->
+                                <Button x:Name="exitModeBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" ToolTip="点击窗口关闭按钮（×）时的行为" MouseEnter="exitModeBtn_MouseEnter" MouseLeave="optionItem_MouseLeave">
+                                    <Grid MinWidth="96">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="16"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="1" Text="关闭方式" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
                             </StackPanel>
                         </Border>
                         <!-- 右侧浮动选项卡片：与主菜单分离，主菜单不会被撑开 -->
@@ -241,16 +265,159 @@
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
-                            <Border MouseEnter="refreshInterval_MouseEnter" MouseLeave="refreshInterval_MouseLeave">
+                            <Border MouseEnter="optionColumn_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                 <StackPanel x:Name="refreshIntervalPanel" MinWidth="96">
-                                    <Button x:Name="refreshOffItem" Tag="0" Content="关闭" Style="{StaticResource PopupButtonStyle}" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh3sItem" Tag="3" Content="3秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh5sItem" Tag="5" Content="5秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh10sItem" Tag="10" Content="10秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh15sItem" Tag="15" Content="15秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh20sItem" Tag="20" Content="20秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh30sItem" Tag="30" Content="30秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
-                                    <Button x:Name="refresh60sItem" Tag="60" Content="60秒" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click"/>
+                                    <!-- 每项第一格是对号，当前生效的间隔打勾（与通知、关闭窗口时两级菜单保持一致） -->
+                                    <Button x:Name="refreshOffItem" Tag="0" Style="{StaticResource PopupButtonStyle}" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="关闭" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh3sItem" Tag="3" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="3秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh5sItem" Tag="5" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="5秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh10sItem" Tag="10" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="10秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh15sItem" Tag="15" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="15秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh20sItem" Tag="20" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="20秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh30sItem" Tag="30" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="30秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="refresh60sItem" Tag="60" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" Click="refreshInterval_Click">
+                                        <Grid MinWidth="96">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="60秒" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Border>
+                        <!-- 通知二级菜单：多选，点一次切换一次并立即保存 -->
+                        <Border x:Name="notifyColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
+                            </Border.Effect>
+                            <Border MouseEnter="optionColumn_MouseEnter" MouseLeave="optionItem_MouseLeave">
+                                <StackPanel MinWidth="126">
+                                    <Button x:Name="notifyDeviceItem" Tag="device" Style="{StaticResource PopupButtonStyle}" ToolTip="设备上线、离线时提示。&#10;依赖设备列表刷新：手动刷新（F5）或开启「定时刷新」时才会发现变化。" Click="notifyOption_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="notifyDeviceCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="设备连接/断开" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="notifyInstallItem" Tag="install" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" ToolTip="APK 安装成功或失败时提示。" Click="notifyOption_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="notifyInstallCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="安装结果" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="notifyRemoteItem" Tag="remote" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" ToolTip="设备断线导致远程控制中断时提示。" Click="notifyOption_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="notifyRemoteCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="远程控制断开" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Border>
+                        <!-- 关闭窗口时二级菜单：单选 -->
+                        <Border x:Name="exitColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
+                            </Border.Effect>
+                            <Border MouseEnter="optionColumn_MouseEnter" MouseLeave="optionItem_MouseLeave">
+                                <StackPanel MinWidth="126">
+                                    <Button x:Name="exitToTrayItem" Tag="tray" Style="{StaticResource PopupButtonStyle}" ToolTip="点窗口的 × 时收起到系统托盘，程序继续在后台运行。" Click="exitMode_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="exitToTrayCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="最小化到托盘" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="exitDirectItem" Tag="exit" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" ToolTip="点窗口的 × 时先确认，然后关闭所有窗口并退出程序。" Click="exitMode_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="exitDirectCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="直接退出程序" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
                                 </StackPanel>
                             </Border>
                         </Border>

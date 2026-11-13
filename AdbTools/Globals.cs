@@ -198,6 +198,11 @@ namespace AdbTools
             private static List<string> _DEVICE_ADDRESS_HISTORY;
             private static string _GITHUB_PROXY;
             private static string _REFRESH_INTERVAL;
+            private static string _CLOSE_TO_TRAY;
+            private static string _TRAY_TIP_SHOWN;
+            private static string _NOTIFY_DEVICE_CHANGE;
+            private static string _NOTIFY_INSTALL_RESULT;
+            private static string _NOTIFY_REMOTE_DISCONNECT;
 
             /// <summary>
             /// 最近连接的设备地址
@@ -252,6 +257,52 @@ namespace AdbTools
                     return int.TryParse(value, out int seconds) && seconds > 0 ? seconds : 0;
                 }
                 set => SetValue("REFRESH_INTERVAL", value.ToString(), v => _REFRESH_INTERVAL = v);
+            }
+
+            /// <summary>
+            /// 关闭主窗口时最小化到系统托盘（默认开启）。
+            /// 关闭后点窗口的 × 等同于退出程序（仍会二次确认）。
+            /// </summary>
+            public static bool CLOSE_TO_TRAY
+            {
+                get => GetBool(ref _CLOSE_TO_TRAY, "CLOSE_TO_TRAY", true);
+                set => SetValue("CLOSE_TO_TRAY", value ? "true" : "false", v => _CLOSE_TO_TRAY = v);
+            }
+
+            /// <summary>
+            /// 是否已经提示过“程序已最小化到托盘”，只提示一次
+            /// </summary>
+            public static bool TRAY_TIP_SHOWN
+            {
+                get => GetBool(ref _TRAY_TIP_SHOWN, "TRAY_TIP_SHOWN", false);
+                set => SetValue("TRAY_TIP_SHOWN", value ? "true" : "false", v => _TRAY_TIP_SHOWN = v);
+            }
+
+            /// <summary>
+            /// 设备连接/断开时是否弹托盘通知（默认开启）
+            /// </summary>
+            public static bool NOTIFY_DEVICE_CHANGE
+            {
+                get => GetBool(ref _NOTIFY_DEVICE_CHANGE, "NOTIFY_DEVICE_CHANGE", true);
+                set => SetValue("NOTIFY_DEVICE_CHANGE", value ? "true" : "false", v => _NOTIFY_DEVICE_CHANGE = v);
+            }
+
+            /// <summary>
+            /// 应用安装成功/失败时是否弹托盘通知（默认开启）
+            /// </summary>
+            public static bool NOTIFY_INSTALL_RESULT
+            {
+                get => GetBool(ref _NOTIFY_INSTALL_RESULT, "NOTIFY_INSTALL_RESULT", true);
+                set => SetValue("NOTIFY_INSTALL_RESULT", value ? "true" : "false", v => _NOTIFY_INSTALL_RESULT = v);
+            }
+
+            /// <summary>
+            /// 设备掉线导致远程控制中断时是否弹托盘通知（默认开启）
+            /// </summary>
+            public static bool NOTIFY_REMOTE_DISCONNECT
+            {
+                get => GetBool(ref _NOTIFY_REMOTE_DISCONNECT, "NOTIFY_REMOTE_DISCONNECT", true);
+                set => SetValue("NOTIFY_REMOTE_DISCONNECT", value ? "true" : "false", v => _NOTIFY_REMOTE_DISCONNECT = v);
             }
 
             /// <summary>
@@ -366,6 +417,22 @@ namespace AdbTools
                     cache = GetKeyValue(key) ?? defaultValue;
                 }
                 return cache;
+            }
+
+            /// <summary>读取布尔配置，无法解析时用默认值</summary>
+            private static bool GetBool(ref string cache, string key, bool defaultValue)
+            {
+                string value = GetString(ref cache, key, null);
+                if (string.IsNullOrEmpty(value))
+                {
+                    cache = defaultValue ? "true" : "false";
+                    return defaultValue;
+                }
+                if (bool.TryParse(value, out bool parsed))
+                {
+                    return parsed;
+                }
+                return defaultValue;
             }
 
             /// <summary>

@@ -12,8 +12,10 @@ using System.Net;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Hardcodet.Wpf.TaskbarNotification;
 
 namespace AdbTools
 {
@@ -54,8 +56,8 @@ namespace AdbTools
         /// <summary>已打开的应用列表窗口（按设备标识索引，同一设备只允许一个实例）</summary>
         private readonly Dictionary<string, AppListWindow> appListWindows = new Dictionary<string, AppListWindow>();
 
-        /// <summary>程序内部主动退出（如安装更新后重启）时跳过退出确认。</summary>
-        private bool skipCloseConfirm;
+        /// <summary>设备列表是否已完成首次刷新：首次刷新只建立基线，不弹“设备已连接”通知。</summary>
+        private bool deviceListInitialized;
 
         public MainWindow()
         {
@@ -172,6 +174,11 @@ namespace AdbTools
             ApplyRefreshInterval(false);
             UpdateTopmostUi();
 
+            // 托盘图标：关闭窗口后继续后台运行，右键菜单提供常用操作与退出入口。
+            // 放到首帧渲染之后再创建，避免它的初始化（图标解码、菜单构建）拖慢窗口出现。
+            Dispatcher.BeginInvoke(new Action(App.InitializeTray), DispatcherPriority.ApplicationIdle);
+            App.UpdateTrayStatus(deviceAddressList.Count);
+
             Timer_Tick(null, null);
 
             // 调试入口：命令行带 --remote=<序列号> 时直接打开远程控制窗口
@@ -186,13 +193,50 @@ namespace AdbTools
             }
         }
 
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            // 第二个实例通过广播消息唤出已经完全隐藏到托盘的主窗口
+            HwndSource source = PresentationSource.FromVisual(this) as HwndSource;
+            if (source != null)
+            {
+                source.AddHook(WndProc);
+            }
+        }
+
+        /// <summary>处理第二个实例发来的“显示主窗口”广播消息。</summary>
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            int showMessage = App.ShowMainWindowMessage;
+            if (showMessage != 0 && msg == showMessage)
+            {
+                App.ShowMainWindow();
+                handled = true;
+            }
+            return IntPtr.Zero;
+        }
+
         /// <summary>
-        /// 关闭主界面时二次确认：误点关闭会连带关掉远程控制与应用列表窗口，先问一次。
-        /// 默认选中“否”，回车/误触不会直接退出。
+        /// 关闭主界面：默认收起到系统托盘继续后台运行（首次给一次气泡提示）；
+        /// 设置里关掉“最小化到托盘”后才走退出确认。真正退出统一走托盘菜单。
         /// </summary>
         private void Window_Closing(object sender, CancelEventArgs e)
         {
-            if (skipCloseConfirm) return;
+            if (App.ExitRequested) return;
+
+            if (Globals.AppSettings.CLOSE_TO_TRAY)
+            {
+                e.Cancel = true;
+                Hide();
+
+                if (!Globals.AppSettings.TRAY_TIP_SHOWN)
+                {
+                    Globals.AppSettings.TRAY_TIP_SHOWN = true;
+                    App.Notify("程序已最小化到系统托盘，继续在后台刷新设备。\r\n右键托盘图标可退出。");
+                }
+                return;
+            }
 
             MessageBoxResult result = MessageBox.Show(
                 this,
@@ -205,6 +249,21 @@ namespace AdbTools
             if (result != MessageBoxResult.Yes)
             {
                 e.Cancel = true;
+            }
+        }
+
+        /// <summary>
+        /// 主窗口真正关闭后的收尾：应用用的是 OnExplicitShutdown，
+        /// 关掉窗口不会自动结束进程，所以在“直接退出程序”模式下要显式走统一退出流程，
+        /// 否则关掉窗口后进程和托盘图标还留着，看起来像“关不掉”。
+        /// </summary>
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+
+            if (!App.ExitRequested && !Globals.AppSettings.CLOSE_TO_TRAY)
+            {
+                App.ExitApplication();
             }
         }
 
@@ -294,6 +353,13 @@ namespace AdbTools
             int index = 0;
             List<string> deviceMarks = new List<string>();
 
+            // 记下刷新前的设备，用于判断谁上线/下线
+            Dictionary<string, string> beforeNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (Device exist in deviceAddressList)
+            {
+                beforeNames[exist.DeviceMark] = exist.ShowDeviceName;
+            }
+
             foreach (string line in content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string trimmed = line.TrimEnd();
@@ -373,6 +439,67 @@ namespace AdbTools
 
             // 空列表时显示提示（HasItems不发送更改通知，需手动同步）
             emptyHint.Visibility = deviceAddressList.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+
+            // 托盘提示与设备上下线通知
+            App.UpdateTrayStatus(deviceAddressList.Count);
+            NotifyDeviceChanges(beforeNames, deviceMarks);
+        }
+
+        /// <summary>
+        /// 比对刷新前后的设备列表，把上线/下线用托盘通知提示出来。
+        /// 首次刷新只建立基线，避免启动时把已有设备全部报一遍。
+        /// </summary>
+        private void NotifyDeviceChanges(Dictionary<string, string> beforeNames, List<string> afterMarks)
+        {
+            if (!deviceListInitialized)
+            {
+                deviceListInitialized = true;
+                return;
+            }
+            // 三类通知各自受设置项控制：设备上下线、远程控制断开
+            bool notifyDevice = Globals.AppSettings.NOTIFY_DEVICE_CHANGE;
+            bool notifyRemote = Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT;
+            if (!notifyDevice && !notifyRemote) return;
+
+            HashSet<string> now = new HashSet<string>(afterMarks, StringComparer.Ordinal);
+
+            if (notifyDevice)
+            {
+                foreach (string mark in afterMarks)
+                {
+                    if (beforeNames.ContainsKey(mark)) continue;
+
+                    Device device = deviceAddressList.FirstOrDefault(d => d.DeviceMark == mark);
+                    string name = device != null ? device.DeviceInfo : mark;
+                    App.Notify("设备已连接\r\n" + name + "\r\n" + mark);
+                }
+            }
+
+            // 全部设备一起消失多半是 adb 服务重启或刷新时的瞬时状态，不弹断线提示，避免刷屏误报
+            if (afterMarks.Count == 0) return;
+
+            foreach (KeyValuePair<string, string> pair in beforeNames)
+            {
+                if (now.Contains(pair.Key)) continue;
+
+                string name = string.IsNullOrEmpty(pair.Value) ? pair.Key : pair.Value;
+                if (RemoteControlWindow.IsOpenFor(pair.Key))
+                {
+                    // 掉线打断了正在看的远程控制：优先用专门的提示
+                    if (notifyRemote)
+                    {
+                        App.Notify("远程控制已断开\r\n" + name + "\r\n设备连接已中断", BalloonIcon.Error);
+                    }
+                    else if (notifyDevice)
+                    {
+                        App.Notify("设备已断开\r\n" + name + "\r\n" + pair.Key);
+                    }
+                }
+                else if (notifyDevice)
+                {
+                    App.Notify("设备已断开\r\n" + name + "\r\n" + pair.Key);
+                }
+            }
         }
 
         private void connectDevice_Click(object sender, RoutedEventArgs e)
@@ -605,6 +732,55 @@ namespace AdbTools
             Timer_Tick(null, null);
         }
 
+        #region 《托盘菜单》
+
+        /// <summary>托盘菜单：刷新设备列表（主窗口隐藏时同样生效）。</summary>
+        internal void TrayRefreshDevices()
+        {
+            RefreshDevices(false);
+        }
+
+        /// <summary>托盘菜单使用的设备快照：复制一份，避免菜单操作影响列表本身。</summary>
+        internal List<Device> GetTrayDevices()
+        {
+            return deviceAddressList.ToList();
+        }
+
+        internal void TrayOpenRemoteControl(Device device)
+        {
+            if (device == null) return;
+            OpenRemoteControl(device.DeviceMark, device.HardwareKey);
+        }
+
+        internal void TrayOpenAppList(Device device)
+        {
+            OpenAppList(device);
+        }
+
+        internal void TrayOpenShell(Device device)
+        {
+            OpenShell(device);
+        }
+
+        /// <summary>托盘菜单：断开全部设备（菜单点击本身已是一次明确操作，不再二次确认）。</summary>
+        internal void TrayDisconnectAll()
+        {
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} disconnect", result =>
+            {
+                RefreshDevices(false);
+            });
+        }
+
+        /// <summary>托盘菜单：检查更新，发现新版本时弹更新窗口。</summary>
+        internal void TrayCheckUpdate()
+        {
+            // 更新窗口以主窗口为 Owner，先把主窗口显示出来，避免对话框挂在隐藏窗口上
+            App.ShowMainWindow();
+            RequestJson.UpdateCheck(this, githubReleases => UpdateVersion(githubReleases));
+        }
+
+        #endregion
+
         /// <summary>
         /// 获取当前选中的设备，未选中时提示并返回null
         /// </summary>
@@ -766,6 +942,13 @@ namespace AdbTools
             {
                 return;
             }
+            OpenShell(device);
+        }
+
+        /// <summary>为指定设备打开系统命令行 Shell（主界面与托盘菜单共用）。</summary>
+        private void OpenShell(Device device)
+        {
+            if (device == null) return;
             CmdExecutor.ExecuteCommandByShell($"{adbPath} -s {device.SerialArg} shell ");
         }
 
@@ -861,9 +1044,8 @@ namespace AdbTools
                     return;
                 }
 
-                // 安装更新属于程序主动退出，不再弹退出确认
-                skipCloseConfirm = true;
-                Application.Current.Shutdown();
+                // 安装更新属于程序主动退出：统一退出流程（释放托盘、清理远程窗口）
+                App.ExitApplication();
             };
 
             try
@@ -955,15 +1137,67 @@ namespace AdbTools
 
         private void setup_Click(object sender, RoutedEventArgs e)
         {
-            // 每次打开都回到默认状态：右侧选项栏收起
-            HideRefreshIntervalColumn();
+            // 每次打开都回到默认状态：右侧二级菜单全部收起
+            HideOptionColumns();
+            UpdateNotifyUi();
+            UpdateExitModeUi();
             setup_popup.IsOpen = true;
         }
 
-        /// <summary>关闭设置菜单时收起右侧的定时刷新选项栏，下次打开回到默认状态</summary>
+        /// <summary>关闭设置菜单时收起所有二级菜单，下次打开回到默认状态</summary>
         private void setup_popup_Closed(object sender, EventArgs e)
         {
-            HideRefreshIntervalColumn();
+            HideOptionColumns();
+        }
+
+        /// <summary>通知选项：多选，点一次切换一次并立即写入配置；二级菜单保持展开便于连续勾选。</summary>
+        private void notifyOption_Click(object sender, RoutedEventArgs e)
+        {
+            Button item = sender as Button;
+            if (item == null) return;
+
+            switch (item.Tag as string)
+            {
+                case "device":
+                    Globals.AppSettings.NOTIFY_DEVICE_CHANGE = !Globals.AppSettings.NOTIFY_DEVICE_CHANGE;
+                    break;
+                case "install":
+                    Globals.AppSettings.NOTIFY_INSTALL_RESULT = !Globals.AppSettings.NOTIFY_INSTALL_RESULT;
+                    break;
+                case "remote":
+                    Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT = !Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT;
+                    break;
+            }
+            UpdateNotifyUi();
+        }
+
+        /// <summary>关闭窗口时的行为：单选，选完即收起菜单。</summary>
+        private void exitMode_Click(object sender, RoutedEventArgs e)
+        {
+            Button item = sender as Button;
+            if (item == null) return;
+
+            Globals.AppSettings.CLOSE_TO_TRAY = string.Equals(item.Tag as string, "tray", StringComparison.Ordinal);
+            UpdateExitModeUi();
+
+            HideOptionColumns();
+            setup_popup.IsOpen = false;
+        }
+
+        /// <summary>同步通知选项的对号。</summary>
+        private void UpdateNotifyUi()
+        {
+            notifyDeviceCheck.Visibility = Globals.AppSettings.NOTIFY_DEVICE_CHANGE ? Visibility.Visible : Visibility.Collapsed;
+            notifyInstallCheck.Visibility = Globals.AppSettings.NOTIFY_INSTALL_RESULT ? Visibility.Visible : Visibility.Collapsed;
+            notifyRemoteCheck.Visibility = Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>同步“关闭窗口时”的对号（单选）。</summary>
+        private void UpdateExitModeUi()
+        {
+            bool toTray = Globals.AppSettings.CLOSE_TO_TRAY;
+            exitToTrayCheck.Visibility = toTray ? Visibility.Visible : Visibility.Collapsed;
+            exitDirectCheck.Visibility = toTray ? Visibility.Collapsed : Visibility.Visible;
         }
 
         /// <summary>切换窗口置顶（菜单项以对号表示当前状态）</summary>
@@ -980,35 +1214,95 @@ namespace AdbTools
             topmostCheck.Visibility = this.Topmost ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        /// <summary>鼠标进入「定时刷新」项或右侧选项卡片时展开选项</summary>
+        /// <summary>当前展开的二级菜单及其对应的主菜单项</summary>
+        private Border _activeOptionColumn;
+        private FrameworkElement _activeOptionAnchor;
+
+        /// <summary>鼠标进入「定时刷新」：在右侧展开间隔选项二级菜单</summary>
         private void refreshInterval_MouseEnter(object sender, MouseEventArgs e)
         {
-            hideIntervalTimer?.Stop();
-            refreshIntervalColumn.Visibility = Visibility.Visible;
+            UpdateRefreshIntervalUi();
+            ShowOptionColumn(refreshIntervalColumn, refreshIntervalBtn);
         }
 
-        /// <summary>鼠标离开时延迟判断，避免在菜单与选项卡片之间的间隙被误收起</summary>
-        private void refreshInterval_MouseLeave(object sender, MouseEventArgs e)
+        /// <summary>鼠标进入「通知」：展开通知多选二级菜单</summary>
+        private void notifyBtn_MouseEnter(object sender, MouseEventArgs e)
+        {
+            UpdateNotifyUi();
+            ShowOptionColumn(notifyColumn, notifyBtn);
+        }
+
+        /// <summary>鼠标进入「关闭窗口时」：展开单选二级菜单</summary>
+        private void exitModeBtn_MouseEnter(object sender, MouseEventArgs e)
+        {
+            UpdateExitModeUi();
+            ShowOptionColumn(exitColumn, exitModeBtn);
+        }
+
+        /// <summary>鼠标进入已展开的二级菜单：取消收起</summary>
+        private void optionColumn_MouseEnter(object sender, MouseEventArgs e)
+        {
+            hideIntervalTimer?.Stop();
+        }
+
+        /// <summary>鼠标离开主菜单项或二级菜单：延迟判断，避免在两者间隙被误收起</summary>
+        private void optionItem_MouseLeave(object sender, MouseEventArgs e)
         {
             hideIntervalTimer?.Stop();
             hideIntervalTimer?.Start();
         }
 
-        /// <summary>延迟收起：鼠标已不在菜单项和选项卡片上时才真正收起</summary>
-        private void hideIntervalTimer_Tick(object sender, EventArgs e)
+        /// <summary>展开指定二级菜单，并把它的顶边对齐到对应的主菜单项</summary>
+        private void ShowOptionColumn(Border column, FrameworkElement anchor)
         {
-            hideIntervalTimer.Stop();
-            if (!refreshIntervalBtn.IsMouseOver && !refreshIntervalColumn.IsMouseOver)
+            hideIntervalTimer?.Stop();
+
+            if (refreshIntervalColumn != column) refreshIntervalColumn.Visibility = Visibility.Collapsed;
+            if (notifyColumn != column) notifyColumn.Visibility = Visibility.Collapsed;
+            if (exitColumn != column) exitColumn.Visibility = Visibility.Collapsed;
+
+            AlignOptionColumn(column, anchor);
+            column.Visibility = Visibility.Visible;
+            _activeOptionColumn = column;
+            _activeOptionAnchor = anchor;
+        }
+
+        /// <summary>二级菜单顶边与主菜单项顶边对齐（按实际布局算，不写死像素偏移）</summary>
+        private void AlignOptionColumn(Border column, FrameworkElement anchor)
+        {
+            try
             {
-                HideRefreshIntervalColumn();
+                Point point = anchor.TransformToAncestor(setupMainCard).Transform(new Point(0, 0));
+                column.Margin = new Thickness(4, point.Y, 0, 0);
+            }
+            catch
+            {
+                // 布局尚未完成时保留默认偏移，不影响功能
             }
         }
 
-        /// <summary>收起右侧的定时刷新选项栏</summary>
-        private void HideRefreshIntervalColumn()
+        /// <summary>延迟收起：鼠标已不在主菜单项和二级菜单上时才真正收起</summary>
+        private void hideIntervalTimer_Tick(object sender, EventArgs e)
+        {
+            hideIntervalTimer.Stop();
+
+            Border column = _activeOptionColumn;
+            FrameworkElement anchor = _activeOptionAnchor;
+            if (column != null && column.IsMouseOver) return;
+            if (anchor != null && anchor.IsMouseOver) return;
+
+            HideOptionColumns();
+        }
+
+        /// <summary>收起所有二级菜单</summary>
+        private void HideOptionColumns()
         {
             hideIntervalTimer?.Stop();
             refreshIntervalColumn.Visibility = Visibility.Collapsed;
+            notifyColumn.Visibility = Visibility.Collapsed;
+            exitColumn.Visibility = Visibility.Collapsed;
+            _activeOptionColumn = null;
+            _activeOptionAnchor = null;
         }
 
         /// <summary>选择定时刷新间隔</summary>
@@ -1023,7 +1317,7 @@ namespace AdbTools
             // 选择后立即刷新一次，无需等待第一个周期
             ApplyRefreshInterval(refreshIntervalSeconds > 0);
 
-            HideRefreshIntervalColumn();
+            HideOptionColumns();
             setup_popup.IsOpen = false;
         }
 
@@ -1055,15 +1349,29 @@ namespace AdbTools
             UpdateRefreshIntervalUi();
         }
 
-        /// <summary>同步定时刷新菜单的显示状态（选中项勾选）</summary>
+        /// <summary>
+        /// 同步定时刷新菜单的显示状态：当前生效的间隔打勾。
+        /// 与「通知」「关闭窗口时」两级菜单一致——每项第一格是固定宽度的对号，避免选中后文字左右跳动。
+        /// </summary>
         private void UpdateRefreshIntervalUi()
         {
-            Button[] items = { refreshOffItem, refresh3sItem, refresh5sItem, refresh10sItem, refresh15sItem, refresh20sItem, refresh30sItem, refresh60sItem };
-            foreach (Button item in items)
+            if (refreshIntervalPanel == null) return;
+
+            foreach (UIElement child in refreshIntervalPanel.Children)
             {
-                bool selected = int.Parse(item.Tag.ToString()) == refreshIntervalSeconds;
-                string label = item.Content.ToString().TrimStart('✓', ' ');
-                item.Content = selected ? $"✓ {label}" : label;
+                Button item = child as Button;
+                if (item == null || item.Tag == null) continue;
+
+                int seconds;
+                if (!int.TryParse(item.Tag.ToString(), out seconds)) continue;
+
+                Grid content = item.Content as Grid;
+                if (content == null || content.Children.Count == 0) continue;
+
+                TextBlock check = content.Children[0] as TextBlock;
+                if (check == null) continue;
+
+                check.Visibility = seconds == refreshIntervalSeconds ? Visibility.Visible : Visibility.Collapsed;
             }
         }
         #endregion
@@ -1130,6 +1438,13 @@ namespace AdbTools
             {
                 return;
             }
+            OpenAppList(device);
+        }
+
+        /// <summary>打开指定设备的应用列表窗口（主界面与托盘菜单共用）。</summary>
+        private void OpenAppList(Device device)
+        {
+            if (device == null) return;
 
             // 设备列表刷新时已顺带读回硬件序列号，直接用；同一台手机 USB / IP / 无线只开一个窗口
             if (!string.IsNullOrEmpty(device.HardwareKey))
@@ -1448,6 +1763,10 @@ namespace AdbTools
                     if (Globals.ContainsAny(result, "Success"))
                     {
                         MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                        if (Globals.AppSettings.NOTIFY_INSTALL_RESULT)
+                        {
+                            App.Notify($"安装完成\r\n{targetDevice.ShowDeviceName}\r\n{label ?? packageName ?? Path.GetFileName(apkFilePath)} 安装成功");
+                        }
                     }
                     // 无论成功与否都继续下一个，避免批量安装中断
                     HandleApkInstallation(apkList, index + 1, targetDevice);
@@ -1459,6 +1778,11 @@ namespace AdbTools
                     if (Globals.ContainsAny(err, "adb: failed to install", "device offline", "Error: closed"))
                     {
                         MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用失败！\r\n1.请确认安卓设备是否允许安装应用；\r\n2.应用签名是否不符；\r\n3.检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        if (Globals.AppSettings.NOTIFY_INSTALL_RESULT)
+                        {
+                            App.Notify($"安装失败\r\n{targetDevice.ShowDeviceName}\r\n{label ?? packageName ?? Path.GetFileName(apkFilePath)} 安装失败",
+                                BalloonIcon.Error);
+                        }
                         if (!Globals.ContainsAny(err, "device offline", "Error: closed"))
                         {
                             HandleApkInstallation(apkList, index + 1, targetDevice);

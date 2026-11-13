@@ -2760,6 +2760,35 @@ namespace AdbTools.RemoteControl
             return true;
         }
 
+        /// <summary>该设备是否还有活动的远程控制窗口（设备离线时用来提示“远程控制已断开”）。</summary>
+        internal static bool IsOpenFor(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return false;
+
+            lock (OpenWindowsLock)
+            {
+                RemoteControlWindow window;
+                return OpenWindows.TryGetValue(serial, out window) && window.IsOpen;
+            }
+        }
+
+        /// <summary>等待所有后台清理结束（程序退出时用，带超时兜底）。</summary>
+        internal static void WaitAllCleanup(int timeoutMs)
+        {
+            List<Task> waiting = new List<Task>();
+            lock (PendingCleanupLock)
+            {
+                foreach (List<Task> list in PendingCleanup.Values)
+                {
+                    list.RemoveAll(t => t.IsCompleted);
+                    waiting.AddRange(list);
+                }
+            }
+            if (waiting.Count == 0) return;
+
+            try { Task.WaitAll(waiting.ToArray(), timeoutMs); } catch { }
+        }
+
         /// <summary>主界面退出时关闭所有还开着的远程控制窗口。</summary>
         internal static void CloseAll()
         {
