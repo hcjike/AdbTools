@@ -61,16 +61,16 @@ jobs:
       - name: Setup NuGet
         uses: nuget/setup-nuget@v2
 
-      - name: Fetch .NET Framework 4.6 reference assemblies
+      - name: Fetch .NET Framework 4.6.2 reference assemblies
         shell: pwsh
         run: |
-          # CI 运行器缺少 .NET Framework 4.6 目标包：下载 NuGet 参考程序集，用 TargetFrameworkRootPath 指过去
+          # CI 运行器缺少 .NET Framework 4.6.2 目标包：下载 NuGet 参考程序集，用 TargetFrameworkRootPath 指过去
           $out = Join-Path $env:RUNNER_TEMP "refpkgs"
-          nuget install Microsoft.NETFramework.ReferenceAssemblies.net46 -Version 1.0.3 -OutputDirectory $out -NonInteractive
-          $v46 = Get-ChildItem $out -Recurse -Directory -Filter "v4.6" |
+          nuget install Microsoft.NETFramework.ReferenceAssemblies.net462 -Version 1.0.3 -OutputDirectory $out -NonInteractive
+          $v462 = Get-ChildItem $out -Recurse -Directory -Filter "v4.6.2" |
                    Where-Object { $_.Parent.Name -eq ".NETFramework" } | Select-Object -First 1
-          if (-not $v46) { throw "未找到 .NET Framework 4.6 参考程序集" }
-          $ref = $v46.Parent.Parent.FullName   # ...\build
+          if (-not $v462) { throw "未找到 .NET Framework 4.6.2 参考程序集" }
+          $ref = $v462.Parent.Parent.FullName   # ...\build
           "TFM_ROOT=$ref" >> $env:GITHUB_ENV
           Write-Host "TFM_ROOT=$ref"
 

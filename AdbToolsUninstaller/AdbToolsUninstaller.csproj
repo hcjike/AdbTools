@@ -3,7 +3,7 @@
     <!-- 独立卸载程序：复用安装器源码，但不含 payload，体积小 -->
     <EnableDefaultItems>false</EnableDefaultItems>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net46</TargetFramework>
+    <TargetFramework>net462</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>AdbToolsInstaller</RootNamespace>
