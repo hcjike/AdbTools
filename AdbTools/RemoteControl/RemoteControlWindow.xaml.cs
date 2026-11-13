@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -124,14 +125,31 @@ namespace AdbTools.RemoteControl
         /// <summary>首帧已上屏，不再显示/更新启动过程。</summary>
         private bool _startupHidden;
 
-        /// <summary>已进入关闭流程：中央卡片显示提示，暂时阻止窗口真正关闭。</summary>
-        private bool _closing;
+        /// <summary>已进入关闭流程：窗口立即关闭，剩余清理在后台继续。</summary>
+        private volatile bool _closing;
 
-        /// <summary>后台清理已完成，允许窗口真正关闭。</summary>
-        private bool _cleanupDone;
+        /// <summary>窗口已真正关闭：后台线程的界面回调不再执行。</summary>
+        private volatile bool _closed;
 
-        /// <summary>关闭清理的超时兜底，避免清理卡住导致窗口永远关不掉。</summary>
-        private DispatcherTimer _closeGuard;
+        /// <summary>状态栏刷新与补帧计时器：关闭时必须停掉，否则会一直引用已关闭的窗口。</summary>
+        private DispatcherTimer _statusTimer;
+        private DispatcherTimer _pendingFrameTimer;
+
+        /// <summary>
+        /// 各设备正在进行的关闭清理。同一设备重新打开窗口前要先等它结束：
+        /// 旧清理会 pkill 编码服务、把“保持常亮”复位，并发执行会把新会话一起清掉。
+        /// </summary>
+        private static readonly Dictionary<string, List<Task>> PendingCleanup =
+            new Dictionary<string, List<Task>>(StringComparer.Ordinal);
+        private static readonly object PendingCleanupLock = new object();
+
+        /// <summary>
+        /// 按设备序列号登记的活动窗口：同一设备同时只允许一个远程控制窗口。
+        /// 窗口一进入关闭流程就视为已关闭（后台清理不影响再次打开）。
+        /// </summary>
+        private static readonly Dictionary<string, RemoteControlWindow> OpenWindows =
+            new Dictionary<string, RemoteControlWindow>(StringComparer.Ordinal);
+        private static readonly object OpenWindowsLock = new object();
 
         // _screenHost / _navBar / _resolutionBox 同样由 XAML 的 x:Name 生成。
 
@@ -367,6 +385,9 @@ namespace AdbTools.RemoteControl
                 string.IsNullOrEmpty(deviceKey) ? serial : deviceKey);
             LogToFile("=== 打开远程控制: adb=" + adbPath + " serial=" + serial + " size=" + size + " ===");
 
+            // 立即按序列号登记：同一设备只允许一个窗口，后续打开直接激活本窗口
+            RegisterOpenWindow();
+
             // 先取回该设备保存的窗口尺寸，首帧适配时直接按用户设定显示
             LoadSavedSize();
             // 分辨率查询放到后台线程（见 StartCaptureAsync），这里不做阻塞的 adb 调用
@@ -387,13 +408,13 @@ namespace AdbTools.RemoteControl
 
             // 画面尺寸变化、窗口生命周期、虚拟按键与键盘输入事件均已由 XAML 声明。
 
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-            timer.Tick += (s, e) => UpdateStatus();
-            timer.Start();
+            _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _statusTimer.Tick += (s, e) => UpdateStatus();
+            _statusTimer.Start();
 
             // 静止画面时补发最后一帧：否则该帧要等到下一次画面变化才会送进解码器
-            var pendingFrameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-            pendingFrameTimer.Tick += (s, e) =>
+            _pendingFrameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _pendingFrameTimer.Tick += (s, e) =>
             {
                 AccessUnitSplitter splitter = _splitter;
                 if (splitter == null) return;
@@ -402,7 +423,7 @@ namespace AdbTools.RemoteControl
                     try { splitter.FlushPending(); } catch { }
                 });
             };
-            pendingFrameTimer.Start();
+            _pendingFrameTimer.Start();
 
             // 查询分辨率、方向、设备状态、启动取流都属于阻塞操作（adb 调用 + 编码器准备），
             // 全部放到后台线程，避免构造窗口时把界面卡住
@@ -456,7 +477,7 @@ namespace AdbTools.RemoteControl
         {
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (_startupHidden) return;
+                if (_closed || _startupHidden) return;
                 if (!string.IsNullOrEmpty(title)) _startupTitle.Text = title;
                 if (!string.IsNullOrEmpty(step) && !_startupLines.Contains(step))
                 {
@@ -490,7 +511,7 @@ namespace AdbTools.RemoteControl
         /// <summary>首帧真正上屏后收起启动过程卡片（在 UI 线程调用）。</summary>
         private void HideStartupHint()
         {
-            // 关闭流程中卡片要一直显示到清理完成，不能被首帧收起
+            // 关闭流程中不再改动画面中央卡片
             if (_closing || _startupHidden) return;
             _startupHidden = true;
             _startupPanel.Visibility = Visibility.Collapsed;
@@ -502,14 +523,6 @@ namespace AdbTools.RemoteControl
         /// </summary>
         private void UpdateNotice()
         {
-            // 关闭流程的卡片由 ShowClosingNotice 维护，500ms 定时器不要覆盖它
-            if (_closing)
-            {
-                SetNoticeVisibility(_startupPanel, Visibility.Visible);
-                SetNoticeVisibility(_phoneFrame, Visibility.Visible);
-                return;
-            }
-
             if (_paused)
             {
                 SetNoticeText(_startupTitle, "设备已息屏");
@@ -544,6 +557,10 @@ namespace AdbTools.RemoteControl
         {
             try
             {
+                // 同一设备上一次关闭的后台清理可能还没跑完（会 pkill 编码服务、复位常亮），
+                // 先等它结束再启动新会话，否则新会话刚建立就被旧清理一起清掉。
+                WaitPendingCleanup(_serial);
+
                 SetStartupStep("正在连接设备", "查询分辨率与屏幕方向");
 
                 if (_deviceWidth <= 0 || _deviceHeight <= 0)
@@ -603,9 +620,21 @@ namespace AdbTools.RemoteControl
             // 避免 MFStartup 阻塞调用线程
             // 优先使用设备端 MediaCodec 主动编码（scrcpy server）；设备不支持时
             // ScrcpyVideoStream 会在连续两次连不上后自动回退到 screenrecord。
-            _stream = new ScrcpyVideoStream(_adbPath, _serial, size, bitRate);
+
+            // 启动准备期间用户已经关掉窗口：不再建立会话，否则会留下无人清理的设备端服务
+            if (_closing) return;
+
+            var stream = new ScrcpyVideoStream(_adbPath, _serial, size, bitRate);
+            _stream = stream;
+            if (_closing)
+            {
+                // 关闭流程已经走完，抓不到这个刚建好的会话，这里自行收尾
+                AbandonStream(stream);
+                return;
+            }
+
             SetStartupStep("正在启动设备端编码服务", "建立视频通道");
-            _stream.Log += msg =>
+            stream.Log += msg =>
             {
                 _lastLog = msg;
                 LogToFile(msg);
@@ -634,12 +663,14 @@ namespace AdbTools.RemoteControl
                 UpdateStartupFromLog(msg);
             };
 
-            _decoder = new H264DecoderMft { Verbose = false, LogSink = LogToFile };
-            _decoder.FrameDecoded += OnFrameDecoded;
+            var decoder = new H264DecoderMft { Verbose = false, LogSink = LogToFile };
+            decoder.FrameDecoded += OnFrameDecoded;
+            _decoder = decoder;
 
-            _splitter = new AccessUnitSplitter();
+            var splitter = new AccessUnitSplitter();
+            _splitter = splitter;
             int auSeen = 0;
-            _splitter.AccessUnit += (au, keyFrame) =>
+            splitter.AccessUnit += (au, keyFrame) =>
             {
                 try
                 {
@@ -648,11 +679,11 @@ namespace AdbTools.RemoteControl
                         LogToFile("首个 AU " + au.Length + " 字节，头部 "
                             + BitConverter.ToString(au, 0, Math.Min(8, au.Length)) + " 关键帧=" + keyFrame);
                     }
-                    _decoder.Feed(au, keyFrame);
+                    decoder.Feed(au, keyFrame);
                     // 约每 10 秒记一次进度即可，避免每秒刷一行把日志撑大
                     if (auSeen % 600 == 0)
                     {
-                        LogToFile("AU=" + auSeen + " 解码=" + _decoder.DecodedFrames);
+                        LogToFile("AU=" + auSeen + " 解码=" + decoder.DecodedFrames);
                     }
                 }
                 catch (Exception ex)
@@ -667,37 +698,61 @@ namespace AdbTools.RemoteControl
             // 会白白等看门狗超时，反而拖慢首帧。
             // 唤醒与解锁必须在取流前完成：与取流并发执行 adb 命令会拖慢取流启动。
             // 已合并为单次 adb 调用，耗时约 0.3~0.5 秒。
-            try { _stream.WakeUpDevice(); } catch { }
+            try { stream.WakeUpDevice(); } catch { }
 
-            _pumpThread = new Thread(() =>
+            // 唤醒期间窗口可能已经关闭（关闭流程抓不到这个会话），这里自行收尾
+            if (_closing)
+            {
+                AbandonStream(stream);
+                return;
+            }
+
+            var pumpThread = new Thread(() =>
             {
                 // 解码用的 Media Foundation 在本线程初始化，解码回调也在这里触发
                 try { MfInterop.Startup(); } catch { }
-                _stream.Pump((data, count) => _splitter.Feed(data, count));
+                try
+                {
+                    stream.Pump((data, count) => splitter.Feed(data, count));
+                }
+                catch (Exception ex)
+                {
+                    LogToFile("取流线程异常退出：" + ex.Message);
+                }
             })
             {
                 IsBackground = true,
                 Name = "adb-stream"
             };
-            _pumpThread.Start();
+            _pumpThread = pumpThread;
+            pumpThread.Start();
             SetStartupStep("正在等待首帧", "等待设备端首帧");
 
             // 查询分辨率、创建输入通道放后台，避免拖慢首帧
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                if (_closing) return;
                 QueryPhysicalSize();
-                try { _injector = new InputInjector(_adbPath, _serial); } catch { }
+                if (_closing) return;
 
-                InputInjector injector = _injector;
-                if (injector != null)
+                InputInjector created = null;
+                try { created = new InputInjector(_adbPath, _serial); } catch { }
+                if (created == null) return;
+
+                // 创建期间窗口已关闭（关闭流程抓不到它）：自行释放，避免留下常驻 adb shell
+                if (_closing)
                 {
-                    // 绑定控制通道与坐标系：之后按下/移动可直接注入，不必等抬手补一次 swipe
-                    injector.Control = _stream as ScrcpyVideoStream;
-                    injector.DeviceWidth = _deviceWidth;
-                    injector.DeviceHeight = _deviceHeight;
-                    injector.VideoWidth = _videoWidth;
-                    injector.VideoHeight = _videoHeight;
+                    try { created.Dispose(); } catch { }
+                    return;
                 }
+
+                _injector = created;
+                // 绑定控制通道与坐标系：之后按下/移动可直接注入，不必等抬手补一次 swipe
+                created.Control = stream;
+                created.DeviceWidth = _deviceWidth;
+                created.DeviceHeight = _deviceHeight;
+                created.VideoWidth = _videoWidth;
+                created.VideoHeight = _videoHeight;
             });
         }
 
@@ -804,6 +859,9 @@ namespace AdbTools.RemoteControl
 
         private void RenderFrame()
         {
+            // 窗口已关闭：后台残留的帧不再上屏
+            if (_closed) return;
+
             byte[] frame;
             int width, height;
             lock (_frameLock)
@@ -2642,80 +2700,193 @@ namespace AdbTools.RemoteControl
         }
 
         /// <summary>
-        /// 关闭时先取消关闭，用中央卡片提示；等后台清理完成后再放行真正关闭。
-        /// 清理会启动多个 adb 进程并等待取流线程退出，全部放在后台线程，
-        /// 主界面与远程控制窗口共用同一个 Dispatcher，因此不会短暂无响应。
+        /// 窗口是否还算“打开”：进入关闭流程即视为已关闭（后台清理继续进行，但不影响再次打开）。
+        /// </summary>
+        internal bool IsOpen
+        {
+            get { return !_closing && !_closed; }
+        }
+
+        /// <summary>按序列号登记本窗口，接管该设备原来的登记项。</summary>
+        private void RegisterOpenWindow()
+        {
+            lock (OpenWindowsLock)
+            {
+                OpenWindows[_serial] = this;
+            }
+        }
+
+        /// <summary>注销本窗口的登记；只清自己的，避免误删同一设备后来打开的窗口。</summary>
+        private void UnregisterOpenWindow()
+        {
+            lock (OpenWindowsLock)
+            {
+                RemoteControlWindow existing;
+                if (OpenWindows.TryGetValue(_serial, out existing) && ReferenceEquals(existing, this))
+                {
+                    OpenWindows.Remove(_serial);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 该设备已有活动窗口就还原并带到前台，返回 true（与应用列表窗口的处理一致）。
+        /// 正在关闭（含后台清理未完成）或已关闭的窗口一律视为已关闭，直接放行重新打开。
+        /// </summary>
+        internal static bool TryActivate(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return false;
+
+            RemoteControlWindow window;
+            lock (OpenWindowsLock)
+            {
+                if (!OpenWindows.TryGetValue(serial, out window)) return false;
+                if (!window.IsOpen)
+                {
+                    OpenWindows.Remove(serial);
+                    return false;
+                }
+            }
+
+            try
+            {
+                if (window.WindowState == WindowState.Minimized)
+                {
+                    window.WindowState = WindowState.Normal;
+                }
+                window.Activate();
+            }
+            catch { }
+            return true;
+        }
+
+        /// <summary>主界面退出时关闭所有还开着的远程控制窗口。</summary>
+        internal static void CloseAll()
+        {
+            List<RemoteControlWindow> windows;
+            lock (OpenWindowsLock)
+            {
+                windows = new List<RemoteControlWindow>(OpenWindows.Values);
+                OpenWindows.Clear();
+            }
+
+            foreach (RemoteControlWindow window in windows)
+            {
+                try { window.Close(); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// 关闭时窗口立即消失，停流、等取流线程退出、清理设备端服务与转发全部交给后台线程：
+        /// 用户不必等待，主界面也不会因为关闭而卡顿。
+        /// 后台清理按设备登记，同一设备重新打开时先等它结束（见 StartCaptureAsync）。
         /// </summary>
         private void Window_Closing(object sender, CancelEventArgs e)
         {
-            if (_cleanupDone) return;
-            e.Cancel = true;
-            if (_closing) return;   // 清理进行中，继续显示卡片
-
+            if (_closing) return;
             _closing = true;
+
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
             EndWheelGesture();
-
-            ShowClosingNotice("正在关闭远程控制", "正在停止取流并释放解码资源…");
-
-            // 兜底：清理异常卡住时也要让用户能关掉窗口
-            _closeGuard = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-            _closeGuard.Tick += (s, ev) => { _closeGuard.Stop(); FinishClose(); };
-            _closeGuard.Start();
 
             IVideoStream stream = _stream;
             H264DecoderMft decoder = _decoder;
             Thread pump = _pumpThread;
             InputInjector injector = _injector;
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            // 断开字段引用：窗口正在关闭，后台残留回调不再参与显示
+            _stream = null;
+            _decoder = null;
+            _injector = null;
+            _splitter = null;
+            _pumpThread = null;
+
+            LogToFile("窗口关闭：清理转到后台执行");
+            CleanupInBackground(stream, decoder, pump, injector);
+        }
+
+        /// <summary>
+        /// 后台清理：停流 → 等取流线程退出 → 释放解码器 → 清理设备端服务、转发与常亮状态。
+        /// 整个过程不碰界面，也不占用 UI 线程。
+        /// </summary>
+        private void CleanupInBackground(IVideoStream stream, H264DecoderMft decoder, Thread pump, InputInjector injector)
+        {
+            Task task = Task.Factory.StartNew(() =>
             {
                 try { if (stream != null) stream.Stop(); } catch { }
                 try { if (pump != null) pump.Join(1500); } catch { }
                 try { if (decoder != null) decoder.Dispose(); } catch { }
                 try { MfInterop.Shutdown(); } catch { }
 
-                ShowClosingNotice("正在关闭远程控制", "正在清理设备端服务与转发…");
                 try { if (stream != null) stream.ReleaseDevice(); } catch { }
                 try { if (stream != null) stream.Dispose(); } catch { }
                 try { if (injector != null) injector.Dispose(); } catch { }
                 try { RestoreDeviceState(); } catch { }
 
-                ShowClosingNotice("清理完成", "窗口即将关闭…");
-                Thread.Sleep(300);
-                Dispatcher.BeginInvoke(new Action(FinishClose));
-            });
+                LogToFile("后台清理完成");
+            }, TaskCreationOptions.LongRunning);
+
+            RegisterPendingCleanup(_serial, task);
         }
 
-        /// <summary>更新关闭过程的中央卡片（可从后台线程调用）。</summary>
-        private void ShowClosingNotice(string title, string detail)
+        /// <summary>登记该设备正在进行的后台清理，供重新打开窗口时等待。</summary>
+        private static void RegisterPendingCleanup(string serial, Task task)
         {
-            Dispatcher.BeginInvoke(new Action(() =>
+            lock (PendingCleanupLock)
             {
-                if (!_closing) return;
-                _startupTitle.Text = title;
-                _startupSteps.Text = detail;
-                _startupPanel.Visibility = Visibility.Visible;
-                _phoneFrame.Visibility = Visibility.Visible;
-            }));
+                List<Task> list;
+                if (!PendingCleanup.TryGetValue(serial, out list))
+                {
+                    list = new List<Task>();
+                    PendingCleanup[serial] = list;
+                }
+                list.RemoveAll(t => t.IsCompleted);
+                list.Add(task);
+            }
         }
 
-        /// <summary>清理完成（或超时）后放行关闭，幂等。</summary>
-        private void FinishClose()
+        /// <summary>
+        /// 等该设备上一次关闭的后台清理结束。清理会 pkill 编码服务并复位“保持常亮”，
+        /// 必须先完成再启动新会话，否则刚打开的新会话会被旧清理一起清掉。
+        /// 超时兜底，避免清理异常时窗口永远起不来。
+        /// </summary>
+        private static void WaitPendingCleanup(string serial)
         {
-            if (_cleanupDone) return;
-            _cleanupDone = true;
-            if (_closeGuard != null) { try { _closeGuard.Stop(); } catch { } }
-            try { Close(); } catch { }
+            List<Task> waiting = new List<Task>();
+            lock (PendingCleanupLock)
+            {
+                List<Task> list;
+                if (!PendingCleanup.TryGetValue(serial, out list)) return;
+                list.RemoveAll(t => t.IsCompleted);
+                waiting.AddRange(list);
+            }
+            if (waiting.Count == 0) return;
+
+            LogToFile("等待上一次后台清理结束（" + waiting.Count + " 个任务）");
+            try { Task.WaitAll(waiting.ToArray(), 15000); } catch { }
+        }
+
+        /// <summary>窗口在启动准备期间关闭：自行回收刚建立的取流会话。</summary>
+        private void AbandonStream(IVideoStream stream)
+        {
+            LogToFile("窗口已关闭，放弃本次取流");
+            try { stream.Stop(); } catch { }
+            try { stream.ReleaseDevice(); } catch { }
+            try { stream.Dispose(); } catch { }
         }
 
         private void Window_Closed(object sender, EventArgs e)
         {
-            // 资源清理已在 Window_Closing 的后台流程中完成，这里只做轻量收尾
+            // 资源清理已在 Window_Closing 的后台流程中继续；这里只做界面侧的收尾
+            _closed = true;
+            UnregisterOpenWindow();
+
+            // 计时器不停会一直引用已关闭的窗口，反复开关会不断累积
+            try { if (_statusTimer != null) _statusTimer.Stop(); } catch { }
+            try { if (_pendingFrameTimer != null) _pendingFrameTimer.Stop(); } catch { }
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
-            try { if (_closeGuard != null) _closeGuard.Stop(); } catch { }
             EndWheelGesture();
 
             // 断开引用，让缓存的显示位图可以回收

@@ -5,6 +5,7 @@ using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -50,11 +51,11 @@ namespace AdbTools
         /// <summary>更新包下载进度（百分比）</summary>
         private int updateDownloadPercent;
 
-        /// <summary>已打开的远程控制窗口（按设备序列号索引，重复点击时激活同一窗口）</summary>
-        private readonly Dictionary<string, RemoteControlWindow> remoteWindows = new Dictionary<string, RemoteControlWindow>();
-
         /// <summary>已打开的应用列表窗口（按设备标识索引，同一设备只允许一个实例）</summary>
         private readonly Dictionary<string, AppListWindow> appListWindows = new Dictionary<string, AppListWindow>();
+
+        /// <summary>程序内部主动退出（如安装更新后重启）时跳过退出确认。</summary>
+        private bool skipCloseConfirm;
 
         public MainWindow()
         {
@@ -185,16 +186,34 @@ namespace AdbTools
             }
         }
 
+        /// <summary>
+        /// 关闭主界面时二次确认：误点关闭会连带关掉远程控制与应用列表窗口，先问一次。
+        /// 默认选中“否”，回车/误触不会直接退出。
+        /// </summary>
+        private void Window_Closing(object sender, CancelEventArgs e)
+        {
+            if (skipCloseConfirm) return;
+
+            MessageBoxResult result = MessageBox.Show(
+                this,
+                "确定要退出 Adb 连接工具吗？\n\n已打开的远程控制与应用列表窗口会一并关闭。",
+                "退出确认",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                e.Cancel = true;
+            }
+        }
+
         private void Window_Unloaded(object sender, RoutedEventArgs e)
         {
             refreshTimer?.Stop();
 
-            // 关闭所有远程控制窗口，释放 adb 取流与解码资源
-            foreach (var window in remoteWindows.Values.ToList())
-            {
-                try { window.Close(); } catch { }
-            }
-            remoteWindows.Clear();
+            // 关闭所有远程控制窗口（按序列号登记），释放 adb 取流与解码资源
+            RemoteControlWindow.CloseAll();
 
             // 应用列表是独立窗口，主界面退出时一并关闭，避免后台解析继续跑
             foreach (var window in appListWindows.Values.ToList())
@@ -461,6 +480,8 @@ namespace AdbTools
 
         /// <summary>
         /// 按设备序列号打开（或激活）远程控制窗口。
+        /// 同一设备只允许一个窗口：已有活动窗口时直接激活；
+        /// 已关闭（含后台清理尚未完成）的窗口视为已关闭，可以正常重新打开。
         /// deviceKey 为硬件序列号，用于保存窗口尺寸；命令行启动时没有设备对象，退回连接序列号。
         /// </summary>
         private void OpenRemoteControl(string deviceMark, string deviceKey = null)
@@ -470,10 +491,9 @@ namespace AdbTools
                 return;
             }
 
-            RemoteControlWindow opened;
-            if (remoteWindows.TryGetValue(deviceMark, out opened) && opened.IsLoaded)
+            // 按序列号查已有窗口（登记表在 RemoteControlWindow 内部，线程安全）
+            if (RemoteControlWindow.TryActivate(deviceMark))
             {
-                opened.Activate();
                 return;
             }
 
@@ -488,16 +508,13 @@ namespace AdbTools
                     return;
                 }
 
-                RemoteControlWindow window;
-                if (remoteWindows.TryGetValue(deviceMark, out window) && window.IsLoaded)
+                // 查询 SDK 期间可能已经打开了同一设备的窗口，这里再确认一次
+                if (RemoteControlWindow.TryActivate(deviceMark))
                 {
-                    window.Activate();
                     return;
                 }
 
-                window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000, deviceKey);
-                window.Closed += (s, args) => remoteWindows.Remove(deviceMark);
-                remoteWindows[deviceMark] = window;
+                var window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000, deviceKey);
                 window.Show();
             });
         }
@@ -844,6 +861,8 @@ namespace AdbTools
                     return;
                 }
 
+                // 安装更新属于程序主动退出，不再弹退出确认
+                skipCloseConfirm = true;
                 Application.Current.Shutdown();
             };
 
