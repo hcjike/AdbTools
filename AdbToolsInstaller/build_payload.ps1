@@ -39,7 +39,7 @@ if (-not $MSBUILD) {
 if (-not $MSBUILD -or -not (Test-Path $MSBUILD)) { throw "MSBuild not found. Please install Visual Studio or Build Tools with the MSBuild component." }
 Write-Host ("Using MSBuild: " + $MSBUILD)
 
-# CI 缺少 .NET Framework 4.6 目标包时，用全局属性指向 NuGet 参考程序集（对 WPF 临时工程也生效）
+# CI 缺少 .NET Framework 4.6.2 目标包时，用全局属性指向 NuGet 参考程序集（对 WPF 临时工程也生效）
 $tfmArgs = @()
 if ($TargetFrameworkRootPath -and (Test-Path $TargetFrameworkRootPath)) {
     $tfmArgs = @("/p:TargetFrameworkRootPath=$TargetFrameworkRootPath")

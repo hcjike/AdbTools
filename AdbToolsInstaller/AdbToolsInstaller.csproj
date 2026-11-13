@@ -3,7 +3,7 @@
     <!-- 显式列出源文件，避免把 payload_stage/bin/obj 等目录误包含 -->
     <EnableDefaultItems>false</EnableDefaultItems>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net46</TargetFramework>
+    <TargetFramework>net462</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>AdbToolsInstaller</RootNamespace>
