@@ -40,6 +40,18 @@ SQLite / System.Data.SQLite
 用途说明  : 保存应用相关数据（%APPDATA%\AdbTools\data\AdbTools.db，当前为按设备隔离的应用名与图标缓存）。
             仅使用本机文件数据库，不涉及任何网络传输。
 
+Hardcodet.NotifyIcon.Wpf
+------------------------
+版本      : 2.0.1（NET Framework 4.6.2 构建）
+来源      : https://www.nuget.org/packages/Hardcodet.NotifyIcon.Wpf/2.0.1
+            源码  : https://github.com/hardcodet/Hardcodet.NotifyIcon.Wpf
+许可      : MIT License（全文见本文件末尾）
+版权      : Copyright (c) Philipp Sumi
+随附文件  : Hardcodet.NotifyIcon.Wpf.dll
+SHA-256   : ECE52ADF2F76C828632F22C896CC767A0AACCC6FDB68D8BE5A7D33F9EDCE6A92
+用途说明  : 系统托盘图标与通知气泡。仅在主窗口关闭后显示托盘图标、
+            弹出设备连接/断开与安装结果通知，不涉及网络与设备操作。
+
 用途说明
 --------
 本程序仅随附 scrcpy 的设备端组件 scrcpy-server，未使用其 PC 端
@@ -50,3 +62,29 @@ scrcpy-server 在运行时会被推送到设备的 /data/local/tmp/ 目录并以
 app_process 启动；它不修改设备系统分区，卸载本程序不会影响设备。
 
 scrcpy 的完整源代码、文档与许可证可从上述来源获取。
+
+Hardcodet.NotifyIcon.Wpf — MIT License 全文
+-------------------------------------------
+The MIT License (MIT)
+
+Copyright (c) Philipp Sumi
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
