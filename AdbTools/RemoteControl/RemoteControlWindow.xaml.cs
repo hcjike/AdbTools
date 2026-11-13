@@ -231,6 +231,12 @@ namespace AdbTools.RemoteControl
         private Size? _userSizeLandscape;
         private Size? _userSizePortrait;
 
+        /// <summary>
+        /// 当前是否处于「1:1」模式。与按方向缓存的用户尺寸不同：1:1 的尺寸由画面像素算出，
+        /// 旋转或分辨率变化后要按新画面重算，不能沿用另一个方向（往往还没记录）的尺寸。
+        /// </summary>
+        private bool _pixelFit;
+
         private IVideoStream _stream;
         private H264DecoderMft _decoder;
         private InputInjector _injector;
@@ -1619,8 +1625,11 @@ namespace AdbTools.RemoteControl
             return IntPtr.Zero;
         }
 
-        /// <summary>记下用户调整后的尺寸，按当前画面方向分别保存。</summary>
-        private void RememberUserSize()
+        /// <summary>
+        /// 记下用户调整后的尺寸，按当前画面方向分别保存。
+        /// clearPixelFit 为 false 表示这次变化来自「1:1」自身，需要保留 1:1 模式标记。
+        /// </summary>
+        private void RememberUserSize(bool clearPixelFit = true)
         {
             if (!IsLoaded || WindowState != WindowState.Normal) return;
 
@@ -1628,6 +1637,9 @@ namespace AdbTools.RemoteControl
             double actualWidth = ActualWidth;
             double actualHeight = ActualHeight;
             if (actualWidth < MinWidth || actualHeight < MinHeight) return;
+
+            // 用户亲手拖动窗口即视为放弃 1:1，改为按方向记忆的自定义尺寸
+            if (clearPixelFit) _pixelFit = false;
 
             bool landscape = IsLandscapeView();
             _userResized = true;
@@ -1749,15 +1761,18 @@ namespace AdbTools.RemoteControl
             if (WindowState != WindowState.Normal)
             {
                 WindowState = WindowState.Normal;
-                Dispatcher.BeginInvoke(new Action(ApplyPixelFit), DispatcherPriority.Loaded);
+                Dispatcher.BeginInvoke(new Action(() => ApplyPixelFit()), DispatcherPriority.Loaded);
                 return;
             }
 
             ApplyPixelFit();
         }
 
-        /// <summary>按当前画面像素计算窗口尺寸并应用，结果用浮层提示是否为精确 1:1。</summary>
-        private void ApplyPixelFit()
+        /// <summary>
+        /// 按当前画面像素计算窗口尺寸并应用。
+        /// silent 为 true 时不弹提示，用于旋转后按新画面自动重算。
+        /// </summary>
+        private void ApplyPixelFit(bool silent = false)
         {
             if (_bitmap == null) return;
 
@@ -1795,6 +1810,7 @@ namespace AdbTools.RemoteControl
 
             // 本次按像素精确设尺寸，期间不要让自动适配插进来重新算
             _autoFitted = true;
+            _pixelFit = true;
 
             // 窗口外框与客户区的差值用 Win32 实测：WPF 的 ActualWidth 在布局未完成时
             // 与内容宽不同步，按它算会把边框漏掉，导致宽度少一截、画面缩小后上下留白
@@ -1833,8 +1849,9 @@ namespace AdbTools.RemoteControl
             Top = workArea.Top + Math.Max(0, (workArea.Height - finalHeight) / 2);
             UpdateLayout();
 
-            // 这次调整视为用户定制尺寸：记进数据库，之后旋转也沿用
-            RememberUserSize();
+            // 这次调整视为用户定制尺寸：记进数据库。
+            // 但不清除 1:1 标记，否则旋转后又会落到「按方向沿用尺寸」的分支。
+            RememberUserSize(false);
             Dispatcher.BeginInvoke(new Action(UpdatePhoneFrame), DispatcherPriority.Loaded);
 
             // 实际显示比例 = 最终窗口尺寸与目标窗口尺寸之比。
@@ -1844,18 +1861,21 @@ namespace AdbTools.RemoteControl
                 finalHeight / Math.Max(1, targetHeight));
             int percent = (int)Math.Round(actual * 100);
 
-            string pixelText = (int)pixelWidth + " × " + (int)pixelHeight;
-            if (Math.Abs(percent - 100) <= 1)
+            if (!silent)
             {
-                ShowToast("已按 1:1 像素显示（" + pixelText + "）");
-            }
-            else if (percent < 100)
-            {
-                ShowToast("屏幕放不下 " + pixelText + "，已缩小到 " + percent + "% 显示");
-            }
-            else
-            {
-                ShowToast("窗口已到最小尺寸，画面按 " + percent + "% 显示");
+                string pixelText = (int)pixelWidth + " × " + (int)pixelHeight;
+                if (Math.Abs(percent - 100) <= 1)
+                {
+                    ShowToast("已按 1:1 像素显示（" + pixelText + "）");
+                }
+                else if (percent < 100)
+                {
+                    ShowToast("屏幕放不下 " + pixelText + "，已缩小到 " + percent + "% 显示");
+                }
+                else
+                {
+                    ShowToast("窗口已到最小尺寸，画面按 " + percent + "% 显示");
+                }
             }
 
             LogToFile(string.Format(
@@ -1939,6 +1959,14 @@ namespace AdbTools.RemoteControl
             _autoFitted = true;
 
             bool landscape = _bitmap.PixelWidth > _bitmap.PixelHeight;
+
+            // 1:1 模式：尺寸由当前画面像素算出，旋转后必须按新画面重算。
+            // 不能走下面的「沿用各方向尺寸」，另一个方向的槽位往往还是空的，窗口就不会变。
+            if (_pixelFit)
+            {
+                ApplyPixelFit(true);
+                return;
+            }
 
             // 用户手动调整过窗口：不再按画面比例改尺寸，横竖屏各沿用自己那份
             if (_userResized)
