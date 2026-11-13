@@ -2,51 +2,73 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="文件浏览" Height="740" Width="1020" MinHeight="480" MinWidth="820"
-        WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="14"
+        WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="13"
         Loaded="Window_Loaded" Closing="Window_Closing" Closed="Window_Closed">
+    <Window.Resources>
+        <!-- 工具栏按钮：全局蓝底白字圆角风格，统一字体大小 -->
+        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+            <Setter Property="Background" Value="#FF2A9FFF"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- 图标按钮：正方形、无内边距，用于路径栏快速跳转 -->
+        <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+            <Setter Property="Background" Value="#FF2A9FFF"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+    </Window.Resources>
     <Grid Margin="10">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 工具栏 -->
-        <WrapPanel Grid.Row="0" Orientation="Horizontal">
-            <Button Content="上级" Click="up_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="刷新" Click="refresh_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="新建文件夹" Click="newFolder_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="上传文件" Click="uploadFile_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="上传文件夹" Click="uploadFolder_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="下载" Click="download_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="重命名" Click="rename_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button Content="删除" Click="delete_Click" Padding="12,4" Foreground="#FFEF4444"/>
-        </WrapPanel>
-
-        <!-- 路径栏 -->
-        <Grid Grid.Row="1" Margin="0,8,0,0">
+        <!-- 路径栏：返回 / 根目录 / SD卡 图标快速跳转 + 地址输入 -->
+        <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="pathBox" Padding="6,5" VerticalContentAlignment="Center" KeyDown="pathBox_KeyDown"/>
-            <Button Grid.Column="1" Content="前往" Click="go_Click" Padding="12,4" Margin="6,0,0,0"/>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button Style="{StaticResource IconButtonStyle}" Click="up_Click" ToolTip="返回上一级">
+                    <Path Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
+                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                </Button>
+                <Button Style="{StaticResource IconButtonStyle}" Click="root_Click" ToolTip="跳转到设备根目录 /">
+                    <Path Data="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
+                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                </Button>
+                <Button Style="{StaticResource IconButtonStyle}" Margin="0,0,8,0" Click="sdcard_Click" ToolTip="跳转到 SD 卡目录 /sdcard">
+                    <Path Data="M18 2h-8L4.02 8 4 20c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-6 6h-2V4h2v4zm3 0h-2V4h2v4zm3 0h-2V4h2v4z"
+                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                </Button>
+            </StackPanel>
+
+            <TextBox x:Name="pathBox" Grid.Column="1" Padding="6,5" VerticalContentAlignment="Center" KeyDown="pathBox_KeyDown"/>
+            <Button Grid.Column="2" Content="前往" Click="go_Click" Padding="12,4" Margin="6,0,0,0"/>
         </Grid>
 
         <!-- 文件列表 -->
-        <Grid Grid.Row="2" Margin="0,8,0,0">
+        <Grid Grid.Row="1" Margin="0,8,0,0">
             <ListView x:Name="fileList" Background="White"
-                      SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick" KeyDown="fileList_KeyDown">
+                      SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick" KeyDown="fileList_KeyDown"
+                      SelectionChanged="fileList_SelectionChanged">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="名称" Width="390">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="0,2">
-                                        <Image Source="{Binding Icon}" Width="22" Height="22" Stretch="Uniform"
+                                        <Image Source="{Binding Icon}" Width="20" Height="20" Stretch="Uniform"
                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="15" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
@@ -76,18 +98,37 @@
             </Border>
         </Grid>
 
-        <!-- 状态栏与传输控制 -->
-        <Grid Grid.Row="3" Margin="0,8,0,0">
+        <!-- 底部：左侧状态信息，右侧操作按钮 -->
+        <Grid Grid.Row="2" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="statusText" VerticalAlignment="Center" Foreground="#FF4B5563" TextTrimming="CharacterEllipsis"/>
-            <ProgressBar x:Name="transferBar" Grid.Column="1" Width="160" Height="8"
-                         IsIndeterminate="True" Visibility="Collapsed" VerticalAlignment="Center"/>
-            <Button x:Name="cancelButton" Grid.Column="2" Content="取消传输" Click="cancelTransfer_Click"
-                    Padding="12,4" Margin="8,0,0,0" Visibility="Collapsed"/>
+
+            <!-- 左侧基本信息 -->
+            <Grid Grid.Column="0" Margin="0,0,10,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="statusText" VerticalAlignment="Center" Foreground="#FF4B5563" TextTrimming="CharacterEllipsis"/>
+                <ProgressBar x:Name="transferBar" Grid.Column="1" Width="160" Height="8" Margin="10,0,0,0"
+                             IsIndeterminate="True" Visibility="Collapsed" VerticalAlignment="Center"/>
+                <Button x:Name="cancelButton" Grid.Column="2" Content="取消传输" Click="cancelTransfer_Click"
+                        Padding="12,4" Margin="10,0,0,0" Visibility="Collapsed" Background="#FFEF4444"/>
+            </Grid>
+
+            <!-- 右侧操作按钮 -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="刷新" Click="refresh_Click" Padding="12,4" Margin="0,0,6,0"/>
+                <Button Content="新建文件夹" Click="newFolder_Click" Padding="12,4" Margin="0,0,6,0" Background="#FF10B981"/>
+                <Button Content="上传文件" Click="uploadFile_Click" Padding="12,4" Margin="0,0,6,0" Background="#FF10B981"/>
+                <Button Content="上传文件夹" Click="uploadFolder_Click" Padding="12,4" Margin="0,0,6,0" Background="#FF10B981"/>
+                <Button Content="下载" Click="download_Click" Padding="12,4" Margin="0,0,6,0" Background="#FF10B981"/>
+                <Button Content="重命名" Click="rename_Click" Padding="12,4" Margin="0,0,6,0" Background="#FF10B981"/>
+                <Button Content="删除" Click="delete_Click" Padding="12,4" Background="#FFEF4444"/>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

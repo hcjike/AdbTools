@@ -41,6 +41,7 @@ namespace AdbTools.FileBrowser
         private bool _busy;
         private volatile bool _cancelRequested;
         private volatile bool _closed;
+        private int _itemCount;
 
         public FileBrowserWindow(string adbPath, string serial, string deviceName)
         {
@@ -160,6 +161,7 @@ namespace AdbTools.FileBrowser
                 {
                     if (_closed) return;
 
+                    _itemCount = entries.Count;
                     _currentPath = target;
                     pathBox.Text = target;
                     fileList.ItemsSource = entries;
@@ -179,7 +181,7 @@ namespace AdbTools.FileBrowser
                     else
                     {
                         HideListNotice();
-                        SetStatus("共 " + entries.Count + " 项");
+                        UpdateCountStatus();
                     }
 
                     if (!string.IsNullOrEmpty(selectName))
@@ -204,6 +206,16 @@ namespace AdbTools.FileBrowser
         private void refresh_Click(object sender, RoutedEventArgs e)
         {
             Navigate(_currentPath);
+        }
+
+        private void root_Click(object sender, RoutedEventArgs e)
+        {
+            Navigate("/");
+        }
+
+        private void sdcard_Click(object sender, RoutedEventArgs e)
+        {
+            Navigate("/sdcard");
         }
 
         private void up_Click(object sender, RoutedEventArgs e)
@@ -684,7 +696,23 @@ namespace AdbTools.FileBrowser
         private void SetStatus(string text)
         {
             if (_closed) return;
-            statusText.Text = "[" + _deviceName + "] " + text;
+            statusText.Text = text;
+        }
+
+        /// <summary>状态栏常驻信息：共 N 项，有选中时追加已选数量。</summary>
+        private void UpdateCountStatus()
+        {
+            if (_closed) return;
+            int selected = fileList.SelectedItems == null ? 0 : fileList.SelectedItems.Count;
+            string text = "共 " + _itemCount + " 项";
+            if (selected > 0) text += " · 已选 " + selected + " 项";
+            statusText.Text = text;
+        }
+
+        private void fileList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_closed) return;
+            UpdateCountStatus();
         }
 
         /// <summary>传输过程中频繁刷新状态文本，避免跨线程操作控件。</summary>
