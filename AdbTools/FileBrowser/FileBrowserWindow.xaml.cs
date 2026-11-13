@@ -50,7 +50,8 @@ namespace AdbTools.FileBrowser
             _deviceName = string.IsNullOrEmpty(deviceName) ? serial : deviceName;
             _serial = serial;
             _service = new DeviceFileService(adbPath, serial);
-            Title = "文件浏览 - " + _deviceName;
+            // 标题基于 XAML 中定义的基础标题追加设备名，改 XAML 的 Title 即可生效
+            Title = Title + " - " + _deviceName;
 
             lock (OpenWindows)
             {
