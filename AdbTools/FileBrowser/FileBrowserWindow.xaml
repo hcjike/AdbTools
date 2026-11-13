@@ -113,7 +113,8 @@
 
         <!-- 文件列表 -->
         <Grid Grid.Row="1" Margin="0,8,0,0">
-            <ListView x:Name="fileList" Background="White"
+            <ListView x:Name="fileList" Background="White" AllowDrop="True"
+                      DragOver="fileList_DragOver" Drop="fileList_Drop"
                       SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick" KeyDown="fileList_KeyDown"
                       SelectionChanged="fileList_SelectionChanged">
                 <ListView.View>

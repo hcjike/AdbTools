@@ -329,6 +329,48 @@ namespace AdbTools.FileBrowser
 
         #region 《上传 / 下载》
 
+        /// <summary>拖拽本地文件/文件夹到列表：直接上传到当前目录。</summary>
+        private void fileList_DragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = (!_busy && e.Data.GetDataPresent(DataFormats.FileDrop))
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void fileList_Drop(object sender, DragEventArgs e)
+        {
+            if (_busy) return;
+
+            string[] paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (paths == null || paths.Length == 0) return;
+
+            var items = new List<TransferItem>();
+            foreach (string path in paths)
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                    {
+                        items.Add(new TransferItem(true, path,
+                            DeviceFileService.JoinDevicePath(_currentPath, new DirectoryInfo(path).Name)));
+                    }
+                    else if (File.Exists(path))
+                    {
+                        items.Add(new TransferItem(true, path,
+                            DeviceFileService.JoinDevicePath(_currentPath, Path.GetFileName(path))));
+                    }
+                }
+                catch
+                {
+                    // 单个路径异常不影响其它条目
+                }
+            }
+
+            if (items.Count > 0) RunTransfer("上传", items);
+            e.Handled = true;
+        }
+
         private void uploadFile_Click(object sender, RoutedEventArgs e)
         {
             if (_busy) return;
