@@ -17,6 +17,7 @@ namespace AdbTools.Tray
         private readonly TaskbarIcon _icon;
         private readonly MenuItem _remoteMenuItem;
         private readonly MenuItem _appListMenuItem;
+        private readonly MenuItem _fileMenuItem;
         private readonly MenuItem _shellMenuItem;
 
         private bool _disposed;
@@ -25,16 +26,19 @@ namespace AdbTools.Tray
         {
             _remoteMenuItem = new MenuItem { Header = "远程控制" };
             _appListMenuItem = new MenuItem { Header = "应用列表" };
+            _fileMenuItem = new MenuItem { Header = "文件管理" };
             _shellMenuItem = new MenuItem { Header = "Shell 窗口" };
 
             // 先放占位项，保证没有设备时子菜单箭头也能显示，展开时会被真实内容替换
             _remoteMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _appListMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
+            _fileMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _shellMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
 
             // 设备子菜单在展开时才填充，保证内容始终与当前设备列表一致
             _remoteMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_remoteMenuItem, RemoteControlDevice);
             _appListMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_appListMenuItem, OpenAppListDevice);
+            _fileMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_fileMenuItem, OpenFileBrowserDevice);
             _shellMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_shellMenuItem, OpenShellDevice);
 
             ContextMenu menu = new ContextMenu();
@@ -43,6 +47,7 @@ namespace AdbTools.Tray
             menu.Items.Add(new Separator());
             menu.Items.Add(_remoteMenuItem);
             menu.Items.Add(_appListMenuItem);
+            menu.Items.Add(_fileMenuItem);
             menu.Items.Add(_shellMenuItem);
             menu.Items.Add(CreateItem("断开全部设备", (s, e) => App.MainWindowInstance?.TrayDisconnectAll()));
             menu.Items.Add(new Separator());
@@ -131,6 +136,11 @@ namespace AdbTools.Tray
         private static void OpenShellDevice(Device device)
         {
             App.MainWindowInstance?.TrayOpenShell(device);
+        }
+
+        private static void OpenFileBrowserDevice(Device device)
+        {
+            App.MainWindowInstance?.TrayOpenFileBrowser(device);
         }
 
         private static MenuItem CreateItem(string header, RoutedEventHandler handler)

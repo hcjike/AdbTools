@@ -117,6 +117,8 @@
     <Reference Include="System.Data.DataSetExtensions" />
     <!-- 托盘库的 ShowBalloonTip 重载签名用到 System.Drawing.Icon，编译期需能解析该程序集 -->
     <Reference Include="System.Drawing" />
+    <!-- 文件浏览的「选择文件夹」对话框（FolderBrowserDialog） -->
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
     </Reference>
@@ -142,6 +144,10 @@
     </ApplicationDefinition>
     <Compile Include="AccessInterface\RequestJson.cs" />
     <Page Include="AppListWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="FileBrowser\FileBrowserWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -191,6 +197,13 @@
     </Page>
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FileBrowser\DeviceFileEntry.cs" />
+    <Compile Include="FileBrowser\DeviceFileService.cs" />
+    <Compile Include="FileBrowser\FileIcons.cs" />
+    <Compile Include="FileBrowser\FileBrowserWindow.xaml.cs">
+      <DependentUpon>FileBrowserWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="AppListWindow.xaml.cs">

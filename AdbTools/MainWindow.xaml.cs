@@ -1,5 +1,6 @@
 using AdbTools.AccessInterface;
 using AdbTools.bean;
+using AdbTools.FileBrowser;
 using AdbTools.RemoteControl;
 using Microsoft.Win32;
 using System;
@@ -273,6 +274,9 @@ namespace AdbTools
 
             // 关闭所有远程控制窗口（按序列号登记），释放 adb 取流与解码资源
             RemoteControlWindow.CloseAll();
+
+            // 文件浏览窗口一并关闭（进行中的传输会在窗口关闭时取消）
+            FileBrowserWindow.CloseAll();
 
             // 应用列表是独立窗口，主界面退出时一并关闭，避免后台解析继续跑
             foreach (var window in appListWindows.Values.ToList())
@@ -605,6 +609,28 @@ namespace AdbTools
             OpenRemoteControl(device.DeviceMark, device.HardwareKey);
         }
 
+        /// <summary>文件管理：打开该设备的文件浏览窗口（同一设备只保留一个）。</summary>
+        private void fileManagerItem_Click(object sender, RoutedEventArgs e)
+        {
+            Device device = GetSelectedDevice();
+            if (device == null)
+            {
+                return;
+            }
+            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName);
+        }
+
+        /// <summary>按设备序列号打开（或激活）文件浏览窗口。</summary>
+        private void OpenFileBrowser(string deviceMark, string deviceName)
+        {
+            if (string.IsNullOrEmpty(deviceMark)) return;
+
+            if (FileBrowserWindow.TryActivate(deviceMark)) return;
+
+            var window = new FileBrowserWindow(adbPath.Trim('"'), deviceMark, deviceName);
+            window.Show();
+        }
+
         /// <summary>
         /// 按设备序列号打开（或激活）远程控制窗口。
         /// 同一设备只允许一个窗口：已有活动窗口时直接激活；
@@ -760,6 +786,12 @@ namespace AdbTools
         internal void TrayOpenShell(Device device)
         {
             OpenShell(device);
+        }
+
+        internal void TrayOpenFileBrowser(Device device)
+        {
+            if (device == null) return;
+            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName);
         }
 
         /// <summary>托盘菜单：断开全部设备（菜单点击本身已是一次明确操作，不再二次确认）。</summary>
