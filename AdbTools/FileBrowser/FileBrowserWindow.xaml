@@ -45,7 +45,7 @@
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Style="{StaticResource IconButtonStyle}" Click="up_Click" ToolTip="返回上一级目录">
                     <!-- 与 GO 箭头同款，水平翻转后指向左：返回上级 -->
-                    <Viewbox Width="19" Height="19">
+                    <Viewbox Width="24" Height="24">
                         <Canvas Width="24" Height="24">
                             <Path Data="M19.4,12 H6.6" Stroke="White" StrokeThickness="3.1"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
