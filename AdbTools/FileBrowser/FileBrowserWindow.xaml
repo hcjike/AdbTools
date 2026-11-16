@@ -70,7 +70,7 @@
                 </Button>
                 <!-- 应用数据：Android 机器人头像，进入可调试应用的私有目录列表 -->
                 <Button Style="{StaticResource IconButtonStyle}" Click="appData_Click"
-                        ToolTip="浏览第三方可调试应用的私有数据（/data/data，不含系统应用）">
+                        ToolTip="浏览第三方可调试应用的私有数据（/data/data，普通文件浏览无法查看）">
                     <Viewbox Width="23" Height="23">
                         <Canvas Width="24" Height="24">
                             <Path Data="M2.6,16.8 A9.4,9.4 0 0 1 21.4,16.8 Z" Fill="White"/>
@@ -160,13 +160,15 @@
                       SelectionChanged="fileList_SelectionChanged">
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="名称" Width="450">
+                        <GridViewColumn Header="名称" Width="470">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Margin="0,2">
-                                        <Image Source="{Binding Icon}" Width="20" Height="20" Stretch="Uniform"
+                                    <StackPanel Orientation="Horizontal" Margin="0,2" Background="Transparent"
+                                                ToolTip="{Binding FullPath}">
+                                        <Image Source="{Binding Icon}" Width="22" Height="22" Stretch="Uniform"
                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="{x:Type TextBlock}">
                                                     <Setter Property="Foreground" Value="#FF1F2937"/>
@@ -174,6 +176,22 @@
                                                         <!-- 打不开的应用（非debug）灰显，一眼能区分 -->
                                                         <DataTrigger Binding="{Binding CanOpen}" Value="False">
                                                             <Setter Property="Foreground" Value="#FF9CA3AF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <!-- 目录名是包名时（/data/data、/sdcard/Android/data 等）补上应用名，
+                                             用高饱和蓝色突出，和前面深灰的包名区分开 -->
+                                        <TextBlock Text="{Binding AppLabelText}" FontSize="13"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center"
+                                                   MaxWidth="240" TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}">
+                                                    <Setter Property="Foreground" Value="#FF2563EB"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CanOpen}" Value="False">
+                                                            <Setter Property="Foreground" Value="#FFB4BCC8"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>

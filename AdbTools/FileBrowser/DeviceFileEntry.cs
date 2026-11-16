@@ -1,13 +1,18 @@
 using System;
+using System.ComponentModel;
 using System.Globalization;
 
 namespace AdbTools.FileBrowser
 {
     /// <summary>
     /// 设备端一个文件 / 目录条目，由 <c>ls -al</c> 的输出解析而来。
+    /// 目录名恰好是包名时（/data/data、/sdcard/Android/data 等），会补上应用名与图标，
+    /// 这些信息是异步回填的，所以需要 INotifyPropertyChanged。
     /// </summary>
-    internal sealed class DeviceFileEntry
+    internal sealed class DeviceFileEntry : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler PropertyChanged;
+
         public string Name { get; set; }
 
         /// <summary>完整路径（父目录 + 名称），点击操作时直接用。</summary>
@@ -49,11 +54,51 @@ namespace AdbTools.FileBrowser
         /// </summary>
         public bool CanOpen { get; set; } = true;
 
-        /// <summary>应用条目用固定图标，覆盖按扩展名推断的图标。</summary>
-        public System.Windows.Media.ImageSource IconOverride { get; set; }
+        private System.Windows.Media.ImageSource _iconOverride;
+        private string _appLabel;
+
+        /// <summary>应用条目用固定图标（应用列表里的应用图标），覆盖按扩展名推断的图标。</summary>
+        public System.Windows.Media.ImageSource IconOverride
+        {
+            get { return _iconOverride; }
+            set
+            {
+                if (ReferenceEquals(_iconOverride, value)) return;
+                _iconOverride = value;
+                Raise("Icon");
+            }
+        }
 
         /// <summary>应用条目用固定类型文案（如“可访问 / 需 root”）。</summary>
         public string TypeTextOverride { get; set; }
+
+        /// <summary>
+        /// 包名目录对应的应用名（来自应用名缓存或后台解析）。为空表示不是应用目录、还没解析出来，
+        /// 或者该包确实没有名字。
+        /// </summary>
+        public string AppLabel
+        {
+            get { return _appLabel; }
+            set
+            {
+                if (string.Equals(_appLabel, value, StringComparison.Ordinal)) return;
+                _appLabel = value;
+                Raise("AppLabel");
+                Raise("AppLabelText");
+            }
+        }
+
+        /// <summary>名称后面追加的灰色小字：<c>[应用名]</c>；没有应用名时为空串，不占位也不留白。</summary>
+        public string AppLabelText
+        {
+            get { return string.IsNullOrEmpty(_appLabel) ? string.Empty : "[" + _appLabel + "]"; }
+        }
+
+        private void Raise(string name)
+        {
+            PropertyChangedEventHandler handler = PropertyChanged;
+            if (handler != null) handler(this, new PropertyChangedEventArgs(name));
+        }
 
         /// <summary>列表里显示的类型图标（矢量绘制，按扩展名分类，结果有缓存）。</summary>
         public System.Windows.Media.ImageSource Icon

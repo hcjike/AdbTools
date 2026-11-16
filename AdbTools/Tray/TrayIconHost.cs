@@ -104,17 +104,19 @@ namespace AdbTools.Tray
             _icon.ToolTipText = text;
         }
 
-        /// <summary>弹一条系统通知（只做提醒，不含点击动作）。</summary>
-        public void Notify(string title, string message, BalloonIcon icon)
+        /// <summary>弹一条系统通知（只做提醒，不含点击动作）；返回 false 表示没发出去。</summary>
+        public bool Notify(string title, string message, BalloonIcon icon)
         {
-            if (_disposed || _icon == null) return;
+            if (_disposed || _icon == null) return false;
             try
             {
                 _icon.ShowBalloonTip(title, message, icon);
+                return true;
             }
             catch
             {
                 // 通知失败不影响主流程
+                return false;
             }
         }
 

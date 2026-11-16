@@ -627,6 +627,38 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>
+        /// 读取 包名 → APK 路径映射（<c>pm list packages -f</c>）。
+        /// 解析应用名与图标需要 APK 路径，输出形如 <c>package:/data/app/~~xx/base.apk=com.foo</c>。
+        /// </summary>
+        public Dictionary<string, string> ListPackageApkPaths(out string error)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            string output = RunShell("pm list packages -f", 20000, out error);
+            if (output == null)
+            {
+                if (string.IsNullOrEmpty(error)) error = "读取 APK 路径失败";
+                return map;
+            }
+
+            foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (!line.StartsWith("package:", StringComparison.Ordinal)) continue;
+
+                int separator = line.LastIndexOf('=');
+                if (separator <= "package:".Length) continue;
+
+                string path = line.Substring("package:".Length, separator - "package:".Length);
+                string package = line.Substring(separator + 1).Trim();
+                if (path.Length > 0 && package.Length > 0)
+                {
+                    map[package] = path;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>
         /// 一次性探测一批应用能否用 run-as 访问：在设备端跑一个 for 循环，
         /// 每个包执行一次 <c>run-as pkg id</c>，有 uid 输出即为可访问。
         /// 比“每个包起一个 adb 进程”快得多，也没有多线程并发拉起 adb 的问题。

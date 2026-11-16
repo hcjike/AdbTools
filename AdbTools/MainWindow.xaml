@@ -388,6 +388,16 @@
                                             <TextBlock Grid.Column="1" Text="远程控制断开" VerticalAlignment="Center"/>
                                         </Grid>
                                     </Button>
+                                    <Button x:Name="notifyPairItem" Tag="pair" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" ToolTip="无线配对成功后提示。&#10;关闭或系统通知不可用时都不再提醒，配对结果以设备列表为准。" Click="notifyOption_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="notifyPairCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="配对结果" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
                                 </StackPanel>
                             </Border>
                         </Border>
