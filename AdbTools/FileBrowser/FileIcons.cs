@@ -58,7 +58,7 @@ namespace AdbTools.FileBrowser
         private static readonly Brush CalendarBrush = Frozen(0xDC, 0x26, 0x26);
         private static readonly Brush CalendarDotBrush = Frozen(0x9C, 0xA3, 0xAF);
         private static readonly Brush ContactBrush = Frozen(0x3B, 0x82, 0xF6);
-        private static readonly Brush PackageBrush = Frozen(0x2A, 0x9F, 0xFF);
+        private static readonly Brush PackageBrush = Frozen(0x3D, 0xDC, 0x84);      // Android 绿
         private static readonly Brush PackageDisabledBrush = Frozen(0x9C, 0xA3, 0xAF);
 
         /// <summary>应用数据列表里的应用图标（可访问 / 不可访问两种）。</summary>
@@ -90,8 +90,8 @@ namespace AdbTools.FileBrowser
 
         /// <summary>按名称与属性归类，返回内部使用的类型键（同时用于图标缓存）。</summary>
         /// <summary>
-        /// 应用数据列表里的应用图标：圆角方块 + 四个白点（应用宫格）。
-        /// 可访问为蓝色，不可访问（非调试包）为灰色，和文件图标共用同一套配色。
+        /// 应用数据列表里的应用图标：与工具栏「应用数据」按钮同款的 Android 机器人，
+        /// 白色机器人放在方形底色上。可访问为 Android 绿，不可访问（非调试包）为灰色。
         /// </summary>
         public static ImageSource GetPackageIcon(bool accessible)
         {
@@ -101,13 +101,18 @@ namespace AdbTools.FileBrowser
                 if (cached != null) return cached;
             }
 
+            Brush tile = accessible ? PackageBrush : PackageDisabledBrush;
             var group = new DrawingGroup();
             group.Children.Add(Fill(
-                "M7.2,3.6 H16.8 A3.6,3.6 0 0 1 20.4,7.2 V16.8 A3.6,3.6 0 0 1 16.8,20.4 H7.2 A3.6,3.6 0 0 1 3.6,16.8 V7.2 A3.6,3.6 0 0 1 7.2,3.6 Z",
-                accessible ? PackageBrush : PackageDisabledBrush));
+                "M4.8,3.6 H19.2 A1.2,1.2 0 0 1 20.4,4.8 V19.2 A1.2,1.2 0 0 1 19.2,20.4" +
+                " H4.8 A1.2,1.2 0 0 1 3.6,19.2 V4.8 A1.2,1.2 0 0 1 4.8,3.6 Z", tile));
+            // 机器人整体缩进，四周留出与按键一致的边距，白色不会顶到绿色边缘
+            group.Children.Add(Stroke("M8.6,9.7 L7.5,7.5 M15.4,9.7 L16.5,7.5", PaperBrush, 1.4));
+            group.Children.Add(Fill("M5.9,15.4 A6.1,6.1 0 0 1 18.1,15.4 Z", PaperBrush));
             group.Children.Add(Fill(
-                "M8,7.6 H11 V10.6 H8 Z M13,7.6 H16 V10.6 H13 Z M8,12.4 H11 V15.4 H8 Z M13,12.4 H16 V15.4 H13 Z",
-                PaperBrush));
+                "M8,12.5 A0.95,0.95 0 1 1 9.9,12.5 A0.95,0.95 0 1 1 8,12.5 Z" +
+                " M14.1,12.5 A0.95,0.95 0 1 1 16,12.5 A0.95,0.95 0 1 1 14.1,12.5 Z",
+                tile));
 
             var image = new DrawingImage(group);
             image.Freeze();
