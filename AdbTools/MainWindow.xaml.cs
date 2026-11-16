@@ -10,6 +10,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -59,6 +60,18 @@ namespace AdbTools
 
         /// <summary>设备列表是否已完成首次刷新：首次刷新只建立基线，不弹“设备已连接”通知。</summary>
         private bool deviceListInitialized;
+
+        /// <summary>本轮批量安装成功的项（应用名（包名）），每批开始时清空。</summary>
+        private readonly List<string> installSuccesses = new List<string>();
+
+        /// <summary>本轮批量安装失败的项（应用名（包名）：原因摘要）。</summary>
+        private readonly List<string> installFailures = new List<string>();
+
+        /// <summary>本轮批量安装的目标设备名，汇总时点明是哪台机器。</summary>
+        private string installDeviceName;
+
+        /// <summary>本轮批量安装的开始时间，汇总时给出总耗时。</summary>
+        private DateTime installStartedAt;
 
         public MainWindow()
         {
@@ -492,7 +505,8 @@ namespace AdbTools
                     // 掉线打断了正在看的远程控制：优先用专门的提示
                     if (notifyRemote)
                     {
-                        App.Notify("远程控制已断开\r\n" + name + "\r\n设备连接已中断", BalloonIcon.Error);
+                        App.Notify("远程控制已断开\r\n" + name + "\r\n设备连接已中断",
+                            BalloonIcon.Error);
                     }
                     else if (notifyDevice)
                     {
@@ -617,17 +631,20 @@ namespace AdbTools
             {
                 return;
             }
-            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName);
+            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName, device.HardwareKey);
         }
 
-        /// <summary>按设备序列号打开（或激活）文件浏览窗口。</summary>
-        private void OpenFileBrowser(string deviceMark, string deviceName)
+        /// <summary>
+        /// 按设备序列号打开（或激活）文件浏览窗口。
+        /// deviceKey 为硬件序列号：文件管理里补应用名/图标时，用它和应用列表共用同一份缓存。
+        /// </summary>
+        private void OpenFileBrowser(string deviceMark, string deviceName, string deviceKey = null)
         {
             if (string.IsNullOrEmpty(deviceMark)) return;
 
             if (FileBrowserWindow.TryActivate(deviceMark)) return;
 
-            var window = new FileBrowserWindow(adbPath.Trim('"'), deviceMark, deviceName);
+            var window = new FileBrowserWindow(adbPath.Trim('"'), deviceMark, deviceName, deviceKey);
             window.Show();
         }
 
@@ -801,7 +818,7 @@ namespace AdbTools
         internal void TrayOpenFileBrowser(Device device)
         {
             if (device == null) return;
-            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName);
+            OpenFileBrowser(device.DeviceMark, device.ShowDeviceName, device.HardwareKey);
         }
 
         /// <summary>托盘菜单：断开全部设备（菜单点击本身已是一次明确操作，不再二次确认）。</summary>
@@ -1209,6 +1226,9 @@ namespace AdbTools
                 case "remote":
                     Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT = !Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT;
                     break;
+                case "pair":
+                    Globals.AppSettings.NOTIFY_PAIR_RESULT = !Globals.AppSettings.NOTIFY_PAIR_RESULT;
+                    break;
             }
             UpdateNotifyUi();
         }
@@ -1232,6 +1252,7 @@ namespace AdbTools
             notifyDeviceCheck.Visibility = Globals.AppSettings.NOTIFY_DEVICE_CHANGE ? Visibility.Visible : Visibility.Collapsed;
             notifyInstallCheck.Visibility = Globals.AppSettings.NOTIFY_INSTALL_RESULT ? Visibility.Visible : Visibility.Collapsed;
             notifyRemoteCheck.Visibility = Globals.AppSettings.NOTIFY_REMOTE_DISCONNECT ? Visibility.Visible : Visibility.Collapsed;
+            notifyPairCheck.Visibility = Globals.AppSettings.NOTIFY_PAIR_RESULT ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>同步“关闭窗口时”的对号（单选）。</summary>
@@ -1763,8 +1784,19 @@ namespace AdbTools
         {
             if (index >= apkList.Count)
             {
+                ReportInstallSummary();
                 return;
             }
+
+            // 新一轮批量安装：清空上一轮统计
+            if (index == 0)
+            {
+                installSuccesses.Clear();
+                installFailures.Clear();
+                installDeviceName = targetDevice.ShowDeviceName;
+                installStartedAt = DateTime.Now;
+            }
+
             string apkFilePath = apkList[index];
             // 从 APK 里读出应用名与包名，让用户在确认前看清装的是什么
             string label;
@@ -1804,11 +1836,10 @@ namespace AdbTools
                     DeleteTempInstallFile(installPath, apkFilePath);
                     if (Globals.ContainsAny(result, "Success"))
                     {
-                        MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                        if (Globals.AppSettings.NOTIFY_INSTALL_RESULT)
-                        {
-                            App.Notify($"安装完成\r\n{targetDevice.ShowDeviceName}\r\n{label ?? packageName ?? Path.GetFileName(apkFilePath)} 安装成功");
-                        }
+                        // 结果统一在整批结束后汇总提示，逐个弹窗会打断批量安装
+                        string successName = DescribeApp(label, packageName, apkFilePath);
+                        installSuccesses.Add(successName);
+                        AppLog.Write("安装成功：{0} / {1}", targetDevice.ShowDeviceName, successName);
                     }
                     // 无论成功与否都继续下一个，避免批量安装中断
                     HandleApkInstallation(apkList, index + 1, targetDevice);
@@ -1819,12 +1850,10 @@ namespace AdbTools
                     DeleteTempInstallFile(installPath, apkFilePath);
                     if (Globals.ContainsAny(err, "adb: failed to install", "device offline", "Error: closed"))
                     {
-                        MessageBox.Show($"设备【{targetDevice.ShowDeviceName}】安装应用失败！\r\n1.请确认安卓设备是否允许安装应用；\r\n2.应用签名是否不符；\r\n3.检查设备是否已离线。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        if (Globals.AppSettings.NOTIFY_INSTALL_RESULT)
-                        {
-                            App.Notify($"安装失败\r\n{targetDevice.ShowDeviceName}\r\n{label ?? packageName ?? Path.GetFileName(apkFilePath)} 安装失败",
-                                BalloonIcon.Error);
-                        }
+                        string displayName = DescribeApp(label, packageName, apkFilePath);
+                        installFailures.Add(displayName + "：" + ShortInstallError(err));
+                        AppLog.Write("安装失败：{0} / {1}：{2}", targetDevice.ShowDeviceName, displayName, err);
+
                         if (!Globals.ContainsAny(err, "device offline", "Error: closed"))
                         {
                             HandleApkInstallation(apkList, index + 1, targetDevice);
@@ -1833,6 +1862,119 @@ namespace AdbTools
                     }
                     return false;
                 }, 600);
+        }
+
+        /// <summary>
+        /// 整批安装结束后汇总一次：第一行成功/失败数量，第二行设备与耗时，之后逐条列出结果。
+        /// 正常情况下只给一条结果通知；该通知被关闭或发不出去时，用对话框兜底。
+        /// </summary>
+        private void ReportInstallSummary()
+        {
+            int ok = installSuccesses.Count;
+            int bad = installFailures.Count;
+            if (ok == 0 && bad == 0) return;
+
+            // 通知开关关掉、或通知发不出去时，用对话框兜底：批量安装结果不能没人看到
+            App.NotifyResult(
+                BuildInstallSummary(installSuccesses, installFailures, installDeviceName, installStartedAt),
+                "install",
+                bad > 0 ? BalloonIcon.Warning : BalloonIcon.Info,
+                Globals.AppSettings.NOTIFY_INSTALL_RESULT, this);
+
+            installSuccesses.Clear();
+            installFailures.Clear();
+            installDeviceName = null;
+            installStartedAt = default(DateTime);
+        }
+
+        /// <summary>
+        /// 拼装汇总文案：标题行（数量）→ 设备与耗时 → 逐条结果。
+        /// 通知正文放不下太多行，超出部分用“还有 N 项”指向运行日志。
+        /// </summary>
+        private static string BuildInstallSummary(IList<string> successes, IList<string> failures,
+            string deviceName, DateTime startedAt)
+        {
+            int ok = successes.Count;
+            int bad = failures.Count;
+
+            var summary = new StringBuilder();
+            summary.Append("安装完成：成功 ").Append(ok).Append(" 个");
+            if (bad > 0) summary.Append("，失败 ").Append(bad).Append(" 个");
+
+            string meta = DescribeInstallBatch(deviceName, startedAt);
+            if (meta.Length > 0) summary.Append("\r\n").Append(meta);
+
+            // 正文最多列 4 条：有失败时先保证失败项（最多 3 条），剩下的位置给成功项
+            const int MaxItems = 4;
+            int failureQuota = bad > 0 ? Math.Min(bad, 3) : 0;
+            int successQuota = bad > 0
+                ? (ok > 0 ? Math.Max(1, MaxItems - failureQuota) : 0)
+                : MaxItems;
+
+            int shown = 0;
+            foreach (string item in successes.Take(successQuota))
+            {
+                summary.Append("\r\n✔ ").Append(item);
+                shown++;
+            }
+            foreach (string item in failures.Take(failureQuota))
+            {
+                summary.Append("\r\n✘ ").Append(item);
+                shown++;
+            }
+
+            int total = ok + bad;
+            if (total > shown)
+            {
+                summary.Append("\r\n…还有 ").Append(total - shown).Append(" 项，详见运行日志");
+            }
+            return summary.ToString();
+        }
+
+        /// <summary>“设备 PGT-AN10 · 用时 12 秒”，取不到的项自动省略。</summary>
+        private static string DescribeInstallBatch(string deviceName, DateTime startedAt)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(deviceName)) parts.Add("设备 " + deviceName);
+
+            if (startedAt != default(DateTime))
+            {
+                double seconds = (DateTime.Now - startedAt).TotalSeconds;
+                parts.Add(seconds < 60
+                    ? "用时 " + Math.Max(1, (int)Math.Round(seconds)) + " 秒"
+                    : "用时 " + (seconds / 60).ToString("0.0") + " 分钟");
+            }
+            return string.Join(" · ", parts.ToArray());
+        }
+
+        /// <summary>“应用名（包名）”；应用名读不到时退回 APK 文件名。</summary>
+        private static string DescribeApp(string label, string packageName, string apkPath)
+        {
+            string name = string.IsNullOrWhiteSpace(label) ? Path.GetFileName(apkPath) : label.Trim();
+            return string.IsNullOrWhiteSpace(packageName) ? name : name + "（" + packageName + "）";
+        }
+
+        /// <summary>把 adb 安装错误压成一句：优先取 Failure [XXX] 里的错误码。</summary>
+        private static string ShortInstallError(string error)
+        {
+            const string marker = "Failure [";
+            int index = error.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                int start = index + marker.Length;
+                int end = error.IndexOf(']', start);
+                if (end > start) return error.Substring(start, end - start).Trim();
+            }
+            return FirstLineOf(error);
+        }
+
+        /// <summary>取错误输出的第一行，避免把整段 adb 日志塞进通知。</summary>
+        private static string FirstLineOf(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "未知错误";
+
+            string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length == 0 ? "未知错误" : lines[0].Trim();
         }
 
         #endregion

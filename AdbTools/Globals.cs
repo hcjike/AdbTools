@@ -203,6 +203,9 @@ namespace AdbTools
             private static string _NOTIFY_DEVICE_CHANGE;
             private static string _NOTIFY_INSTALL_RESULT;
             private static string _NOTIFY_REMOTE_DISCONNECT;
+            private static string _NOTIFY_PAIR_RESULT;
+            private static string _FILE_SORT_KEY;
+            private static string _FILE_SORT_ASC;
 
             /// <summary>
             /// 最近连接的设备地址
@@ -303,6 +306,34 @@ namespace AdbTools
             {
                 get => GetBool(ref _NOTIFY_REMOTE_DISCONNECT, "NOTIFY_REMOTE_DISCONNECT", true);
                 set => SetValue("NOTIFY_REMOTE_DISCONNECT", value ? "true" : "false", v => _NOTIFY_REMOTE_DISCONNECT = v);
+            }
+
+            /// <summary>
+            /// 无线配对成功时是否发系统通知（默认开启）。
+            /// 关闭或通知发不出去时都不再提醒：配对结果以设备列表为准。
+            /// </summary>
+            public static bool NOTIFY_PAIR_RESULT
+            {
+                get => GetBool(ref _NOTIFY_PAIR_RESULT, "NOTIFY_PAIR_RESULT", true);
+                set => SetValue("NOTIFY_PAIR_RESULT", value ? "true" : "false", v => _NOTIFY_PAIR_RESULT = v);
+            }
+
+            /// <summary>
+            /// 文件管理列表的排序列：name / type / size / time / permissions，下次打开沿用
+            /// </summary>
+            public static string FILE_SORT_KEY
+            {
+                get => GetString(ref _FILE_SORT_KEY, "FILE_SORT_KEY", "name");
+                set => SetValue("FILE_SORT_KEY", value, v => _FILE_SORT_KEY = v);
+            }
+
+            /// <summary>
+            /// 文件管理列表是否升序（默认升序），下次打开沿用
+            /// </summary>
+            public static bool FILE_SORT_ASC
+            {
+                get => GetBool(ref _FILE_SORT_ASC, "FILE_SORT_ASC", true);
+                set => SetValue("FILE_SORT_ASC", value ? "true" : "false", v => _FILE_SORT_ASC = v);
             }
 
             /// <summary>

@@ -129,6 +129,10 @@
       <HintPath>Libs\Hardcodet.NotifyIcon.Wpf.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="Microsoft.Toolkit.Uwp.Notifications">
+      <HintPath>Libs\Microsoft.Toolkit.Uwp.Notifications.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="QRCoder">
       <HintPath>Libs\QRCoder.dll</HintPath>
     </Reference>
@@ -267,6 +271,8 @@
     <Compile Include="RemoteControl\H264DecoderMft.cs" />
     <Compile Include="RemoteControl\InputInjector.cs" />
     <Compile Include="Tray\TrayIconHost.cs" />
+    <Compile Include="Notify\ToastService.cs" />
+    <Compile Include="Notify\NotifyCenter.cs" />
     <Compile Include="RemoteControl\MfInterfaces.cs" />
     <Compile Include="RemoteControl\MfInterop.cs" />
     <Compile Include="RemoteControl\Nv12Converter.cs" />

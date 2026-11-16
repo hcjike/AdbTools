@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using AdbTools.Notify;
 using AdbTools.RemoteControl;
 using AdbTools.Tray;
 using Hardcodet.Wpf.TaskbarNotification;
@@ -24,9 +25,17 @@ namespace AdbTools
         private static extern int RegisterWindowMessage(string message);
         [DllImport("User32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
 
         /// <summary>所有托盘通知统一使用的标题（与窗口标题一致）。</summary>
         internal const string NotificationTitle = "Adb连接工具";
+
+        /// <summary>
+        /// 应用通知使用的 AUMID。Windows 需要它把 Toast 归属到本程序；
+        /// 安装器创建快捷方式时也会写入同一个值。
+        /// </summary>
+        internal const string AppUserModelId = "Hcjike.AdbTools";
 
         /// <summary>广播句柄：向所有顶层窗口广播消息，隐藏的主窗口同样能收到。</summary>
         private static readonly IntPtr HwndBroadcast = new IntPtr(0xffff);
@@ -63,8 +72,10 @@ namespace AdbTools
                 return;
             }
 
-            // 不设置显式 AUMID：快捷方式没有绑定同一个 AUMID 时，系统会把通知的应用名
-            // 显示成 AUMID 字符串本身。不设置则系统退回使用程序自身信息（AssemblyTitle）。
+            // 让 Windows 通知（Toast）把本程序识别出来；通知中心里显示的应用名由下面这步写定。
+            // 失败只影响通知归属/名称，不影响功能。
+            try { SetCurrentProcessExplicitAppUserModelID(AppUserModelId); } catch { }
+            ToastService.EnsureIdentity();
 
             // 缓存一律"用完即清理"：启动时清空 cache（含上次残留的更新安装包）
             Globals.CleanupCacheDirectory();
@@ -149,16 +160,33 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 弹托盘通知：标题统一用程序名，事件与详情放在正文，
-        /// 避免系统通知里出现各样的事件名当标题。
+        /// 弹系统通知：第一行作为标题，其余作为正文。
+        /// 前台也照常提醒，后台同样走这条路；返回 false 表示通知没发出去。
         /// </summary>
-        internal static void Notify(string message, BalloonIcon icon = BalloonIcon.Info)
+        /// <param name="tag">同类通知的分组标识，用于后续聚合/替换</param>
+        internal static bool Notify(string message, BalloonIcon icon = BalloonIcon.Info, string tag = null)
         {
-            TrayIconHost tray = TrayIcon;
-            if (tray != null)
-            {
-                tray.Notify(NotificationTitle, message, icon);
-            }
+            return NotifyCenter.Inform(message, ToKind(icon), tag);
+        }
+
+        /// <summary>
+        /// 操作结果类通知（如批量安装结果）：通知被关闭或发不出去时改用对话框，
+        /// 避免“结果只在通知里、通知又被关掉”导致用户完全不知道结果。
+        /// 一次性、可忽略的事件（如配对成功）请直接用 <see cref="Notify"/>，不要弹窗。
+        /// </summary>
+        /// <param name="notifyAllowed">对应的通知开关是否为开</param>
+        /// <param name="owner">对话框宿主窗口，可空（自动使用主窗口）</param>
+        internal static void NotifyResult(string message, string tag = null,
+            BalloonIcon icon = BalloonIcon.Info, bool notifyAllowed = true, Window owner = null)
+        {
+            NotifyCenter.InformResult(message, ToKind(icon), tag, notifyAllowed, owner);
+        }
+
+        private static NotifyKind ToKind(BalloonIcon icon)
+        {
+            return icon == BalloonIcon.Error ? NotifyKind.Error
+                 : icon == BalloonIcon.Warning ? NotifyKind.Warning
+                 : NotifyKind.Info;
         }
 
         /// <summary>更新托盘提示文本（版本 + 设备数）。</summary>

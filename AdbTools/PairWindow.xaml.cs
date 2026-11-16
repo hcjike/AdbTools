@@ -1,3 +1,4 @@
+using Hardcodet.Wpf.TaskbarNotification;
 using QRCoder;
 using System;
 using System.Diagnostics;
@@ -126,6 +127,13 @@ namespace AdbTools
                     // 配对成功直接关闭窗口，不弹提示（失败情况仍正常提示）
                     PairSucceeded = true;
                     this.Close();
+
+                    // 窗口已关闭，按「设置 → 消息提醒 → 配对结果」决定是否通知；
+                    // 开关关闭或通知发不出去都不再提醒，结果以设备列表为准。
+                    if (Globals.AppSettings.NOTIFY_PAIR_RESULT)
+                    {
+                        App.Notify("配对成功\r\n" + address + "\r\n正在连接设备…", BalloonIcon.Info, "pair");
+                    }
                 }
                 else
                 {
