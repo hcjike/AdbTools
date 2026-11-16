@@ -44,21 +44,28 @@
             <!-- 导航 -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Style="{StaticResource IconButtonStyle}" Click="up_Click" ToolTip="返回上一级目录">
-                    <Path Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
-                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                    <!-- 与 GO 箭头同款，水平翻转后指向左：返回上级 -->
+                    <Viewbox Width="19" Height="19">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M19.4,12 H6.6" Stroke="White" StrokeThickness="3.1"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            <Path Data="M10.4,6.4 L4.6,12 L10.4,17.6" Stroke="White" StrokeThickness="3.1"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                        </Canvas>
+                    </Viewbox>
                 </Button>
                 <Button Style="{StaticResource IconButtonStyle}" Click="root_Click" ToolTip="跳转到设备根目录 /">
                     <Path Data="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
-                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                          Fill="White" Stretch="Uniform" Width="21" Height="21"/>
                 </Button>
                 <Button Style="{StaticResource IconButtonStyle}" Click="sdcard_Click" ToolTip="跳转到 SD 卡目录 /sdcard">
                     <Path Data="M18 2h-8L4.02 8 4 20c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-6 6h-2V4h2v4zm3 0h-2V4h2v4zm3 0h-2V4h2v4z"
-                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                          Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
                 <!-- 临时目录：与其它导航按钮同为蓝底，图标用「文件夹 + 终端提示符」区分 -->
                 <Button Style="{StaticResource IconButtonStyle}" Click="tmp_Click"
                         ToolTip="跳转到临时目录 /data/local/tmp（shell 可读写，常用于 adb 调试）">
-                    <Viewbox Width="20" Height="20">
+                    <Viewbox Width="21" Height="21">
                         <Canvas Width="24" Height="24">
                             <Path Data="M2,4 H9.2 L11.6,6.6 H22 V21 H2 Z" Fill="White"/>
                             <Path Data="M6.4,11.4 L10,14.8 L6.4,18.2" Stroke="#FF2A9FFF" StrokeThickness="2.5"
@@ -71,21 +78,21 @@
                 <!-- 应用数据：Android 机器人头像，进入可调试应用的私有目录列表 -->
                 <Button Style="{StaticResource IconButtonStyle}" Click="appData_Click"
                         ToolTip="浏览第三方可调试应用的私有数据（/data/data，普通文件浏览无法查看）">
-                    <Viewbox Width="23" Height="23">
+                    <Viewbox Width="27" Height="27">
                         <Canvas Width="24" Height="24">
-                            <Path Data="M2.6,16.8 A9.4,9.4 0 0 1 21.4,16.8 Z" Fill="White"/>
-                            <Path Data="M7,9.2 L5.4,5.6 M17,9.2 L18.6,5.6" Stroke="White" StrokeThickness="2.4"
+                            <Path Data="M7.6,9.6 L6.2,6.2 M16.4,9.6 L17.8,6.2" Stroke="White" StrokeThickness="1.8"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                            <Path Data="M7.2,12.6 A1.7,1.7 0 1 1 10.6,12.6 A1.7,1.7 0 1 1 7.2,12.6 Z"
+                            <Path Data="M4.2,16.4 A7.8,7.8 0 0 1 19.8,16.4 Z" Fill="White"/>
+                            <Path Data="M7,12.6 A1.2,1.2 0 1 1 9.4,12.6 A1.2,1.2 0 1 1 7,12.6 Z"
                                   Fill="#FF2A9FFF"/>
-                            <Path Data="M13.4,12.6 A1.7,1.7 0 1 1 16.8,12.6 A1.7,1.7 0 1 1 13.4,12.6 Z"
+                            <Path Data="M14.6,12.6 A1.2,1.2 0 1 1 17,12.6 A1.2,1.2 0 1 1 14.6,12.6 Z"
                                   Fill="#FF2A9FFF"/>
                         </Canvas>
                     </Viewbox>
                 </Button>
                 <Button Style="{StaticResource IconButtonStyle}" Margin="0" Click="refresh_Click" ToolTip="刷新当前目录列表">
                     <Path Data="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
-                          Fill="White" Stretch="Uniform" Width="16" Height="16"/>
+                          Fill="White" Stretch="Uniform" Width="19" Height="19"/>
                 </Button>
             </StackPanel>
 
@@ -101,7 +108,7 @@
                 <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0" Click="go_Click"
                         ToolTip="前往输入框中的路径（回车同样可用）">
                     <!-- 圆头粗箭头：与导航按钮的线面风格一致，缩到 30px 仍然清晰 -->
-                    <Viewbox Width="18" Height="18">
+                    <Viewbox Width="24" Height="24">
                         <Canvas Width="24" Height="24">
                             <Path Data="M4.6,12 H17.4" Stroke="White" StrokeThickness="3.1"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
@@ -140,11 +147,11 @@
             <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="renameButton" Style="{StaticResource IconButtonStyle}" Background="#FFF59E0B" Click="rename_Click" ToolTip="重命名选中的文件或文件夹">
                     <Path Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                          Fill="White" Stretch="Uniform" Width="18" Height="18"/>
+                          Fill="White" Stretch="Uniform" Width="20" Height="20"/>
                 </Button>
                 <Button x:Name="deleteButton" Style="{StaticResource IconButtonStyle}" Margin="0" Background="#FFEF4444" Click="delete_Click" ToolTip="删除选中的文件或文件夹（不可恢复）">
                     <Path Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                          Fill="White" Stretch="Uniform" Width="18" Height="18"/>
+                          Fill="White" Stretch="Uniform" Width="20" Height="20"/>
                 </Button>
             </StackPanel>
         </Grid>
