@@ -23,6 +23,18 @@ namespace AdbTools.FileBrowser
         private volatile bool _cancelled;
 
         /// <summary>
+        /// 以某个应用的身份访问其私有目录（run-as）。为空表示普通 shell。
+        /// 设置后所有命令都会加上 run-as 前缀，只能访问该应用自己的数据目录。
+        /// </summary>
+        public string RunAsPackage { get; set; }
+
+        /// <summary>
+        /// 传输进度回调（后台线程调用，调用方自己切回 UI 线程）。
+        /// 目前用于应用私有目录的整目录下载：逐文件取回，需要让用户看到进度。
+        /// </summary>
+        public Action<string> Progress { get; set; }
+
+        /// <summary>
         /// 解析 ls -al 的一行：类型 + 权限 + 链接数 + 属主 + 属组 + 大小 + 日期 + 时间 + 名称。
         /// 名称里可能有空格，所以最后一段用贪婪匹配整体取出。
         /// </summary>
@@ -49,7 +61,7 @@ namespace AdbTools.FileBrowser
             // 结尾加斜杠：/sdcard 这类符号链接只有带斜杠时才会列出目录内容，而不是打印链接本身
             string lsTarget = target == "/" ? "/" : target + "/";
 
-            string output = RunShell("LC_ALL=C ls -al " + Quote(lsTarget), 15000, out error);
+            string output = RunShell("LC_ALL=C " + AsRunAs("ls -al " + Quote(lsTarget)), 15000, out error);
             if (output == null)
             {
                 if (string.IsNullOrEmpty(error)) error = "读取目录失败";
@@ -63,7 +75,7 @@ namespace AdbTools.FileBrowser
             if (entries.Exists(o => o.IsLink))
             {
                 string resolveError;
-                string resolved = RunShell("LC_ALL=C ls -alL " + Quote(lsTarget), 15000, out resolveError);
+                string resolved = RunShell("LC_ALL=C " + AsRunAs("ls -alL " + Quote(lsTarget)), 15000, out resolveError);
                 if (resolved != null) ApplyLinkTargets(entries, resolved);
             }
 
@@ -224,12 +236,37 @@ namespace AdbTools.FileBrowser
             message = null;
             _cancelled = false;
 
+            // 应用私有目录不能走 adb push/pull（那是 adbd 的身份）：
+            // 读用 exec-out 以应用身份 cat，写先 push 到 /data/local/tmp 再 run-as cp 进目录。
+            if (!string.IsNullOrEmpty(RunAsPackage))
+            {
+                return upload
+                    ? UploadAsRunAs(localPath, devicePath, out message)
+                    : DownloadAsRunAs(devicePath, localPath, out message);
+            }
+
+            return upload
+                ? PushRaw(localPath, devicePath, out message)
+                : PullRaw(devicePath, localPath, out message);
+        }
+
+        /// <summary>直接调用 adb push（本地 → 设备），输出只用来判断成败。</summary>
+        private bool PushRaw(string localPath, string devicePath, out string message)
+        {
             // 注意：push/pull 的参数由 Windows 侧 adb 解析，必须用双引号；
             // 单引号只对设备端 shell 有意义，会变成路径的一部分。
-            string args = upload
-                ? "push " + HostQuote(localPath) + " " + HostQuote(devicePath)
-                : "pull " + HostQuote(devicePath) + " " + HostQuote(localPath);
+            return RunTransferProcess("push " + HostQuote(localPath) + " " + HostQuote(devicePath), out message);
+        }
 
+        private bool PullRaw(string devicePath, string localPath, out string message)
+        {
+            return RunTransferProcess("pull " + HostQuote(devicePath) + " " + HostQuote(localPath), out message);
+        }
+
+        /// <summary>执行一次 adb push / pull，并判断是否成功。</summary>
+        private bool RunTransferProcess(string args, out string message)
+        {
+            message = null;
             try
             {
                 using (Process process = new Process { StartInfo = CreateInfo(args) })
@@ -276,6 +313,215 @@ namespace AdbTools.FileBrowser
             }
         }
 
+        /// <summary>
+        /// 以应用身份下载：文件直接 cat，目录则逐层遍历、逐个文件取回。
+        /// run-as 无法用 adb pull（那是 adbd 的身份），所以目录必须自己走。
+        /// </summary>
+        private bool DownloadAsRunAs(string devicePath, string localPath, out string message)
+        {
+            if (IsDirectory(devicePath))
+            {
+                return DownloadFolderAsRunAs(devicePath, localPath, 0, out message);
+            }
+            return DownloadFileAsRunAs(devicePath, localPath, out message);
+        }
+
+        /// <summary>
+        /// 递归下载应用私有目录：列目录 → 建本地目录 → 逐文件 exec-out 取回。
+        /// 符号链接指向的目录直接跳过，避免自我循环；层级过深也会停下。
+        /// </summary>
+        private bool DownloadFolderAsRunAs(string deviceDir, string localDir, int depth, out string message)
+        {
+            message = null;
+
+            if (_cancelled)
+            {
+                message = "已取消";
+                return false;
+            }
+
+            if (depth > 24)
+            {
+                message = "目录层级过深，已停止";
+                return false;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(localDir);
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+
+            string listError;
+            List<DeviceFileEntry> entries = List(deviceDir, out listError);
+            if (entries.Count == 0 && !string.IsNullOrEmpty(listError))
+            {
+                message = listError;
+                return false;
+            }
+
+            int done = 0;
+            int failed = 0;
+            string firstError = null;
+
+            foreach (DeviceFileEntry entry in entries)
+            {
+                if (_cancelled)
+                {
+                    message = "已取消";
+                    return false;
+                }
+
+                string localTarget = Path.Combine(localDir, entry.Name);
+
+                if (entry.IsDirectory)
+                {
+                    if (entry.IsLink) continue;   // 指向目录的链接不跟进，防止循环
+
+                    string childError;
+                    if (!DownloadFolderAsRunAs(entry.FullPath, localTarget, depth + 1, out childError))
+                    {
+                        if (_cancelled) { message = "已取消"; return false; }
+                        failed++;
+                        if (firstError == null) firstError = entry.Name + "：" + childError;
+                    }
+                    continue;
+                }
+
+                string fileError;
+                if (!DownloadFileAsRunAs(entry.FullPath, localTarget, out fileError))
+                {
+                    if (_cancelled) { message = "已取消"; return false; }
+                    failed++;
+                    if (firstError == null) firstError = entry.Name + "：" + fileError;
+                }
+                else
+                {
+                    done++;
+                    if (done % 5 == 0) NotifyProgress("已下载 " + done + " 个文件…");
+                }
+            }
+
+            if (failed > 0)
+            {
+                message = "部分文件下载失败（" + failed + " 个）：" + firstError;
+                return false;
+            }
+
+            NotifyProgress("已下载 " + done + " 个文件");
+            return true;
+        }
+
+        private void NotifyProgress(string text)
+        {
+            Action<string> callback = Progress;
+            if (callback == null) return;
+            try { callback(text); } catch { }
+        }
+
+        /// <summary>
+        /// 以应用身份下载单个文件：<c>adb exec-out run-as pkg cat 文件</c> 直接流式写入本地。
+        /// 必须用二进制流，不能走文本解码（数据库、图片会损坏）。
+        /// </summary>
+        private bool DownloadFileAsRunAs(string devicePath, string localPath, out string message)
+        {
+            message = null;
+            string command = "run-as " + RunAsPackage + " cat " + Quote(devicePath);
+
+            try
+            {
+                using (Process process = new Process { StartInfo = CreateInfo("exec-out " + HostQuote(command)) })
+                {
+                    process.Start();
+                    _transferProcess = process;
+
+                    Task<string> errorTask = process.StandardError.ReadToEndAsync();
+                    try
+                    {
+                        using (FileStream stream = File.Create(localPath))
+                        {
+                            process.StandardOutput.BaseStream.CopyTo(stream);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { if (!process.HasExited) process.Kill(); } catch { }
+                        _transferProcess = null;
+                        message = ex.Message;
+                        return false;
+                    }
+
+                    process.WaitForExit();
+                    string errorText = errorTask.Result;
+                    _transferProcess = null;
+
+                    if (_cancelled)
+                    {
+                        TryDeleteFile(localPath);
+                        message = "已取消";
+                        return false;
+                    }
+
+                    string errorLine = PickError(errorText);
+                    if (process.ExitCode != 0 || errorLine != null)
+                    {
+                        TryDeleteFile(localPath);
+                        message = errorLine ?? FirstLine(errorText) ?? "下载失败（该文件可能无法以应用身份读取）";
+                        return false;
+                    }
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _transferProcess = null;
+                TryDeleteFile(localPath);
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 以应用身份上传：先 push 到 /data/local/tmp（shell 可写），
+        /// 再用 run-as cp 复制进应用目录，最后删掉临时副本。
+        /// 这样落地文件的属主是该应用自己，应用能正常读写。
+        /// </summary>
+        private bool UploadAsRunAs(string localPath, string devicePath, out string message)
+        {
+            message = null;
+
+            string temp = "/data/local/tmp/adbtools_" + Guid.NewGuid().ToString("N");
+            if (!PushRaw(localPath, temp, out message))
+            {
+                return false;
+            }
+
+            string copyError;
+            RunShell(AsRunAs("cp -r " + Quote(temp) + " " + Quote(devicePath)), 60000, out copyError);
+
+            // 临时副本必须清掉，否则 /data/local/tmp 里会越积越多
+            RunShell("rm -rf " + Quote(temp), 10000, out _);
+
+            if (!string.IsNullOrWhiteSpace(copyError))
+            {
+                string line = FirstLine(copyError);
+                message = line.IndexOf("Permission denied", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? "没有访问权限（该目录不在应用自己的数据目录内）"
+                    : line;
+                return false;
+            }
+            return true;
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); } catch { }
+        }
+
         /// <summary>中断正在进行的传输（杀掉 adb 进程，设备端可能残留半个文件）。</summary>
         public void Cancel()
         {
@@ -299,7 +545,7 @@ namespace AdbTools.FileBrowser
 
         public bool Mkdir(string path, out string message)
         {
-            return RunShellOk("mkdir -p " + Quote(path), out message);
+            return RunShellOk(AsRunAs("mkdir -p " + Quote(path)), out message);
         }
 
         /// <summary>重命名：同一目录下 mv 到新名称。</summary>
@@ -313,12 +559,12 @@ namespace AdbTools.FileBrowser
             }
 
             string parent = ParentPath(path);
-            return RunShellOk("mv " + Quote(path) + " " + Quote(JoinDevicePath(parent, newName)), out message);
+            return RunShellOk(AsRunAs("mv " + Quote(path) + " " + Quote(JoinDevicePath(parent, newName))), out message);
         }
 
         public bool Delete(string path, out string message)
         {
-            return RunShellOk("rm -rf " + Quote(path), out message);
+            return RunShellOk(AsRunAs("rm -rf " + Quote(path)), out message);
         }
 
         /// <summary>
@@ -328,8 +574,105 @@ namespace AdbTools.FileBrowser
         public bool IsDirectory(string path)
         {
             string error;
-            string output = RunShell("LC_ALL=C ls -ldL " + Quote(path), 8000, out error);
+            string output = RunShell("LC_ALL=C " + AsRunAs("ls -ldL " + Quote(path)), 8000, out error);
             return output != null && output.TrimStart().StartsWith("d", StringComparison.Ordinal);
+        }
+
+        #endregion
+
+        #region 《应用私有数据（run-as）》
+
+        /// <summary>给命令加上 run-as 前缀；不在应用模式时原样返回。</summary>
+        private string AsRunAs(string command)
+        {
+            if (string.IsNullOrEmpty(RunAsPackage)) return command;
+            return "run-as " + RunAsPackage + " " + command;
+        }
+
+        /// <summary>
+        /// 列出第三方（用户安装）应用包名。<c>pm list packages -3</c> 只返回用户安装的应用，
+        /// 系统预装应用（/system、/product 等）不在结果里；界面上要把这一点明确告诉用户。
+        /// </summary>
+        public List<string> ListThirdPartyPackages(out string error)
+        {
+            var packages = new List<string>();
+            string output = RunShell("pm list packages -3", 20000, out error);
+            if (output == null)
+            {
+                if (string.IsNullOrEmpty(error)) error = "读取应用列表失败";
+                return packages;
+            }
+
+            foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (!line.StartsWith("package:", StringComparison.Ordinal)) continue;
+
+                string name = line.Substring("package:".Length).Trim();
+                if (name.Length > 0) packages.Add(name);
+            }
+            packages.Sort(StringComparer.OrdinalIgnoreCase);
+            return packages;
+        }
+
+        /// <summary>
+        /// 当前 adb shell 是否已经是 root 身份（adb root 过的设备、部分模拟器）。
+        /// 这种设备上所有应用目录都能直接读，不需要 run-as。
+        /// </summary>
+        public bool IsShellRoot()
+        {
+            string error;
+            string output = RunShell("id", 5000, out error);
+            return output != null && output.IndexOf("uid=0(", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>
+        /// 一次性探测一批应用能否用 run-as 访问：在设备端跑一个 for 循环，
+        /// 每个包执行一次 <c>run-as pkg id</c>，有 uid 输出即为可访问。
+        /// 比“每个包起一个 adb 进程”快得多，也没有多线程并发拉起 adb 的问题。
+        /// 返回 包名 → uid 行；不可访问的包不会出现在结果里。
+        /// </summary>
+        public Dictionary<string, string> ProbeRunAsBatch(IList<string> packages, out string error)
+        {
+            error = null;
+            var accessible = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (packages == null || packages.Count == 0) return accessible;
+
+            // 分批执行，避免单条命令过长（adb shell 参数有长度上限）
+            const int batchSize = 40;
+            for (int start = 0; start < packages.Count; start += batchSize)
+            {
+                int end = Math.Min(start + batchSize, packages.Count);
+                var batch = new List<string>();
+                for (int i = start; i < end; i++) batch.Add(packages[i]);
+
+                string command = "for p in " + string.Join(" ", batch)
+                    + "; do u=$(run-as $p id 2>/dev/null); echo \"$p|$u\"; done";
+
+                string batchError;
+                string output = RunShell(command, 30000, out batchError);
+                if (output == null)
+                {
+                    if (string.IsNullOrEmpty(error)) error = batchError;
+                    continue;
+                }
+
+                foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int separator = raw.IndexOf('|');
+                    if (separator <= 0) continue;
+
+                    string package = raw.Substring(0, separator).Trim();
+                    string value = raw.Substring(separator + 1).Trim();
+
+                    // 不可访问时 run-as 会把错误写到 stderr（已被 2>/dev/null 丢掉），$u 为空
+                    if (package.Length > 0 && value.StartsWith("uid=", StringComparison.Ordinal))
+                    {
+                        accessible[package] = value;
+                    }
+                }
+            }
+            return accessible;
         }
 
         #endregion

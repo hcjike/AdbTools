@@ -58,6 +58,12 @@ namespace AdbTools.FileBrowser
         private static readonly Brush CalendarBrush = Frozen(0xDC, 0x26, 0x26);
         private static readonly Brush CalendarDotBrush = Frozen(0x9C, 0xA3, 0xAF);
         private static readonly Brush ContactBrush = Frozen(0x3B, 0x82, 0xF6);
+        private static readonly Brush PackageBrush = Frozen(0x2A, 0x9F, 0xFF);
+        private static readonly Brush PackageDisabledBrush = Frozen(0x9C, 0xA3, 0xAF);
+
+        /// <summary>应用数据列表里的应用图标（可访问 / 不可访问两种）。</summary>
+        private static ImageSource _packageIcon;
+        private static ImageSource _packageIconDisabled;
 
         /// <summary>文件「纸张」基础轮廓，左上角带折角。</summary>
         private const string PaperPath = "M6,2 H15 L20,7 V22 H6 Z";
@@ -83,6 +89,37 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>按名称与属性归类，返回内部使用的类型键（同时用于图标缓存）。</summary>
+        /// <summary>
+        /// 应用数据列表里的应用图标：圆角方块 + 四个白点（应用宫格）。
+        /// 可访问为蓝色，不可访问（非调试包）为灰色，和文件图标共用同一套配色。
+        /// </summary>
+        public static ImageSource GetPackageIcon(bool accessible)
+        {
+            lock (Cache)
+            {
+                ImageSource cached = accessible ? _packageIcon : _packageIconDisabled;
+                if (cached != null) return cached;
+            }
+
+            var group = new DrawingGroup();
+            group.Children.Add(Fill(
+                "M7.2,3.6 H16.8 A3.6,3.6 0 0 1 20.4,7.2 V16.8 A3.6,3.6 0 0 1 16.8,20.4 H7.2 A3.6,3.6 0 0 1 3.6,16.8 V7.2 A3.6,3.6 0 0 1 7.2,3.6 Z",
+                accessible ? PackageBrush : PackageDisabledBrush));
+            group.Children.Add(Fill(
+                "M8,7.6 H11 V10.6 H8 Z M13,7.6 H16 V10.6 H13 Z M8,12.4 H11 V15.4 H8 Z M13,12.4 H16 V15.4 H13 Z",
+                PaperBrush));
+
+            var image = new DrawingImage(group);
+            image.Freeze();
+
+            lock (Cache)
+            {
+                if (accessible) _packageIcon = image;
+                else _packageIconDisabled = image;
+            }
+            return image;
+        }
+
         private static string GetCategory(string name, bool isDirectory, bool isLink, bool isLinkToDirectory)
         {
             if (isLink) return isLinkToDirectory ? "folderlink" : "link";

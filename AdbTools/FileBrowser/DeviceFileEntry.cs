@@ -33,16 +33,43 @@ namespace AdbTools.FileBrowser
 
         public string Permissions { get; set; }
 
+        /// <summary>
+        /// 应用列表里的条目：包名。非空表示这一行是“应用”，双击进入它的私有目录，
+        /// 而不是普通文件（此时 FullPath / IsDirectory 等字段都无意义）。
+        /// </summary>
+        public string Package { get; set; }
+
+        /// <summary>该应用能否用 run-as 访问（仅应用条目有效，即“是不是 debug 包”）。</summary>
+        public bool CanRunAs { get; set; }
+
+        /// <summary>
+        /// 该应用的数据目录当前能不能打开：debug 包可以（run-as），
+        /// 或者设备 shell 已是 root（所有应用都能开）。
+        /// 普通文件条目恒为 true，只有应用列表里的“打不开的应用”才设为 false。
+        /// </summary>
+        public bool CanOpen { get; set; } = true;
+
+        /// <summary>应用条目用固定图标，覆盖按扩展名推断的图标。</summary>
+        public System.Windows.Media.ImageSource IconOverride { get; set; }
+
+        /// <summary>应用条目用固定类型文案（如“可访问 / 需 root”）。</summary>
+        public string TypeTextOverride { get; set; }
+
         /// <summary>列表里显示的类型图标（矢量绘制，按扩展名分类，结果有缓存）。</summary>
         public System.Windows.Media.ImageSource Icon
         {
-            get { return FileIcons.Get(Name, IsDirectory, IsLink, LinkTargetIsDirectory == true); }
+            get
+            {
+                if (IconOverride != null) return IconOverride;
+                return FileIcons.Get(Name, IsDirectory, IsLink, LinkTargetIsDirectory == true);
+            }
         }
 
         public string TypeText
         {
             get
             {
+                if (TypeTextOverride != null) return TypeTextOverride;
                 if (IsLink) return "链接";
                 return IsDirectory ? "文件夹" : "文件";
             }

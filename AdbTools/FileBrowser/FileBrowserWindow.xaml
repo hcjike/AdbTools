@@ -55,6 +55,34 @@
                     <Path Data="M18 2h-8L4.02 8 4 20c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-6 6h-2V4h2v4zm3 0h-2V4h2v4zm3 0h-2V4h2v4z"
                           Fill="White" Stretch="Uniform" Width="16" Height="16"/>
                 </Button>
+                <!-- 临时目录：与其它导航按钮同为蓝底，图标用「文件夹 + 终端提示符」区分 -->
+                <Button Style="{StaticResource IconButtonStyle}" Click="tmp_Click"
+                        ToolTip="跳转到临时目录 /data/local/tmp（shell 可读写，常用于 adb 调试）">
+                    <Viewbox Width="20" Height="20">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M2,4 H9.2 L11.6,6.6 H22 V21 H2 Z" Fill="White"/>
+                            <Path Data="M6.4,11.4 L10,14.8 L6.4,18.2" Stroke="#FF2A9FFF" StrokeThickness="2.5"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                            <Path Data="M12.4,18.2 H17.6" Stroke="#FF2A9FFF" StrokeThickness="2.5"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+                <!-- 应用数据：Android 机器人头像，进入可调试应用的私有目录列表 -->
+                <Button Style="{StaticResource IconButtonStyle}" Click="appData_Click"
+                        ToolTip="浏览第三方可调试应用的私有数据（/data/data，不含系统应用）">
+                    <Viewbox Width="23" Height="23">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M2.6,16.8 A9.4,9.4 0 0 1 21.4,16.8 Z" Fill="White"/>
+                            <Path Data="M7,9.2 L5.4,5.6 M17,9.2 L18.6,5.6" Stroke="White" StrokeThickness="2.4"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            <Path Data="M7.2,12.6 A1.7,1.7 0 1 1 10.6,12.6 A1.7,1.7 0 1 1 7.2,12.6 Z"
+                                  Fill="#FF2A9FFF"/>
+                            <Path Data="M13.4,12.6 A1.7,1.7 0 1 1 16.8,12.6 A1.7,1.7 0 1 1 13.4,12.6 Z"
+                                  Fill="#FF2A9FFF"/>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
                 <Button Style="{StaticResource IconButtonStyle}" Margin="0" Click="refresh_Click" ToolTip="刷新当前目录列表">
                     <Path Data="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
                           Fill="White" Stretch="Uniform" Width="16" Height="16"/>
@@ -70,8 +98,17 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="pathBox" Padding="6,5" VerticalContentAlignment="Center"/>
-                <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0" Click="go_Click" ToolTip="前往输入框中的路径">
-                    <TextBlock Text="GO" FontSize="12" FontWeight="Bold" Foreground="White"/>
+                <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0" Click="go_Click"
+                        ToolTip="前往输入框中的路径（回车同样可用）">
+                    <!-- 圆头粗箭头：与导航按钮的线面风格一致，缩到 30px 仍然清晰 -->
+                    <Viewbox Width="18" Height="18">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M4.6,12 H17.4" Stroke="White" StrokeThickness="3.1"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            <Path Data="M13.6,6.4 L19.4,12 L13.6,17.6" Stroke="White" StrokeThickness="3.1"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                        </Canvas>
+                    </Viewbox>
                 </Button>
             </Grid>
 
@@ -79,19 +116,19 @@
 
             <!-- 文件操作 -->
             <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="newFolder_Click" ToolTip="在设备当前目录新建文件夹">
+                <Button x:Name="newFolderButton" Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="newFolder_Click" ToolTip="在设备当前目录新建文件夹">
                     <Path Data="F0 M20 6h-8l-2-2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2z M11 10H13V13H16V15H13V18H11V15H8V13H11Z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="uploadFile_Click" ToolTip="上传文件：从电脑上传到设备当前目录">
+                <Button x:Name="uploadFileButton" Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="uploadFile_Click" ToolTip="上传文件：从电脑上传到设备当前目录">
                     <Path Data="F0 M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z M12 9L8 13H10.5v4h3v-4H16z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="uploadFolder_Click" ToolTip="上传文件夹：从电脑上传到设备当前目录">
+                <Button x:Name="uploadFolderButton" Style="{StaticResource IconButtonStyle}" Background="#FF10B981" Click="uploadFolder_Click" ToolTip="上传文件夹：从电脑上传到设备当前目录">
                     <Path Data="F0 M20 6h-8l-2-2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2z M12 10L8 14H10.5v4h3v-4H16z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" Margin="0" Background="#FF10B981" Click="download_Click" ToolTip="下载：从设备下载到电脑（选择本地保存位置）">
+                <Button x:Name="downloadButton" Style="{StaticResource IconButtonStyle}" Margin="0" Background="#FF10B981" Click="download_Click" ToolTip="下载：从设备下载到电脑（选择本地保存位置）">
                     <Path Data="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
@@ -101,11 +138,11 @@
 
             <!-- 修改与删除 -->
             <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Style="{StaticResource IconButtonStyle}" Background="#FFF59E0B" Click="rename_Click" ToolTip="重命名选中的文件或文件夹">
+                <Button x:Name="renameButton" Style="{StaticResource IconButtonStyle}" Background="#FFF59E0B" Click="rename_Click" ToolTip="重命名选中的文件或文件夹">
                     <Path Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" Margin="0" Background="#FFEF4444" Click="delete_Click" ToolTip="删除选中的文件或文件夹（不可恢复）">
+                <Button x:Name="deleteButton" Style="{StaticResource IconButtonStyle}" Margin="0" Background="#FFEF4444" Click="delete_Click" ToolTip="删除选中的文件或文件夹（不可恢复）">
                     <Path Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
                           Fill="White" Stretch="Uniform" Width="18" Height="18"/>
                 </Button>
@@ -129,12 +166,41 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,2">
                                         <Image Source="{Binding Icon}" Width="20" Height="20" Stretch="Uniform"
                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}">
+                                                    <Setter Property="Foreground" Value="#FF1F2937"/>
+                                                    <Style.Triggers>
+                                                        <!-- 打不开的应用（非debug）灰显，一眼能区分 -->
+                                                        <DataTrigger Binding="{Binding CanOpen}" Value="False">
+                                                            <Setter Property="Foreground" Value="#FF9CA3AF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="类型" Width="80" DisplayMemberBinding="{Binding TypeText}"/>
+                        <GridViewColumn Header="类型" Width="92">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding TypeText}" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Foreground" Value="#FF4B5563"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CanOpen}" Value="False">
+                                                        <Setter Property="Foreground" Value="#FF9CA3AF"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                         <GridViewColumn Header="大小" Width="110" DisplayMemberBinding="{Binding SizeText}"/>
                         <GridViewColumn Header="修改时间" Width="150" DisplayMemberBinding="{Binding ModifiedText}"/>
                         <GridViewColumn Header="权限" Width="120" DisplayMemberBinding="{Binding Permissions}"/>
@@ -159,17 +225,22 @@
             </Border>
         </Grid>
 
-        <!-- 底部：状态信息与传输控制 -->
+        <!-- 底部：状态信息、应用列表筛选与传输控制 -->
         <Grid Grid.Row="2" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="statusText" VerticalAlignment="Center" Foreground="#FF4B5563" TextTrimming="CharacterEllipsis"/>
-            <ProgressBar x:Name="transferBar" Grid.Column="1" Width="160" Height="8" Margin="10,0,0,0"
+            <!-- 应用列表里用于切换“只看可访问 / 显示全部”，其余目录时隐藏 -->
+            <Button x:Name="packageFilterButton" Grid.Column="1" Content="显示全部" Click="packageFilter_Click"
+                    Visibility="Collapsed" Background="Transparent" Foreground="#FF2A9FFF"
+                    Padding="6,2" Margin="10,0,0,0" ToolTip="显示或隐藏非debug应用" />
+            <ProgressBar x:Name="transferBar" Grid.Column="2" Width="160" Height="8" Margin="10,0,0,0"
                          IsIndeterminate="True" Visibility="Collapsed" VerticalAlignment="Center"/>
-            <Button x:Name="cancelButton" Grid.Column="2" Content="取消传输" Click="cancelTransfer_Click"
+            <Button x:Name="cancelButton" Grid.Column="3" Content="取消传输" Click="cancelTransfer_Click"
                     Padding="12,4" Margin="10,0,0,0" Visibility="Collapsed" Background="#FFEF4444"/>
         </Grid>
     </Grid>
