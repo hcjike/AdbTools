@@ -36,6 +36,7 @@ namespace AdbTools
         private bool _loading;
         private bool _resolveStoppedByUser;
         private int _filterIndex;
+        private int _debugLoadGeneration;
 
         public string AdbPath { get; set; }
 
@@ -227,19 +228,92 @@ namespace AdbTools
                 new[] { Command("shell pm list packages") },
                 installed =>
                 {
-                    BuildApps(allOutput, systemOutput, disabledOutput, installed);
+                    BuildApps(allOutput, systemOutput, disabledOutput, installed,
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
                     FinishLoad(warning);
+                    StartDebugLoad();
                 },
                 err =>
                 {
-                    BuildApps(allOutput, systemOutput, disabledOutput, null);
+                    BuildApps(allOutput, systemOutput, disabledOutput, null,
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
                     FinishLoad(warning);
+                    StartDebugLoad();
                     return true;
                 });
         }
 
-        /// <summary>把查询结果组装成列表：包名、APK 路径、系统应用、停用状态、是否已卸载。</summary>
-        private void BuildApps(string allOutput, string systemOutput, string disabledOutput, string installedOutput)
+        /// <summary>
+        /// Debug 标记改为列表显示后再异步回填：设备端先 grep 掉无关输出（约 3MB → 15KB），
+        /// 列表不必等 dumpsys 跑完；序号用于丢弃连续刷新时的旧请求结果。
+        /// 不使用缓存，每次刷新都重新读取；失败时只是标签不显示，列表不受影响。
+        /// </summary>
+        private void StartDebugLoad()
+        {
+            int generation = ++_debugLoadGeneration;
+            // 整段必须加双引号，否则 cmd.exe 会把管道当成本地管道（Windows 没有 grep）
+            CmdExecutor.ExecuteCommandAndReturnAsync(
+                new[] { Command("shell \"dumpsys package | grep -E 'Package \\[|DEBUGGABLE'\"") },
+                output =>
+                {
+                    // 个别设备的 toybox 不支持 grep -E：退回全量输出，本地解析一样可用
+                    if (string.IsNullOrWhiteSpace(output))
+                    {
+                        CmdExecutor.ExecuteCommandAndReturnAsync(
+                            new[] { Command("shell dumpsys package") },
+                            full => ApplyDebugFlags(full, generation),
+                            err => { return true; });
+                        return;
+                    }
+                    ApplyDebugFlags(output, generation);
+                },
+                err => { return true; });
+        }
+
+        private void ApplyDebugFlags(string output, int generation)
+        {
+            if (generation != _debugLoadGeneration) return;
+
+            HashSet<string> debugPackages = ParseDebugPackages(output);
+            foreach (AppInfo app in _apps)
+            {
+                app.IsDebug = debugPackages.Contains(app.PackageName);
+            }
+            _view.Refresh();
+        }
+
+        /// <summary>解析 dumpsys package：Package [包名] 开一个包块，块内 flags 含 DEBUGGABLE 即打标。</summary>
+        private static HashSet<string> ParseDebugPackages(string output)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(output)) return result;
+
+            const string marker = "Package [";
+            string current = null;
+            foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                int open = line.IndexOf(marker, StringComparison.Ordinal);
+                if (open >= 0)
+                {
+                    int close = line.IndexOf(']', open + marker.Length);
+                    current = close > open + marker.Length
+                        ? line.Substring(open + marker.Length, close - open - marker.Length).Trim()
+                        : null;
+                    continue;
+                }
+
+                if (current != null && line.IndexOf("DEBUGGABLE", StringComparison.Ordinal) >= 0)
+                {
+                    result.Add(current);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>把查询结果组装成列表：包名、APK 路径、系统应用、停用状态、是否已卸载、Debug 标记。</summary>
+        private void BuildApps(string allOutput, string systemOutput, string disabledOutput,
+            string installedOutput, HashSet<string> debugPackages)
         {
             HashSet<string> system = ParsePackageNames(systemOutput);
             HashSet<string> disabled = ParsePackageNames(disabledOutput);
@@ -298,7 +372,8 @@ namespace AdbTools
                     ApkPath = entry.Value,
                     IsSystem = isSystem,
                     IsDisabled = disabled.Contains(entry.Key),
-                    IsUninstalled = isUninstalled
+                    IsUninstalled = isUninstalled,
+                    IsDebug = debugPackages != null && debugPackages.Contains(entry.Key)
                 };
 
                 string cached;
@@ -954,6 +1029,8 @@ namespace AdbTools
             if (_filterIndex == 3 && !app.IsDisabled) return false;
             if (_filterIndex == 4 && !app.IsService) return false;
             if (_filterIndex == 5 && !app.IsUninstalled) return false;
+            if (_filterIndex == 6 && !app.IsDebug) return false;
+            if (_filterIndex == 7 && app.IsDebug) return false;
 
             string key = searchBox == null ? null : searchBox.Text;
             if (string.IsNullOrWhiteSpace(key)) return true;

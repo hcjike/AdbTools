@@ -134,46 +134,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- 细长滚动条（匹配卡片风格，默认样式过于笨重） -->
-        <Style x:Key="SlimScrollBarStyle" TargetType="ScrollBar">
-            <Setter Property="Width" Value="6"/>
-            <Setter Property="Margin" Value="0,0,2,0"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
-                            <Track.Thumb>
-                                <Thumb>
-                                    <Thumb.Template>
-                                        <ControlTemplate TargetType="Thumb">
-                                            <Rectangle x:Name="thumbRect" RadiusX="3" RadiusY="3" Fill="#FFC3CAD3"/>
-                                            <ControlTemplate.Triggers>
-                                                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Thumb}}" Value="True">
-                                                    <Setter TargetName="thumbRect" Property="Fill" Value="#FF94A3B8"/>
-                                                </DataTrigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Thumb.Template>
-                                </Thumb>
-                            </Track.Thumb>
-                            <Track.IncreaseRepeatButton>
-                                <RepeatButton Opacity="0" Command="ScrollBar.PageDownCommand"/>
-                            </Track.IncreaseRepeatButton>
-                            <Track.DecreaseRepeatButton>
-                                <RepeatButton Opacity="0" Command="ScrollBar.PageUpCommand"/>
-                            </Track.DecreaseRepeatButton>
-                        </Track>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="Orientation" Value="Horizontal">
-                    <Setter Property="Height" Value="6"/>
-                    <Setter Property="Width" Value="Auto"/>
-                    <Setter Property="Margin" Value="0,0,0,2"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
     </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Command="{x:Static local:MainWindow.CommandF5}"
@@ -532,10 +492,6 @@
                 <Rectangle Height="1" Fill="#FFE5E7EB" VerticalAlignment="Bottom" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
             </Grid>
             <ListBox x:Name="deviceList" Grid.Row="1" Margin="1,1,1,1" ToolTip="右键连接的设备进行操作，支持拖入APK文件安装" Background="White" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Hidden" AllowDrop="True">
-                <!-- 套用细滚动条（覆盖默认样式） -->
-                <ListBox.Resources>
-                    <Style TargetType="ScrollBar" BasedOn="{StaticResource SlimScrollBarStyle}"/>
-                </ListBox.Resources>
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
                         <VirtualizingStackPanel Orientation="Vertical" />

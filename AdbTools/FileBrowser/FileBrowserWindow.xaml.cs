@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using AdbTools.bean;
@@ -79,6 +80,12 @@ namespace AdbTools.FileBrowser
 
         /// <summary>进入应用列表前的目录：从列表返回时回到这里。</summary>
         private string _packageListReturnPath = "/sdcard";
+
+        /// <summary>
+        /// 从应用列表双击进入的应用包名。root 设备不需要 run-as，
+        /// 但“返回上级时要回到应用列表”这件事与身份无关，所以单独记一份。
+        /// </summary>
+        private string _appListEntryPackage;
 
         /// <summary>
         /// 当前设备的 adb shell 是否已经是 root（adb root 过的设备、部分模拟器）。
@@ -239,8 +246,14 @@ namespace AdbTools.FileBrowser
             {
                 ExitAppData();
             }
+            // root 下没有 run-as 身份，但离开了这个应用目录也要忘掉“从应用列表进来”的记录
+            if (!string.IsNullOrEmpty(_appListEntryPackage) && !IsInsideAppListEntry(target))
+            {
+                _appListEntryPackage = null;
+            }
             _inPackageList = false;
             packageFilterButton.Visibility = Visibility.Collapsed;
+            fileList.ContextMenu = null;
             SetFileOpsEnabled(true);
 
             HideListNotice();
@@ -261,6 +274,7 @@ namespace AdbTools.FileBrowser
 
                     _currentPath = target;
                     pathBox.Text = target;
+                    UpdateUpButton();
                     _baseEntries = entries;
                     SortAndBind();
                     StartPackageResolver();
@@ -340,14 +354,37 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>
-        /// 返回上级：应用列表 → 回到进入前的目录；应用私有目录根 → 回到应用列表；
-        /// 其余按普通路径上溯。
+        /// 返回上一级目录：应用列表 → 进入前的目录；
+        /// 应用私有目录根 → 回到应用列表；根目录 / 没有上级，直接忽略。
         /// </summary>
         private void GoUp()
         {
+            // 已在根目录：这个按钮只表示“返回上级”，没有上级就什么也不做
+            if (!_inPackageList
+                && string.Equals(DeviceFileService.Normalize(_currentPath), "/", StringComparison.Ordinal))
+            {
+                return;
+            }
+
             if (_inPackageList)
             {
                 Navigate(_packageListReturnPath);
+                return;
+            }
+
+            // root 设备从应用列表进入时没有 run-as 身份，但仍应在应用根回到应用列表，
+            // 否则会普通上溯到 /data/data。
+            if (string.IsNullOrEmpty(_runAsPackage) && !string.IsNullOrEmpty(_appListEntryPackage))
+            {
+                if (IsAppListEntryRoot(_currentPath))
+                {
+                    ShowPackageList(false);
+                    return;
+                }
+
+                string parent = DeviceFileService.ParentPath(_currentPath);
+                if (!IsInsideAppListEntry(parent)) _appListEntryPackage = null;
+                Navigate(parent);
                 return;
             }
 
@@ -373,6 +410,21 @@ namespace AdbTools.FileBrowser
             Navigate(DeviceFileService.ParentPath(_currentPath));
         }
 
+        /// <summary>
+        /// 返回上级按钮只在确实有上级时可用：根目录 / 下禁用，避免点它变成原地刷新；
+        /// </summary>
+        private void UpdateUpButton()
+        {
+            if (upButton == null) return;
+
+            bool atRoot = !_inPackageList
+                && string.Equals(DeviceFileService.Normalize(_currentPath), "/", StringComparison.Ordinal);
+            upButton.IsEnabled = !atRoot;
+            upButton.ToolTip = atRoot
+                ? "已在根目录 /，没有上级目录"
+                : "返回上一级目录";
+        }
+
         private void go_Click(object sender, RoutedEventArgs e)
         {
             if (_inPackageList)
@@ -387,6 +439,9 @@ namespace AdbTools.FileBrowser
 
         private void fileList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
+            // MouseDoubleClick 对右键双击也会触发：只允许左键双击进入目录/应用数据
+            if (e.ChangedButton != MouseButton.Left) return;
+
             DeviceFileEntry entry = fileList.SelectedItem as DeviceFileEntry;
             if (entry == null) return;
 
@@ -979,7 +1034,9 @@ namespace AdbTools.FileBrowser
             {
                 _inPackageList = true;
                 ExitAppData();
+                _appListEntryPackage = null;
                 pathBox.Text = AppListPathText;
+                UpdateUpButton();
                 ApplyPackageFilter();
                 return;
             }
@@ -987,6 +1044,8 @@ namespace AdbTools.FileBrowser
             _busy = true;
             _inPackageList = true;
             ExitAppData();
+            _appListEntryPackage = null;
+            UpdateUpButton();
             StopPackageResolver();
             HideListNotice();
             pathBox.Text = AppListPathText;
@@ -1052,6 +1111,7 @@ namespace AdbTools.FileBrowser
 
             // 应用列表不是真实目录，上传/下载/新建/重命名/删除都不可用
             SetFileOpsEnabled(false);
+            fileList.ContextMenu = null;
 
             int total = _allPackageEntries.Count;
             int accessible = _allPackageEntries.Count(o => o.CanOpen);
@@ -1208,6 +1268,7 @@ namespace AdbTools.FileBrowser
             if (string.IsNullOrEmpty(package) || _busy) return;
 
             _inPackageList = false;
+            _appListEntryPackage = package;
 
             if (_rootShell)
             {
@@ -1233,6 +1294,7 @@ namespace AdbTools.FileBrowser
         private void LeaveSpecialModes()
         {
             _inPackageList = false;
+            _appListEntryPackage = null;
             ExitAppData();
         }
 
@@ -1248,6 +1310,25 @@ namespace AdbTools.FileBrowser
             if (string.IsNullOrEmpty(_runAsPackage)) return false;
 
             string root = "/data/data/" + _runAsPackage;
+            string value = DeviceFileService.Normalize(path);
+            return string.Equals(value, root, StringComparison.Ordinal)
+                || value.StartsWith(root + "/", StringComparison.Ordinal);
+        }
+
+        /// <summary>当前路径是否正好是从应用列表进入的那个应用目录根。</summary>
+        private bool IsAppListEntryRoot(string path)
+        {
+            if (string.IsNullOrEmpty(_appListEntryPackage)) return false;
+            return string.Equals(DeviceFileService.Normalize(path),
+                "/data/data/" + _appListEntryPackage, StringComparison.Ordinal);
+        }
+
+        /// <summary>当前路径是否还在从应用列表进入的那个应用目录内。</summary>
+        private bool IsInsideAppListEntry(string path)
+        {
+            if (string.IsNullOrEmpty(_appListEntryPackage)) return false;
+
+            string root = "/data/data/" + _appListEntryPackage;
             string value = DeviceFileService.Normalize(path);
             return string.Equals(value, root, StringComparison.Ordinal)
                 || value.StartsWith(root + "/", StringComparison.Ordinal);
@@ -1321,13 +1402,20 @@ namespace AdbTools.FileBrowser
         /// 后台解析应用名与图标（复用应用列表的 AppLabelResolver，结果同样写入缓存库）。
         /// 解析完成的回调在 UI 线程，直接回填到对应行。
         /// </summary>
-        private void StartPackageResolver()
+        private void StartPackageResolver(string forcePackage = null)
         {
             StopPackageResolver();
-            if (_pendingPackages.Count == 0 || _pendingApks == null) return;
+            if (_pendingApks == null || _pendingApks.Count == 0) return;
+
+            // 平时只解析缓存未命中的包；右键「重新获取」时只强制解析选中的那一个包，
+            // 解析器把从设备取到的新名称/图标直接覆盖写回缓存，不删除旧数据。
+            List<string> names = forcePackage != null
+                ? new List<string> { forcePackage }
+                : _pendingPackages;
+            if (names.Count == 0) return;
 
             var apps = new List<AppInfo>();
-            foreach (string package in _pendingPackages)
+            foreach (string package in names)
             {
                 string apkPath;
                 if (!_pendingApks.TryGetValue(package, out apkPath) || string.IsNullOrEmpty(apkPath)) continue;
@@ -1336,7 +1424,7 @@ namespace AdbTools.FileBrowser
             if (apps.Count == 0) return;
 
             _resolver = new AppLabelResolver(_adbPath, _serial, _deviceKey, Dispatcher,
-                message => { }, 4);
+                message => { }, 4, forcePackage != null);
 
             _resolver.ItemResolved += (app, label, done, total) =>
             {
@@ -1497,6 +1585,73 @@ namespace AdbTools.FileBrowser
             _visibleEntries = sorted;
             _itemCount = sorted.Count;
             fileList.ItemsSource = sorted;
+        }
+
+        /// <summary>
+        /// 右键不改变选中状态：只有点中的那行**本来就是当前单选的项**时才挂「重新获取」菜单。
+        /// 右键空白、未选中的行、普通文件/目录或多选时都不显示菜单。
+        /// </summary>
+        private void fileList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            ListViewItem item = source == null ? null
+                : fileList.ContainerFromElement(source) as ListViewItem;
+            UpdateFileContextMenu(item == null ? null : item.DataContext as DeviceFileEntry);
+        }
+
+        /// <summary>仅当右键点中的是当前单选的包名文件夹/应用行时挂菜单，其它情况移除菜单。</summary>
+        private void UpdateFileContextMenu(DeviceFileEntry clicked)
+        {
+            DeviceFileEntry selected = fileList.SelectedItem as DeviceFileEntry;
+            bool isPackageRow = clicked != null
+                && ((_inPackageList && !string.IsNullOrEmpty(clicked.Package))
+                    || (!_inPackageList && clicked.IsDirectory && IsPackageName(clicked.Name)));
+            bool singlePackageFolder = clicked != null
+                && ReferenceEquals(clicked, selected)
+                && fileList.SelectedItems.Count == 1
+                && isPackageRow;
+            fileList.ContextMenu = singlePackageFolder
+                ? FindResource("PackageFolderContextMenu") as ContextMenu
+                : null;
+        }
+
+        /// <summary>
+        /// 只重新解析选中的那一个包名：不重列目录、不清列表、不重载应用列表。
+        /// 解析器从设备取最新名称和图标后覆盖写回缓存，并通过事件只回填对应行。
+        /// </summary>
+        private void reloadPackageMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+
+            DeviceFileEntry entry = fileList.SelectedItem as DeviceFileEntry;
+            if (entry == null) return;
+
+            string package = _inPackageList ? entry.Package : entry.Name;
+            if (string.IsNullOrEmpty(package)) return;
+
+            SetStatus("正在从设备重新获取 “" + package + "” 的应用数据…");
+
+            var thread = new Thread(() =>
+            {
+                // 缓存命中时 _pendingApks 可能为空；只补取 APK 路径，不动列表数据
+                if (_pendingApks == null || !_pendingApks.ContainsKey(package))
+                {
+                    Dictionary<string, string> paths = _service.ListPackageApkPaths(out _);
+                    if (_pendingApks == null) _pendingApks = paths;
+                    else foreach (KeyValuePair<string, string> pair in paths) _pendingApks[pair.Key] = pair.Value;
+                }
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_closed) return;
+                    StartPackageResolver(package);
+                }));
+            })
+            {
+                IsBackground = true,
+                Name = "refresh-one-package"
+            };
+            thread.Start();
         }
 
         private List<DeviceFileEntry> ApplySort(List<DeviceFileEntry> entries)

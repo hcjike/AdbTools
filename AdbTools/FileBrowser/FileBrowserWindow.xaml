@@ -21,6 +21,12 @@
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
+
+        <!-- 只在“单选一个包名文件夹”时挂到列表上，其它情况右键不弹菜单 -->
+        <ContextMenu x:Key="PackageFolderContextMenu">
+            <MenuItem Header="重新获取应用名与图标" Click="reloadPackageMenuItem_Click"
+                      ToolTip="从设备重新获取并更新缓存，不删除已有数据"/>
+        </ContextMenu>
     </Window.Resources>
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -43,13 +49,14 @@
 
             <!-- 导航 -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Style="{StaticResource IconButtonStyle}" Click="up_Click" ToolTip="返回上一级目录">
-                    <!-- 与 GO 箭头同款，水平翻转后指向左：返回上级 -->
+                <Button x:Name="upButton" Style="{StaticResource IconButtonStyle}" Click="up_Click"
+                        ToolTip="返回上一级目录">
+                    <!-- 向上箭头：表示目录上溯，避免与浏览器的“后退”混淆 -->
                     <Viewbox Width="24" Height="24">
                         <Canvas Width="24" Height="24">
-                            <Path Data="M19.4,12 H6.6" Stroke="White" StrokeThickness="3.1"
+                            <Path Data="M12,19.4 V6.6" Stroke="White" StrokeThickness="3.1"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                            <Path Data="M10.4,6.4 L4.6,12 L10.4,17.6" Stroke="White" StrokeThickness="3.1"
+                            <Path Data="M6.4,10.4 L12,4.6 L17.6,10.4" Stroke="White" StrokeThickness="3.1"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                         </Canvas>
                     </Viewbox>
@@ -163,6 +170,7 @@
                       PreviewMouseLeftButtonDown="fileList_PreviewMouseLeftButtonDown"
                       PreviewMouseMove="fileList_PreviewMouseMove"
                       PreviewMouseLeftButtonUp="fileList_PreviewMouseLeftButtonUp"
+                      PreviewMouseRightButtonDown="fileList_PreviewMouseRightButtonDown"
                       SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick"
                       SelectionChanged="fileList_SelectionChanged">
                 <ListView.View>
@@ -248,6 +256,7 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+
         </Grid>
 
         <!-- 底部：状态信息、应用列表筛选与传输控制 -->
