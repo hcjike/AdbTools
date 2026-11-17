@@ -24,6 +24,7 @@ namespace AdbTools.bean
         private bool _nameResolved;
         private bool _fromCache;
         private bool _isUninstalled;
+        private bool _isDebug;
         private ImageSource _icon;
 
         public string PackageName { get; set; }
@@ -31,6 +32,22 @@ namespace AdbTools.bean
         public string ApkPath { get; set; }
 
         public bool IsSystem { get; set; }
+
+        /// <summary>
+        /// 本次从 dumpsys package 的 DEBUGGABLE 标志读出的 debug 应用标记（不缓存，每次刷新重读）。
+        /// 只表示 manifest 里声明了 debuggable，不等同于 run-as 一定能进入私有目录。
+        /// 列表先显示、标记后回填，所以需要通知界面刷新标签显隐。
+        /// </summary>
+        public bool IsDebug
+        {
+            get { return _isDebug; }
+            set
+            {
+                if (_isDebug == value) return;
+                _isDebug = value;
+                Raise("IsDebug");
+            }
+        }
 
         /// <summary>已解析并缓存的图标；为空时界面显示首字母占位。</summary>
         public ImageSource Icon

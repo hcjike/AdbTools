@@ -4,6 +4,8 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using AdbTools.Notify;
 using AdbTools.RemoteControl;
@@ -40,6 +42,9 @@ namespace AdbTools
         /// <summary>广播句柄：向所有顶层窗口广播消息，隐藏的主窗口同样能收到。</summary>
         private static readonly IntPtr HwndBroadcast = new IntPtr(0xffff);
 
+        /// <summary>全局滚动条粗细（像素）。</summary>
+        private const double ThinScrollBarSize = 8;
+
         /// <summary>第二个实例用它通知已运行实例“把主窗口显示出来”。</summary>
         internal static int ShowMainWindowMessage { get; private set; }
 
@@ -57,6 +62,27 @@ namespace AdbTools
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            // 全局收窄滚动条：按 Loaded 类处理器直接写本地值。
+            // 隐式 ScrollBar 样式在 ListBox / ListView 里可能被模板或主题的局部值盖掉，
+            // 这里在每个滚动条加载时强制设成 8px，所有窗口（含后开的子窗口）都生效。
+            EventManager.RegisterClassHandler(typeof(ScrollBar), FrameworkElement.LoadedEvent,
+                new RoutedEventHandler((sender, _) =>
+                {
+                    var bar = (ScrollBar)sender;
+                    if (bar.Orientation == Orientation.Vertical)
+                    {
+                        bar.Width = ThinScrollBarSize;
+                        bar.MinWidth = ThinScrollBarSize;
+                        bar.MaxWidth = ThinScrollBarSize;
+                    }
+                    else
+                    {
+                        bar.Height = ThinScrollBarSize;
+                        bar.MinHeight = ThinScrollBarSize;
+                        bar.MaxHeight = ThinScrollBarSize;
+                    }
+                }));
 
             // 同一字符串注册出来的消息号相同，两个实例都能对上
             ShowMainWindowMessage = RegisterWindowMessage("AdbTools.ShowMainWindow");

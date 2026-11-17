@@ -93,6 +93,8 @@
                     <ComboBoxItem Content="系统服务" Tag="4" />
                     <ComboBoxItem Content="已停用应用" Tag="3" />
                     <ComboBoxItem Content="已卸载应用" Tag="5" />
+                    <ComboBoxItem Content="Debug 应用" Tag="6" />
+                    <ComboBoxItem Content="非 Debug 应用" Tag="7" />
                 </ComboBox>
 
                 <Button x:Name="refreshButton" Grid.Column="2" Content="刷新" Height="32" Margin="10,0,0,0"
@@ -169,6 +171,18 @@
                                             </TextBlock>
                                         </Border.ToolTip>
                                         <TextBlock Text="系统服务" FontSize="11" Foreground="#FFB45309" />
+                                    </Border>
+                                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                            Background="#FFECFDF5" VerticalAlignment="Center"
+                                            Visibility="{Binding IsDebug, Converter={StaticResource BoolToVis}}">
+                                        <Border.ToolTip>
+                                            <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12">
+                                                <Bold>Debug 应用</Bold><LineBreak/>
+                                                APK 的 AndroidManifest 里声明了 android:debuggable="true"。<LineBreak/>
+                                                判断：dumpsys package 输出中该包的 flags 含 DEBUGGABLE；每次刷新重新读取，不使用缓存。
+                                            </TextBlock>
+                                        </Border.ToolTip>
+                                        <TextBlock Text="Debug" FontSize="11" Foreground="#FF059669" />
                                     </Border>
                                     <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="{Binding StatusBackground}" VerticalAlignment="Center">

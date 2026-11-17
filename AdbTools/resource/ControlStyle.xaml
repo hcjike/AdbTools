@@ -279,9 +279,12 @@
         </Setter>
     </Style>
 
-    <!-- 全局细长滚动条（覆盖默认笨重样式，匹配卡片风格） -->
+    <!-- 全局细长滚动条（覆盖默认笨重样式，匹配卡片风格）：竖向 8px、横向 8px -->
     <Style TargetType="{x:Type ScrollBar}" BasedOn="{x:Null}">
-        <Setter Property="Width" Value="6"/>
+        <!-- 主题默认 MinWidth≈17 会把 Width 顶回去，必须同时压住 Min/Max -->
+        <Setter Property="MinWidth" Value="8"/>
+        <Setter Property="MaxWidth" Value="8"/>
+        <Setter Property="Width" Value="8"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
@@ -323,8 +326,10 @@
         </Setter>
         <Style.Triggers>
             <Trigger Property="Orientation" Value="Horizontal">
-                <Setter Property="Height" Value="6"/>
+                <Setter Property="Height" Value="8"/>
                 <Setter Property="Width" Value="Auto"/>
+                <Setter Property="MinWidth" Value="0"/>
+                <Setter Property="MaxWidth" Value="100000"/>
             </Trigger>
         </Style.Triggers>
     </Style>

@@ -40,6 +40,7 @@ namespace AdbTools
         private readonly Dispatcher _dispatcher;
         private readonly Action<string> _log;
         private readonly int _concurrency;
+        private readonly bool _forceRefresh;
 
         private AppInfo[] _items;
         private int _next = -1;
@@ -56,8 +57,9 @@ namespace AdbTools
         /// <summary>解析被提前终止（设备不支持或设备离线）。</summary>
         public event Action<string> Aborted;
 
+        /// <param name="forceRefresh">true = 忽略已有图标/失败标记，从设备重新取并用新数据覆盖缓存。</param>
         public AppLabelResolver(string adbPath, string serialArg, string deviceKey, Dispatcher dispatcher,
-            Action<string> log, int concurrency)
+            Action<string> log, int concurrency, bool forceRefresh = false)
         {
             _adbFile = (adbPath ?? string.Empty).Trim('"');
             _serialArg = serialArg ?? string.Empty;
@@ -65,6 +67,7 @@ namespace AdbTools
             _dispatcher = dispatcher;
             _log = log;
             _concurrency = concurrency < 1 ? 1 : concurrency;
+            _forceRefresh = forceRefresh;
         }
 
         public void Start(IList<AppInfo> apps)
@@ -266,12 +269,12 @@ namespace AdbTools
                 return;
             }
 
-            if (AppIconStore.HasIcon(_deviceKey, app.PackageName))
+            if (!_forceRefresh && AppIconStore.HasIcon(_deviceKey, app.PackageName))
             {
                 return; // 该设备下已有缓存
             }
 
-            if (AppLabelStore.IsIconFailed(_deviceKey, app.PackageName))
+            if (!_forceRefresh && AppLabelStore.IsIconFailed(_deviceKey, app.PackageName))
             {
                 return; // 之前已尝试且确定拿不到，不再重试
             }
