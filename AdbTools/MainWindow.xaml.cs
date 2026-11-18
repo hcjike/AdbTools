@@ -186,6 +186,7 @@ namespace AdbTools
                 refreshIntervalSeconds = 0;
             }
             ApplyRefreshInterval(false);
+            Topmost = Globals.AppSettings.WINDOW_TOPMOST;
             UpdateTopmostUi();
 
             // 托盘图标：关闭窗口后继续后台运行，右键菜单提供常用操作与退出入口。
@@ -821,6 +822,17 @@ namespace AdbTools
             OpenFileBrowser(device.DeviceMark, device.ShowDeviceName, device.HardwareKey);
         }
 
+        /// <summary>托盘菜单：断开指定设备（菜单点击本身已是一次明确操作，不再二次确认）。</summary>
+        internal void TrayDisconnectDevice(Device device)
+        {
+            if (device == null) return;
+
+            CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} disconnect {device.SerialArg}", result =>
+            {
+                RefreshDevices(false);
+            });
+        }
+
         /// <summary>托盘菜单：断开全部设备（菜单点击本身已是一次明确操作，不再二次确认）。</summary>
         internal void TrayDisconnectAll()
         {
@@ -862,6 +874,12 @@ namespace AdbTools
         /// <param name="failTip">失败提示的补充说明</param>
         private void ExecuteDeviceSetting(string actionName, Func<Device, string> commandFactory, string failTip)
         {
+            ExecuteDeviceSettings(actionName, d => new[] { commandFactory(d) }, failTip);
+        }
+
+        /// <summary>对选中设备依次执行多条设置命令，全部完成才提示成功。</summary>
+        private void ExecuteDeviceSettings(string actionName, Func<Device, string[]> commandsFactory, string failTip)
+        {
             Device device = GetSelectedDevice();
             if (device == null)
             {
@@ -872,7 +890,7 @@ namespace AdbTools
                 return;
             }
             waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { commandFactory(device) },
+            CmdExecutor.ExecuteCommandAndReturnAsync(commandsFactory(device),
                 result =>
                 {
                     waitAnimation(false);
@@ -899,6 +917,17 @@ namespace AdbTools
         private void resetDPIItem_Click(object sender, RoutedEventArgs e)
         {
             ExecuteDeviceSetting("恢复默认DPI", d => $"{adbPath} -s {d.SerialArg} shell wm density reset", "检查设备是否已离线。");
+        }
+
+        private void resetDisplayItem_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteDeviceSettings("恢复默认显示",
+                d => new[]
+                {
+                    $"{adbPath} -s {d.SerialArg} shell wm size reset",
+                    $"{adbPath} -s {d.SerialArg} shell wm density reset"
+                },
+                "检查设备是否已离线。");
         }
 
         private void logcatItem_Click(object sender, RoutedEventArgs e)
@@ -1022,6 +1051,29 @@ namespace AdbTools
             }
         }
 
+        /// <summary>在升级图标右侧显示下载百分比（从下载进度回调线程切回 UI 线程）。</summary>
+        private void ShowUpdatePercent(int percent)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => ShowUpdatePercent(percent)));
+                return;
+            }
+            updateDownloadPercentText.Text = percent + "%";
+            updateDownloadPercentText.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>隐藏下载百分比（下载结束或失败后恢复常驻图标状态）。</summary>
+        private void HideUpdatePercent()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(HideUpdatePercent));
+                return;
+            }
+            updateDownloadPercentText.Visibility = Visibility.Collapsed;
+        }
+
         private void UpdateVersion(GithubReleases githubReleases)
         {
             if (githubReleases == null)
@@ -1070,6 +1122,7 @@ namespace AdbTools
             updateDownloading = true;
             updateDownloadPercent = 0;
             updateVersion.ToolTip = "正在下载更新… 0%";
+            ShowUpdatePercent(0);
 
             WebClient client = new WebClient();
             client.Headers.Add("User-Agent", "AdbTools");
@@ -1078,6 +1131,7 @@ namespace AdbTools
             {
                 updateDownloadPercent = e.ProgressPercentage;
                 updateVersion.ToolTip = "正在下载更新… " + e.ProgressPercentage + "%";
+                ShowUpdatePercent(e.ProgressPercentage);
             };
 
             client.DownloadFileCompleted += (s, e) =>
@@ -1085,6 +1139,7 @@ namespace AdbTools
                 client.Dispose();
                 updateDownloading = false;
                 updateVersion.ToolTip = "发现新版本，点击更新";
+                HideUpdatePercent();
 
                 if (e.Error != null)
                 {
@@ -1116,6 +1171,7 @@ namespace AdbTools
                 client.Dispose();
                 updateDownloading = false;
                 updateVersion.ToolTip = null;
+                HideUpdatePercent();
                 MessageBox.Show("下载更新失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -1263,23 +1319,37 @@ namespace AdbTools
             exitDirectCheck.Visibility = toTray ? Visibility.Collapsed : Visibility.Visible;
         }
 
-        /// <summary>切换窗口置顶（菜单项以对号表示当前状态）</summary>
-        private void topmostItem_Click(object sender, RoutedEventArgs e)
+        /// <summary>置顶显示：单选，选完即收起菜单</summary>
+        private void topmostMode_Click(object sender, RoutedEventArgs e)
         {
-            this.Topmost = !this.Topmost;
+            Button item = sender as Button;
+            if (item == null) return;
+
+            this.Topmost = string.Equals(item.Tag as string, "on", StringComparison.Ordinal);
+            Globals.AppSettings.WINDOW_TOPMOST = this.Topmost;
             UpdateTopmostUi();
+
+            HideOptionColumns();
             setup_popup.IsOpen = false;
         }
 
-        /// <summary>同步「置顶显示」的对号显示</summary>
+        /// <summary>同步「置顶显示」二级菜单的对号（单选）</summary>
         private void UpdateTopmostUi()
         {
-            topmostCheck.Visibility = this.Topmost ? Visibility.Visible : Visibility.Collapsed;
+            topmostOnCheck.Visibility = this.Topmost ? Visibility.Visible : Visibility.Collapsed;
+            topmostOffCheck.Visibility = this.Topmost ? Visibility.Collapsed : Visibility.Visible;
         }
 
         /// <summary>当前展开的二级菜单及其对应的主菜单项</summary>
         private Border _activeOptionColumn;
         private FrameworkElement _activeOptionAnchor;
+
+        /// <summary>鼠标进入「置顶显示」：展开单选二级菜单</summary>
+        private void topmostBtn_MouseEnter(object sender, MouseEventArgs e)
+        {
+            UpdateTopmostUi();
+            ShowOptionColumn(topmostColumn, topmostBtn);
+        }
 
         /// <summary>鼠标进入「定时刷新」：在右侧展开间隔选项二级菜单</summary>
         private void refreshInterval_MouseEnter(object sender, MouseEventArgs e)
@@ -1320,6 +1390,7 @@ namespace AdbTools
         {
             hideIntervalTimer?.Stop();
 
+            if (topmostColumn != column) topmostColumn.Visibility = Visibility.Collapsed;
             if (refreshIntervalColumn != column) refreshIntervalColumn.Visibility = Visibility.Collapsed;
             if (notifyColumn != column) notifyColumn.Visibility = Visibility.Collapsed;
             if (exitColumn != column) exitColumn.Visibility = Visibility.Collapsed;
@@ -1361,6 +1432,7 @@ namespace AdbTools
         private void HideOptionColumns()
         {
             hideIntervalTimer?.Stop();
+            topmostColumn.Visibility = Visibility.Collapsed;
             refreshIntervalColumn.Visibility = Visibility.Collapsed;
             notifyColumn.Visibility = Visibility.Collapsed;
             exitColumn.Visibility = Visibility.Collapsed;
@@ -1440,55 +1512,6 @@ namespace AdbTools
         #endregion
 
         #region 《应用包管理》
-
-        private void customkEnable_Click(object sender, RoutedEventArgs e)
-        {
-            CustomPackage_Click("启用", "pm enable");
-        }
-
-        private void customDisable_Click(object sender, RoutedEventArgs e)
-        {
-            CustomPackage_Click("禁用", "pm disable-user");
-        }
-
-        /// <summary>
-        /// 输入包名并执行启用/禁用
-        /// </summary>
-        private void CustomPackage_Click(string action, string pmCommand)
-        {
-            Device device = GetSelectedDevice();
-            if (device == null)
-            {
-                return;
-            }
-            InputWindow inputWindow = new InputWindow()
-            {
-                Title = "请输入包名",
-                Owner = this
-            };
-            if (inputWindow.ShowDialog() != true)
-            {
-                return;
-            }
-            string package = inputWindow.Result;
-            if (MessageBoxResult.OK != MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【{action}包名{package}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
-            {
-                return;
-            }
-            waitAnimation(true);
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { $"{adbPath} -s {device.SerialArg} shell {pmCommand} {package}" },
-                result =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】{action}包名{package}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-                },
-                err =>
-                {
-                    waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】{action}包名{package}失败！\r\n1.检查设备是否已离线；\r\n2.应用包名未找到！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                });
-        }
 
         /// <summary>
         /// 打开应用列表：一次性展示全部应用，并直接在列表里启动、停用、启用、卸载。

@@ -88,6 +88,20 @@
             <Setter Property="BorderBrush" Value="#FF6FCFA8"/>
         </Style>
 
+        <!-- 日志行：不换行（默认，长行可横向滚动） -->
+        <DataTemplate x:Key="LogLineNoWrap">
+            <TextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
+                       FontFamily="Consolas, Microsoft YaHei, monospace"
+                       FontSize="13" TextWrapping="NoWrap"/>
+        </DataTemplate>
+
+        <!-- 日志行：自动换行，宽度贴合列表视口，不产生横向滚动 -->
+        <DataTemplate x:Key="LogLineWrap">
+            <TextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
+                       FontFamily="Consolas, Microsoft YaHei, monospace"
+                       FontSize="13" TextWrapping="Wrap"/>
+        </DataTemplate>
+
         <!-- 圆角输入框 -->
         <Style x:Key="SearchBox" TargetType="TextBox">
             <Setter Property="FontSize" Value="13"/>
@@ -170,6 +184,7 @@
                      BorderThickness="0" Background="Transparent"
                      SelectionMode="Extended"
                      KeyDown="LogList_KeyDown"
+                     ItemTemplate="{StaticResource LogLineNoWrap}"
                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                      VirtualizingStackPanel.IsVirtualizing="True"
@@ -197,13 +212,6 @@
                         </Setter>
                     </Style>
                 </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
-                                   FontFamily="Consolas, Microsoft YaHei, monospace"
-                                   FontSize="13" TextWrapping="NoWrap"/>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
             </ListBox>
         </Border>
 
@@ -224,7 +232,12 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <CheckBox x:Name="autoScrollBox" Content="自动滚动" IsChecked="True"
                           FontSize="13" Foreground="#FF1F2937"
-                          VerticalAlignment="Center" Margin="0,0,8,0"/>
+                          VerticalAlignment="Center" Margin="0,0,8,0" Padding="2,3"/>
+                <CheckBox x:Name="autoWrapBox" Content="自动换行"
+                          FontSize="13" Foreground="#FF1F2937"
+                          VerticalAlignment="Center" Margin="0,0,8,0" Padding="2,3"
+                          ToolTip="长日志按窗口宽度自动换行，不再出现横向滚动条"
+                          Checked="AutoWrap_Changed" Unchecked="AutoWrap_Changed"/>
                 <Button x:Name="pauseButton" Content="暂停" Style="{StaticResource WarnButton}" Click="Pause_Click"/>
                 <Button Content="清空" Style="{StaticResource DangerButton}" Click="Clear_Click"/>
                 <Button Content="保存" Style="{StaticResource PrimaryButton}" Click="Save_Click"/>

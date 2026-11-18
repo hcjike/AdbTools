@@ -206,6 +206,8 @@ namespace AdbTools
             private static string _NOTIFY_PAIR_RESULT;
             private static string _FILE_SORT_KEY;
             private static string _FILE_SORT_ASC;
+            private static string _LOG_WRAP_LINES;
+            private static string _WINDOW_TOPMOST;
 
             /// <summary>
             /// 最近连接的设备地址
@@ -334,6 +336,24 @@ namespace AdbTools
             {
                 get => GetBool(ref _FILE_SORT_ASC, "FILE_SORT_ASC", true);
                 set => SetValue("FILE_SORT_ASC", value ? "true" : "false", v => _FILE_SORT_ASC = v);
+            }
+
+            /// <summary>
+            /// 设备日志窗口是否自动换行（默认关闭），下次打开沿用
+            /// </summary>
+            public static bool LOG_WRAP_LINES
+            {
+                get => GetBool(ref _LOG_WRAP_LINES, "LOG_WRAP_LINES", false);
+                set => SetValue("LOG_WRAP_LINES", value ? "true" : "false", v => _LOG_WRAP_LINES = v);
+            }
+
+            /// <summary>
+            /// 主窗口是否始终置顶（默认关闭），下次启动沿用
+            /// </summary>
+            public static bool WINDOW_TOPMOST
+            {
+                get => GetBool(ref _WINDOW_TOPMOST, "WINDOW_TOPMOST", false);
+                set => SetValue("WINDOW_TOPMOST", value ? "true" : "false", v => _WINDOW_TOPMOST = v);
             }
 
             /// <summary>

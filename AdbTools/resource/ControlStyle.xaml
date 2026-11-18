@@ -94,6 +94,46 @@
         </Setter>
     </Style>
 
+    <!--全局复选框：圆角蓝勾，整行悬停高亮，未选中也保留方框占位-->
+    <Style TargetType="{x:Type CheckBox}">
+        <Setter Property="Foreground" Value="#FF1F2937"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type CheckBox}">
+                    <Border x:Name="bg" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="16" Height="16" VerticalAlignment="Center">
+                                <Border x:Name="box" CornerRadius="4" Background="White" BorderBrush="#FFD1D5DB" BorderThickness="1.5"/>
+                                <Path x:Name="check" Stretch="Uniform" Width="11" Height="8" Data="M0,4.5 L4,8.5 L11,0" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            </Grid>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bg" Property="Background" Value="#FFF3F4F6"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="box" Property="Background" Value="#FF2A9FFF"/>
+                            <Setter TargetName="box" Property="BorderBrush" Value="#FF2A9FFF"/>
+                            <Setter TargetName="check" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!--右键菜单容器：白底圆角 + 投影-->
     <Style TargetType="{x:Type ContextMenu}">
         <Setter Property="Template">
@@ -327,6 +367,8 @@
         <Style.Triggers>
             <Trigger Property="Orientation" Value="Horizontal">
                 <Setter Property="Height" Value="8"/>
+                <Setter Property="MinHeight" Value="8"/>
+                <Setter Property="MaxHeight" Value="8"/>
                 <Setter Property="Width" Value="Auto"/>
                 <Setter Property="MinWidth" Value="0"/>
                 <Setter Property="MaxWidth" Value="100000"/>
