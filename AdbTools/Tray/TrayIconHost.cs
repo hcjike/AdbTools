@@ -19,6 +19,7 @@ namespace AdbTools.Tray
         private readonly MenuItem _appListMenuItem;
         private readonly MenuItem _fileMenuItem;
         private readonly MenuItem _shellMenuItem;
+        private readonly MenuItem _disconnectMenuItem;
         private readonly MenuItem _refreshIntervalMenuItem;
         private readonly List<MenuItem> _refreshIntervalItems = new List<MenuItem>();
 
@@ -30,6 +31,7 @@ namespace AdbTools.Tray
             _appListMenuItem = new MenuItem { Header = "应用列表" };
             _fileMenuItem = new MenuItem { Header = "文件管理" };
             _shellMenuItem = new MenuItem { Header = "Shell 窗口" };
+            _disconnectMenuItem = new MenuItem { Header = "断开设备" };
 
             // 定时刷新子菜单：与主界面设置共用同一配置，展开时同步勾选
             _refreshIntervalMenuItem = new MenuItem { Header = "定时刷新" };
@@ -48,12 +50,14 @@ namespace AdbTools.Tray
             _appListMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _fileMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _shellMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
+            _disconnectMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
 
             // 设备子菜单在展开时才填充，保证内容始终与当前设备列表一致
             _remoteMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_remoteMenuItem, RemoteControlDevice);
             _appListMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_appListMenuItem, OpenAppListDevice);
             _fileMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_fileMenuItem, OpenFileBrowserDevice);
             _shellMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_shellMenuItem, OpenShellDevice);
+            _disconnectMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_disconnectMenuItem, DisconnectDevice);
 
             ContextMenu menu = new ContextMenu();
             menu.Items.Add(CreateItem("刷新设备", (s, e) => App.MainWindowInstance?.TrayRefreshDevices()));
@@ -64,11 +68,12 @@ namespace AdbTools.Tray
             menu.Items.Add(_fileMenuItem);
             menu.Items.Add(_shellMenuItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(_disconnectMenuItem);
             menu.Items.Add(CreateItem("断开全部设备", (s, e) => App.MainWindowInstance?.TrayDisconnectAll()));
             menu.Items.Add(new Separator());
             menu.Items.Add(CreateItem("检查更新", (s, e) => App.MainWindowInstance?.TrayCheckUpdate()));
             menu.Items.Add(new Separator());
-            menu.Items.Add(CreateItem("退出", (s, e) => App.ConfirmAndExit()));
+            menu.Items.Add(CreateItem("退出", (s, e) => App.ExitFromTray()));
 
             _icon = new TaskbarIcon
             {
@@ -158,6 +163,11 @@ namespace AdbTools.Tray
         private static void OpenFileBrowserDevice(Device device)
         {
             App.MainWindowInstance?.TrayOpenFileBrowser(device);
+        }
+
+        private static void DisconnectDevice(Device device)
+        {
+            App.MainWindowInstance?.TrayDisconnectDevice(device);
         }
 
         /// <summary>向定时刷新子菜单追加一个间隔选项（秒，0 表示关闭）。</summary>

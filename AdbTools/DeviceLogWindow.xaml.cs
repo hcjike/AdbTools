@@ -82,6 +82,11 @@ namespace AdbTools
 
             logList.ItemsSource = _visible;
 
+            // 自动换行：按全局配置初始化，切换时立即保存
+            bool wrap = Globals.AppSettings.LOG_WRAP_LINES;
+            autoWrapBox.IsChecked = wrap;
+            ApplyWrap(wrap);
+
             InitBuffers();
             InitLevels();
 
@@ -107,6 +112,22 @@ namespace AdbTools
         {
             StartStream();
             _flushTimer.Start();
+        }
+
+        /// <summary>自动换行开关：切换行模板并持久化。</summary>
+        private void AutoWrap_Changed(object sender, RoutedEventArgs e)
+        {
+            bool wrap = autoWrapBox.IsChecked == true;
+            Globals.AppSettings.LOG_WRAP_LINES = wrap;
+            ApplyWrap(wrap);
+        }
+
+        /// <summary>换行开启时行宽贴合视口、禁用横向滚动条；关闭时恢复横向滚动。</summary>
+        private void ApplyWrap(bool wrap)
+        {
+            logList.ItemTemplate = (DataTemplate)FindResource(wrap ? "LogLineWrap" : "LogLineNoWrap");
+            ScrollViewer.SetHorizontalScrollBarVisibility(logList,
+                wrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

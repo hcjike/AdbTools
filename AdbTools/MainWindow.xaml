@@ -11,7 +11,9 @@
         <ContextMenu x:Key="ListBoxItemContextMenu"  FontSize="13">
             <MenuItem x:Name="installApkItem" Header="安装应用" Click="installApkItem_Click" Cursor="Hand"   Margin="0,2" />
             <MenuItem x:Name="remoteControlItem" Header="远程控制" Click="remoteControlItem_Click" Cursor="Hand" Margin="0,2" />
+            <MenuItem x:Name="appList" Header="应用列表" ToolTip="查看全部应用，可卸载、停用/启用、清除数据" Cursor="Hand" Margin="0,2" Click="appList_Click" />
             <MenuItem x:Name="fileManagerItem" Header="文件管理" ToolTip="浏览设备文件，支持上传 / 下载文件与文件夹" Click="fileManagerItem_Click" Cursor="Hand" Margin="0,2" />
+            <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand" Margin="0,2" Click="openShell_Click"/>
             <Separator/>
             <MenuItem Header="查看日志" Cursor="Hand"   Margin="0,2" >
                 <MenuItem x:Name="logcatItem" Header="实时日志" Cursor="Hand"   Margin="0,2" Click="logcatItem_Click" />
@@ -25,15 +27,7 @@
                 <MenuItem x:Name="resetPortItem" Header="恢复默认TCP端口" Cursor="Hand"   Margin="0,2" Click="resetPortItem_Click" />
                 <MenuItem x:Name="resetPXItem" Header="恢复默认分辨率" Cursor="Hand"   Margin="0,2" Click="resetPXItem_Click" />
                 <MenuItem x:Name="resetDPIItem" Header="恢复默认DPI" Cursor="Hand"   Margin="0,2" Click="resetDPIItem_Click"/>
-            </MenuItem>
-            <Separator/>
-            <MenuItem Header="应用控制" Cursor="Hand"   Margin="0,2">
-                <MenuItem x:Name="openShell" Header="Shell窗口" Cursor="Hand"   Margin="0,2" Click="openShell_Click"/>
-                <MenuItem x:Name="appList" Header="应用列表" ToolTip="查看全部应用，可卸载、停用/启用、清除数据" Cursor="Hand"   Margin="0,2" Click="appList_Click" />
-                <MenuItem Header="指定包名" Cursor="Hand"   Margin="0,2">
-                    <MenuItem x:Name="customkEnable" Header="启用应用" Cursor="Hand"   Margin="0,2" Click="customkEnable_Click" />
-                    <MenuItem x:Name="customDisable" Header="禁用应用" Cursor="Hand"   Margin="0,2" Click="customDisable_Click" />
-                </MenuItem>
+                <MenuItem x:Name="resetDisplayItem" Header="恢复默认显示" ToolTip="同时恢复默认分辨率与 DPI" Cursor="Hand" Margin="0,2" Click="resetDisplayItem_Click"/>
             </MenuItem>
             <Separator/>
             <MenuItem x:Name="disconnectDeviceItem" Header="断开设备" Click="disconnectDeviceItem_Click"  Cursor="Hand" Margin="0,2"/>
@@ -171,54 +165,81 @@
                                 <DropShadowEffect BlurRadius="16" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
                             </Border.Effect>
                             <StackPanel>
-                                <!-- 置顶显示：用对号表示选中，与定时刷新选项保持一致的菜单样式 -->
-                                <Button x:Name="topmostItem" Style="{StaticResource PopupButtonStyle}" Click="topmostItem_Click">
+                                <!-- 置顶显示：悬停展开二级菜单，单选启用/关闭 -->
+                                <Button x:Name="topmostBtn" Style="{StaticResource PopupButtonStyle}" ToolTip="窗口是否始终显示在最前" MouseEnter="topmostBtn_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                     <Grid MinWidth="96">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="16"/>
                                             <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock x:Name="topmostCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
-                                        <TextBlock Grid.Column="1" Text="置顶显示" VerticalAlignment="Center"/>
+                                        <TextBlock Text="置顶显示" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
                                 <!-- 定时刷新：鼠标划过即在右侧展开刷新间隔选项，离开即收起 -->
                                 <Button x:Name="refreshIntervalBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" MouseEnter="refreshInterval_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                     <Grid MinWidth="96">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="16"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="1" Text="定时刷新" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                        <TextBlock Text="定时刷新" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
                                 <!-- 消息提醒：鼠标划过即在右侧以二级菜单展开，可多选要接收的系统通知 -->
                                 <Button x:Name="notifyBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" ToolTip="选择要接收的系统通知" MouseEnter="notifyBtn_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                     <Grid MinWidth="96">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="16"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="1" Text="消息提醒" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                        <TextBlock Text="消息提醒" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
                                 <!-- 关闭方式：鼠标划过展开二级菜单，单选 -->
                                 <Button x:Name="exitModeBtn" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" ToolTip="点击窗口关闭按钮（×）时的行为" MouseEnter="exitModeBtn_MouseEnter" MouseLeave="optionItem_MouseLeave">
                                     <Grid MinWidth="96">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="16"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="1" Text="关闭方式" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
+                                        <TextBlock Text="关闭方式" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="›" FontSize="15" Margin="10,0,0,0" Foreground="#FF9CA3AF" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
                             </StackPanel>
+                        </Border>
+                        <!-- 置顶显示二级菜单：单选，对号表示当前状态 -->
+                        <Border x:Name="topmostColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.24"/>
+                            </Border.Effect>
+                            <Border MouseEnter="optionColumn_MouseEnter" MouseLeave="optionItem_MouseLeave">
+                                <StackPanel MinWidth="126">
+                                    <Button x:Name="topmostOnItem" Tag="on" Style="{StaticResource PopupButtonStyle}" ToolTip="窗口始终显示在其它窗口之上" Click="topmostMode_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="topmostOnCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="启用" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="topmostOffItem" Tag="off" Style="{StaticResource PopupButtonStyle}" Margin="0,1,0,0" ToolTip="窗口按正常层级显示" Click="topmostMode_Click">
+                                        <Grid MinWidth="126">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="topmostOffCheck" Text="✓" Foreground="#FF2A9FFF" Visibility="Collapsed"/>
+                                            <TextBlock Grid.Column="1" Text="关闭" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
                         </Border>
                         <!-- 右侧浮动选项卡片：与主菜单分离，主菜单不会被撑开 -->
                         <Border x:Name="refreshIntervalColumn" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" Margin="4,39,0,0" Padding="4" Background="White" CornerRadius="6" BorderBrush="#FFD5D9DF" BorderThickness="1">
@@ -438,7 +459,12 @@
                 </Popup>
             </StackPanel>
 
-            <Image x:Name="updateVersion" Grid.Column="1" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" HorizontalAlignment="Center" Width="22" Height="22" Margin="0,0,14,0" MouseDown="updateVersion_MouseDown" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                <Image x:Name="updateVersion" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" Width="22" Height="22" MouseDown="updateVersion_MouseDown" />
+                <!-- 下载进度：仅下载更新时显示在升级图标右侧，平时隐藏 -->
+                <TextBlock x:Name="updateDownloadPercentText" Visibility="Collapsed" VerticalAlignment="Center" Margin="6,0,0,0"
+                           FontSize="12" Foreground="#FF2A9FFF" Text="0%"/>
+            </StackPanel>
             <!-- 底部分隔线 -->
             <Rectangle Grid.ColumnSpan="2" Height="1" Fill="#FFE5E7EB" VerticalAlignment="Bottom" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
         </Grid>

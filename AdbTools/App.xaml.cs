@@ -225,57 +225,16 @@ namespace AdbTools
             }
         }
 
-        /// <summary>退出确认框是否正在显示，避免重复点击叠加多个对话框。</summary>
-        private static bool _exitConfirming;
-
         /// <summary>
-        /// 托盘菜单「退出」：先二次确认，默认选中“否”，确认后才真正退出。
-        ///
-        /// 托盘菜单还在关闭过程中的这次鼠标输入如果直接弹模态框，会被后续消息立即关掉
-        /// （表现为确认框闪一下就消失）。所以先把主窗口恢复正常并激活、让程序拿到前台，
-        /// 再延迟一小会儿，等输入队列彻底清空后由主窗口作为 Owner 弹出确认框。
+        /// 托盘菜单「退出」：不再二次确认，直接走统一退出流程。
+        /// 用 BeginInvoke 排到当前鼠标消息处理完之后，避免在托盘菜单回调里直接销毁托盘图标；
+        /// 不弹对话框、不做额外等待，用户点完即退出。
         /// </summary>
-        internal static void ConfirmAndExit()
+        internal static void ExitFromTray()
         {
             Application app = Current;
-            if (app == null || _exitConfirming) return;
-            _exitConfirming = true;
-
-            app.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                ShowMainWindow();
-
-                // 即便排到空闲优先级，托盘菜单收尾时仍可能残留鼠标/激活消息，
-                // 会把刚弹出的对话框立即点掉。稍等一小会儿再弹，用户几乎察觉不到。
-                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-                timer.Tick += (s, e) =>
-                {
-                    timer.Stop();
-                    ShowExitConfirm();
-                };
-                timer.Start();
-            }), DispatcherPriority.Background);
-        }
-
-        /// <summary>真正显示退出确认框（在输入事件处理完、程序回到前台之后执行）。</summary>
-        private static void ShowExitConfirm()
-        {
-            const string message = "确定要退出 Adb 连接工具吗？\n\n"
-                + "已打开的远程控制与应用列表窗口会一并关闭，"
-                + "托盘图标也会消失，需要重新启动程序才能继续使用。";
-
-            MainWindow main = MainWindowInstance;
-            MessageBoxResult result = main != null
-                ? MessageBox.Show(main, message, "退出确认",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)
-                : MessageBox.Show(message, "退出确认",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-
-            _exitConfirming = false;
-
-            if (result != MessageBoxResult.Yes) return;
-
-            ExitApplication();
+            if (app == null) return;
+            app.Dispatcher.BeginInvoke(new Action(ExitApplication), DispatcherPriority.Background);
         }
 
         /// <summary>
