@@ -266,6 +266,9 @@ namespace AdbTools
 
         private void TaskScheduler_UnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
         {
+            // 先落盘再提示：异常日志是排查这类问题的唯一线索
+            AppExceptionLog.Write("Task 线程未处理异常", e.Exception);
+
             Dispatcher.Invoke(new Action(() =>
             {
                 MessageBox.Show("未捕获Task线程异常：" + e.Exception?.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -291,9 +294,20 @@ namespace AdbTools
 
         private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
+            // 先落盘再提示
+            Exception exception = e.ExceptionObject as Exception;
+            if (exception != null)
+            {
+                AppExceptionLog.Write("非UI线程未处理异常", exception);
+            }
+            else
+            {
+                AppExceptionLog.WriteMessage("非UI线程未处理异常", e.ExceptionObject?.ToString());
+            }
+
             Dispatcher.Invoke(new Action(() =>
             {
-                string message = e.ExceptionObject is Exception ex ? ex.Message : e.ExceptionObject?.ToString();
+                string message = exception != null ? exception.Message : e.ExceptionObject?.ToString();
                 MessageBox.Show("未捕获非UI线程异常：" + message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }));
         }
@@ -309,6 +323,9 @@ namespace AdbTools
             }
 
             e.Handled = true;
+
+            // 先落盘再提示
+            AppExceptionLog.Write("UI线程未处理异常", e.Exception);
 
             Dispatcher.Invoke(new Action(() =>
             {

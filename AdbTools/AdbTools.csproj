@@ -214,6 +214,7 @@
       <DependentUpon>AppListWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="AppExceptionLog.cs" />
     <Compile Include="AppManagement\ApkInfoReader.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
