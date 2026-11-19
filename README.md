@@ -151,8 +151,8 @@
 | 文件管理 | 浏览设备文件，支持上传 / 下载文件与文件夹（详见[文件管理](#文件管理)） |
 | 应用列表 | 查看全部应用，支持搜索、筛选、卸载、停用 / 启用、清除数据，已卸载的系统应用可恢复 |
 | Shell 窗口 | 打开命令行 Shell（外部系统控制台） |
-| 断开设备 | 断开当前设备 |
-| 查看日志 - 实时日志 / Debug 日志 | 打开独立日志窗口，支持缓冲切换、级别 / 关键字过滤、暂停、清空、保存与选择复制 |
+| 断开设备 | 断开当前设备（二次确认） |
+| 查看日志 - 实时日志 / Debug 日志 | 打开独立日志窗口，支持缓冲切换、级别 / 关键字过滤、暂停、清空、保存、自动换行与选择复制 |
 | 查看日志 - 抓取崩溃日志 | 导出 crash 缓冲区到 `%APPDATA%\AdbTools\DeviceLogs\<设备名称>\` |
 | 查看日志 - 抓取诊断包 | 打包 logcat、crash、dropbox、内存 / CPU 与设备信息为 zip |
 | 查看日志 - 打开日志目录 | 打开当前设备的日志文件夹 |
@@ -297,8 +297,8 @@
 | 应用列表 | 按当前设备列出子菜单，直接打开对应设备的应用列表窗口 |
 | 文件管理 | 按当前设备列出子菜单，直接打开该设备的文件浏览窗口 |
 | Shell 窗口 | 按当前设备列出子菜单，直接为该设备打开命令行 Shell |
-| 断开设备 | 按当前设备列出子菜单，断开选中的那台设备 |
-| 断开全部设备 | 断开所有已连接设备 |
+| 断开设备 | 按当前设备列出子菜单，断开选中的设备（不再二次确认） |
+| 断开全部设备 | 断开所有已连接设备（不再二次确认） |
 | 检查更新 | 检查是否有新版本，有新版本时弹更新窗口 |
 | 退出 | 关闭远程控制与应用列表窗口、清理设备端服务后直接退出，不再二次确认 |
 
@@ -374,10 +374,14 @@
 系统通知（Toast）使用 **Microsoft.Toolkit.Uwp.Notifications 7.1.3**（[项目地址](https://github.com/CommunityToolkit/WindowsCommunityToolkit)），采用 **MIT License** 授权，版权归 `.NET Foundation and Contributors` 所有：
 
 - 仅用于把设备连接、安装结果、配对结果等提醒交给 Windows 通知中心，不涉及网络与设备操作；
-- 通知内容的取舍（是否发送）由程序内的三个通知开关与 Windows 通知设置决定，程序不绕过系统屏蔽；
+- 通知内容的取舍（是否发送）由程序内的四个通知开关与 Windows 通知设置决定，程序不绕过系统屏蔽；
 - 许可证全文随安装包写入 `THIRD_PARTY_NOTICES.txt`，随附文件为 `Microsoft.Toolkit.Uwp.Notifications.dll`。
 
-ADB 相关能力依赖 Google 官方 `adb` 组件。
+扫码配对使用 **QRCoder 1.4.3**（[项目地址](https://github.com/codebude/QRCoder)），采用 **MIT License** 授权，版权归 `Raffael Herrmann` 所有；仅在本机生成配对二维码，不涉及网络传输。
+
+ADB 相关能力依赖 Google 官方 **Android SDK Platform-Tools 37.0.1**（[下载地址](https://developer.android.com/studio/releases/platform-tools)）中的 `adb.exe`，采用 Android SDK License Agreement 授权（含 Apache License 2.0 组件），版权归 `Google LLC` 所有；仅在本机调用，不额外收集或上传数据。
+
+以上组件的版本、来源、版权人、SHA-256 与用途均记录在 `THIRD_PARTY_NOTICES.txt` 中，随安装包分发。
 
 ## 说明
 
