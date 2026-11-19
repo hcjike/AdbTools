@@ -23,11 +23,22 @@ libwebp
 版本      : 随 UMapx.Imaging.Webp 8.0.2.1 分发的 x64 构建（libwebp 解码库）
 来源      : https://www.nuget.org/packages/UMapx.Imaging.Webp
             上游项目  : https://github.com/webmproject/libwebp
-许可      : BSD-3-Clause（libwebp 版权归 Google 及原作者所有）
+许可      : BSD-3-Clause（全文见本文件末尾）
 随附文件  : libwebp.dll
 SHA-256   : 359C16AC843DB95FA5D7E9A31BF8C59E325EFAE4CD0BFB6FB212E4742C0E22A0
 用途说明  : 解码应用图标里的 WebP 图片。WPF 自带的 WIC 没有内置 WebP 解码器，
             故随程序附带 libwebp；仅在本机解码图标，不涉及任何网络传输。
+
+QRCoder
+-------
+版本      : 1.4.3
+来源      : https://www.nuget.org/packages/QRCoder/1.4.3
+            源码  : https://github.com/codebude/QRCoder
+许可      : MIT License（全文见本文件末尾，与 Hardcodet 相同条款）
+版权      : Copyright (c) Raffael Herrmann
+随附文件  : QRCoder.dll
+SHA-256   : 561ACFE4B1A14C837B189FB9FC5C6D3E82440184BBDE61912DE723D62D6368B3
+用途说明  : 生成无线配对二维码，仅在本机生成图像，不涉及网络传输与设备操作。
 
 SQLite / System.Data.SQLite
 ---------------------------
@@ -68,6 +79,18 @@ SHA-256   : A0B5BE9580BF6548F685D79E5439F6D946EF57E013D201F946B2A894E7441804
             Windows 10 1809 以下不启用，自动退回托盘气泡。
             仅在本机调用系统通知接口，不涉及网络与设备操作。
 
+Android SDK Platform-Tools (adb)
+--------------------------------
+版本      : 37.0.1
+来源      : https://developer.android.com/studio/releases/platform-tools
+许可      : Android SDK License Agreement（含 Apache License 2.0 组件），
+            条款见 https://developer.android.com/studio/terms
+版权      : Copyright (C) Google LLC
+随附文件  : adb.exe、AdbWinApi.dll、AdbWinUsbApi.dll
+SHA-256   : adb.exe  B4A6B455702684652CCCF7B46258B29E653538904359A58FD4931CF3EF286B3F
+用途说明  : 与 Android 设备通信的唯一通道，所有连接、安装、Shell、文件管理、
+            远程控制与日志功能均通过它执行；仅在本机调用，不额外收集或上传数据。
+
 用途说明
 --------
 本程序仅随附 scrcpy 的设备端组件 scrcpy-server，未使用其 PC 端
@@ -79,11 +102,15 @@ app_process 启动；它不修改设备系统分区，卸载本程序不会影�
 
 scrcpy 的完整源代码、文档与许可证可从上述来源获取。
 
-Hardcodet.NotifyIcon.Wpf — MIT License 全文
--------------------------------------------
+MIT License 全文
+----------------
+适用于：Hardcodet.NotifyIcon.Wpf、Microsoft.Toolkit.Uwp.Notifications、QRCoder
+
 The MIT License (MIT)
 
 Copyright (c) Philipp Sumi
+Copyright (c) .NET Foundation and Contributors
+Copyright (c) Raffael Herrmann
 
 All rights reserved.
 
@@ -104,3 +131,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+libwebp — BSD 3-Clause License 全文
+-----------------------------------
+Copyright (c) 2010, Google Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of Google nor the names of its contributors may be used to
+   endorse or promote products derived from this software without specific
+   prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
