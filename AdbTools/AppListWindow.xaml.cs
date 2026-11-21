@@ -769,7 +769,13 @@ namespace AdbTools
             if (_batchBusy || apps == null) return;
 
             AppInfo[] targets = apps.Where(a => a != null && !a.IsBusy).Distinct().ToArray();
-            if (targets.Length == 0) return;
+            if (targets.Length == 0)
+            {
+                SetStatus(apps.Any(a => a != null)
+                    ? "所选应用正在处理中，请稍后再试"
+                    : "请先选择应用", ErrorBrush);
+                return;
+            }
 
             if (!ConfirmTargets(targets, action)) return;
 

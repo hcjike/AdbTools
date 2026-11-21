@@ -129,7 +129,8 @@
                     </ComboBox>
 
                     <Button x:Name="refreshButton" Grid.Column="2" Content="刷新" Height="32" Margin="10,0,0,0"
-                            Style="{StaticResource RowButtonStyle}" Click="Refresh_Click" />
+                            Style="{StaticResource RowButtonStyle}" Click="Refresh_Click"
+                            ToolTip="重新读取设备上的应用列表" />
                 </Grid>
 
                 <Grid Margin="0,10,0,0" VerticalAlignment="Center">
@@ -145,9 +146,11 @@
                                     FontSize="12" Padding="10,4" Click="SelectAll_Click"
                                     ToolTip="全选当前筛选结果" />
                             <Button Content="反选" Style="{StaticResource InvertToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="InvertSelection_Click" />
+                                    FontSize="12" Padding="10,4" Click="InvertSelection_Click"
+                                    ToolTip="反转当前筛选结果的选择状态" />
                             <Button Content="清空选择" Style="{StaticResource ClearSelectionToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="ClearSelection_Click" />
+                                    FontSize="12" Padding="10,4" Click="ClearSelection_Click"
+                                    ToolTip="清空所有选择，包括被筛选隐藏的应用" />
                         </StackPanel>
                         <TextBlock x:Name="selectionText" Text="已选 0 项" Foreground="#FF6B7280"
                                    Margin="12,0,0,0" VerticalAlignment="Center" />
@@ -157,23 +160,29 @@
                                 HorizontalAlignment="Right">
                         <StackPanel x:Name="batchButtonPanel" Orientation="Horizontal">
                             <Button Content="停用" Style="{StaticResource ToggleButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchDisable_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchDisable_Click"
+                                    ToolTip="停用选中应用：保留数据，可随时启用" />
                             <Button Content="启用" Style="{StaticResource EnableToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchEnable_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchEnable_Click"
+                                    ToolTip="启用选中应用：恢复正常使用" />
                             <TextBlock Text="|" Foreground="#FFE5E7EB" Margin="8,0,2,0"
                                     VerticalAlignment="Center" />
                             <Button Content="卸载" Style="{StaticResource UninstallButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchUninstall_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchUninstall_Click"
+                                    ToolTip="卸载选中应用并删除数据" />
                             <TextBlock Text="|" Foreground="#FFE5E7EB" Margin="8,0,2,0"
                                     VerticalAlignment="Center" />
                             <Button Content="清除数据" Style="{StaticResource ClearDataToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchClearData_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchClearData_Click"
+                                    ToolTip="清除选中应用的账号、设置与缓存，不可撤销" />
                             <Button Content="强制停止" Style="{StaticResource ForceStopToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchForceStop_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchForceStop_Click"
+                                    ToolTip="结束选中应用的进程，不会删除数据" />
                             <TextBlock Text="|" Foreground="#FFE5E7EB" Margin="8,0,2,0"
                                     VerticalAlignment="Center" />
                             <Button Content="解析名称" Style="{StaticResource ResolveToolButtonStyle}"
-                                    FontSize="12" Padding="10,4" Click="BatchReResolve_Click" />
+                                    FontSize="12" Padding="10,4" Click="BatchReResolve_Click"
+                                    ToolTip="从设备重新解析选中应用的名称与图标" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>

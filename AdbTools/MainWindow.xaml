@@ -441,6 +441,7 @@
                                     </Grid>
                                 </Button>
                                 <Button x:Name="cheackUpdate" Content="检查更新" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" Click="cheackUpdate_Click"/>
+                                <Button x:Name="openAppLogItem" Content="打开日志" Style="{StaticResource PopupButtonStyle}" Margin="0,2,0,0" Click="openAppLogItem_Click"/>
                             </StackPanel>
                         </Border>
                         <!-- 右侧浮动的仓库入口卡片：与主菜单分离，主菜单不会被撑开 -->
