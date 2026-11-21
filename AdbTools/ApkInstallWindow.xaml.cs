@@ -10,6 +10,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
@@ -22,6 +23,11 @@ namespace AdbTools
     public partial class ApkInstallWindow : Window
     {
         private const int ParseConcurrency = 4;
+
+        private static readonly Brush SuccessSummaryBrush = new SolidColorBrush(Color.FromRgb(0x04, 0x78, 0x57));
+        private static readonly Brush FailureSummaryBrush = new SolidColorBrush(Color.FromRgb(0xB9, 0x1C, 0x1C));
+        private static readonly Brush SkipSummaryBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x58, 0x0C));
+        private static readonly Brush MutedSummaryBrush = new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63));
 
         private readonly ObservableCollection<ApkInstallItem> _items = new ObservableCollection<ApkInstallItem>();
         private readonly ICollectionView _view;
@@ -40,8 +46,11 @@ namespace AdbTools
         private bool _busy;
         private bool _finished;
         private bool _syncingSelection;
-        private string _finalSummary;
+        private int _lastSuccessCount;
+        private int _lastFailCount;
+        private int _lastSkipCount;
         private int _pendingParses;
+        private InstallErrorWindow _errorWindow;
 
         public ApkInstallWindow(IEnumerable<string> paths, Device device, string adbPath)
         {
@@ -110,8 +119,9 @@ namespace AdbTools
             _busy = false;
             _finished = true;
 
-            _finalSummary = "安装结束：成功 " + success + "，失败 " + fail + "，跳过 " + skipped;
-            summaryText.Text = _finalSummary;
+            _lastSuccessCount = success;
+            _lastFailCount = fail;
+            _lastSkipCount = skipped;
             progressText.Text = string.Empty;
 
             // 安装成功的项自动排除出选择，避免再次安装时重复安装；失败/跳过项仍保留选中便于重试。
@@ -226,10 +236,53 @@ namespace AdbTools
 
         private void UpdateSummary()
         {
-            summaryText.Text = string.IsNullOrEmpty(_finalSummary)
-                ? "共 " + _items.Count + " 项"
-                : _finalSummary;
+            summaryText.Inlines.Clear();
+
+            if (!_finished)
+            {
+                summaryText.Inlines.Add(new Run("共 " + _items.Count + " 项")
+                {
+                    Foreground = MutedSummaryBrush
+                });
+            }
+            else
+            {
+                summaryText.Inlines.Add(new Run("安装结束：") { Foreground = MutedSummaryBrush });
+                AddSummaryRun("成功 " + _lastSuccessCount, SuccessSummaryBrush);
+                summaryText.Inlines.Add(new Run("，") { Foreground = MutedSummaryBrush });
+                if (_lastFailCount > 0) AddSummaryLink("失败 " + _lastFailCount);
+                else AddSummaryRun("失败 " + _lastFailCount, FailureSummaryBrush);
+                summaryText.Inlines.Add(new Run("，") { Foreground = MutedSummaryBrush });
+                AddSummaryRun("跳过 " + _lastSkipCount, SkipSummaryBrush);
+            }
+
             selectionText.Text = "已选 " + SelectedCount + " 项";
+        }
+
+        private void AddSummaryRun(string text, Brush brush)
+        {
+            summaryText.Inlines.Add(new Run(text)
+            {
+                Foreground = brush,
+                FontWeight = FontWeights.SemiBold
+            });
+        }
+
+        private void AddSummaryLink(string text)
+        {
+            var link = new Hyperlink(new Run(text))
+            {
+                Foreground = FailureSummaryBrush,
+                FontWeight = FontWeights.SemiBold,
+                TextDecorations = null
+            };
+            link.Click += FailureCount_Click;
+            summaryText.Inlines.Add(link);
+        }
+
+        private void FailureCount_Click(object sender, RoutedEventArgs e)
+        {
+            ShowFailureDetails();
         }
 
         private void UpdateButtons()
@@ -253,7 +306,7 @@ namespace AdbTools
                 return;
             }
 
-            // 普通单击行不改变选择；只有复选框或 Ctrl / Shift 组合键才切换选择
+            // 普通单击行不改变选择；只有复选框或 Ctrl / Shift 组合键才交给子元素处理
             if (Keyboard.Modifiers != ModifierKeys.None) return;
             if (FindAncestor<CheckBox>(e.OriginalSource as DependencyObject) != null) return;
 
@@ -401,7 +454,9 @@ namespace AdbTools
 
             // 再次执行时重置本轮状态，避免沿用上一次的成功/失败结果
             _finished = false;
-            _finalSummary = null;
+            _lastSuccessCount = 0;
+            _lastFailCount = 0;
+            _lastSkipCount = 0;
 
             foreach (ApkInstallItem item in _items)
             {
@@ -565,6 +620,30 @@ namespace AdbTools
             _installFailures.Clear();
         }
 
+        private void ShowFailureDetails()
+        {
+            if (_busy || _closed) return;
+
+            ApkInstallItem[] failures = _items.Where(i => i.InstallState == ApkInstallState.Failed && i.HasError).ToArray();
+            if (failures.Length == 0) return;
+
+            if (_errorWindow == null || !_errorWindow.IsLoaded)
+            {
+                _errorWindow = new InstallErrorWindow(failures);
+                _errorWindow.Closed += ErrorWindow_Closed;
+                _errorWindow.Show();
+            }
+            else
+            {
+                _errorWindow.Activate();
+            }
+        }
+
+        private void ErrorWindow_Closed(object sender, EventArgs e)
+        {
+            _errorWindow = null;
+        }
+
         private static string BuildInstallSummary(IList<string> successes, IList<string> failures,
             string deviceName, DateTime startedAt)
         {
@@ -646,6 +725,13 @@ namespace AdbTools
         {
             _closed = true;
             if (_busy) CancelRequested = true;
+
+            try
+            {
+                if (_errorWindow != null && _errorWindow.IsLoaded) _errorWindow.Close();
+            }
+            catch { }
+            _errorWindow = null;
         }
 
         private static string FormatSize(string path)

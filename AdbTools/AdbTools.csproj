@@ -195,6 +195,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="InstallErrorWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -271,6 +275,9 @@
     </Compile>
     <Compile Include="ApkInstallWindow.xaml.cs">
       <DependentUpon>ApkInstallWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="InstallErrorWindow.xaml.cs">
+      <DependentUpon>InstallErrorWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>

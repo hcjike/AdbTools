@@ -155,7 +155,16 @@
                                             MinWidth="72" CornerRadius="8" Padding="12,6"
                                             Margin="12,0,0,0" VerticalAlignment="Center"
                                             Background="#FFF1F5F9" BorderBrush="#FFE2E8F0"
-                                            BorderThickness="1">
+                                            BorderThickness="1"
+                                            ToolTipService.IsEnabled="{Binding HasError}"
+                                            ToolTipService.ShowDuration="8000">
+                                        <Border.ToolTip>
+                                            <ToolTip MaxWidth="360">
+                                                <TextBlock Text="{Binding ErrorText}" MaxWidth="340"
+                                                           TextWrapping="Wrap" FontSize="12"
+                                                           Foreground="#FFB91C1C" />
+                                            </ToolTip>
+                                        </Border.ToolTip>
                                         <TextBlock x:Name="statusText" FontSize="14" FontWeight="SemiBold"
                                                    TextAlignment="Center"
                                                    Text="{Binding InstallStateText}"
@@ -192,10 +201,6 @@
                                                 </TextBlock>
                                             </Border>
                                         </WrapPanel>
-
-                                        <TextBlock Text="{Binding ErrorText}" Foreground="#FFB91C1C"
-                                                   FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
-                                                   Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
