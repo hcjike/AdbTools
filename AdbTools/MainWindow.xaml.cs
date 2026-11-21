@@ -1835,13 +1835,9 @@ namespace AdbTools
             }
 
             string apkFilePath = apkList[index];
-            // 从 APK 里读出应用名与包名，让用户在确认前看清装的是什么
-            string label;
-            string packageName;
-            ApkInfoReader.Read(apkFilePath, out label, out packageName);
 
-            InstallConfirmWindow confirm = new InstallConfirmWindow(
-                label, packageName, apkFilePath, targetDevice.ShowDeviceName)
+            // 确认窗口在后台线程解析 APK 信息，大包读取不会卡住界面
+            InstallConfirmWindow confirm = new InstallConfirmWindow(apkFilePath, targetDevice.ShowDeviceName)
             {
                 Owner = this
             };
@@ -1851,6 +1847,9 @@ namespace AdbTools
                 HandleApkInstallation(apkList, index + 1, targetDevice);
                 return;
             }
+
+            string label = confirm.Label;
+            string packageName = confirm.PackageName;
 
             // 微信等来源的文件名是 xxx.apk.1，安装前复制成 .apk 的临时副本
             string installPath;
