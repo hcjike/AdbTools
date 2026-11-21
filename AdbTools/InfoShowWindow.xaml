@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:AdbTools"
         mc:Ignorable="d"
         Title="信息" Height="450" Width="580" FontSize="14" WindowStartupLocation="CenterScreen" Loaded="Window_Loaded">
-    <Grid Margin="5">
+    <Grid Margin="10">
         <Border Background="White" CornerRadius="10" BorderBrush="#FFE5E7EB" BorderThickness="1" Padding="6">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>

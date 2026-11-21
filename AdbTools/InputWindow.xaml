@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="InputWindow" FontSize="14" MinHeight="160" Height="auto" Width="340" WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Loaded="Window_Loaded" SizeToContent="Height">
     <Grid Margin="0">
-        <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="14">
+        <Border Background="White" CornerRadius="0" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="10">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
             </Border.Effect>

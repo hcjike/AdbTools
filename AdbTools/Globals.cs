@@ -20,6 +20,111 @@ namespace AdbTools
             return substrings.Any(substring => source.Contains(substring));
         }
 
+        /// <summary>常见 adb 安装错误的可读说明；未命中的错误保持原文。</summary>
+        private static readonly Dictionary<string, string> InstallErrorMessages =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "INSTALL_FAILED_ALREADY_EXISTS", "应用已存在，当前未启用覆盖安装，请先卸载后再安装" },
+                { "INSTALL_FAILED_DUPLICATE_PACKAGE", "设备已存在相同包名的应用" },
+                { "INSTALL_FAILED_INVALID_APK", "APK 文件无效或已损坏" },
+                { "INSTALL_FAILED_INVALID_URI", "APK 路径无效，无法读取安装包" },
+                { "INSTALL_FAILED_INSUFFICIENT_STORAGE", "设备存储空间不足" },
+                { "INSTALL_FAILED_NO_MATCHING_ABIS", "设备 CPU 架构不支持该 APK" },
+                { "INSTALL_FAILED_CPU_ABI_INCOMPATIBLE", "设备 CPU 架构不支持该 APK" },
+                { "INSTALL_FAILED_UPDATE_INCOMPATIBLE", "同包名应用签名不一致，请先卸载原应用再安装" },
+                { "INSTALL_FAILED_SHARED_USER_INCOMPATIBLE", "共享用户签名不匹配，无法安装" },
+                { "INSTALL_FAILED_PERMISSION_MODEL_DOWNGRADE", "应用权限模型降级，无法覆盖安装，请先卸载原应用" },
+                { "INSTALL_FAILED_VERSION_DOWNGRADE", "安装版本低于设备已有版本，无法覆盖安装" },
+                { "INSTALL_FAILED_OLDER_SDK", "设备系统版本过低，不支持该应用" },
+                { "INSTALL_FAILED_NEWER_SDK", "应用与当前系统版本不兼容" },
+                { "INSTALL_FAILED_TEST_ONLY", "这是测试包，需要以测试模式安装或使用正式签名包" },
+                { "INSTALL_FAILED_ABORTED", "安装被设备或用户取消" },
+                { "INSTALL_FAILED_USER_RESTRICTED", "设备限制了安装，请在设备设置中允许通过 USB / 网络调试安装应用" },
+                { "INSTALL_FAILED_VERIFICATION_FAILURE", "设备应用验证失败，请检查设备安全设置或安装包来源" },
+                { "INSTALL_FAILED_VERIFICATION_TIMEOUT", "设备验证安装超时，请检查设备状态后重试" },
+                { "INSTALL_FAILED_MISSING_SHARED_LIBRARY", "应用依赖的共享库缺失" },
+                { "INSTALL_FAILED_MISSING_FEATURE", "设备缺少应用要求的功能" },
+                { "INSTALL_FAILED_CONFLICTING_PROVIDER", "应用声明的 Provider 与设备已有应用冲突" },
+                { "INSTALL_FAILED_PACKAGE_CHANGED", "应用包名与设备已有版本不一致" },
+                { "INSTALL_FAILED_UID_CHANGED", "同包名应用 UID 变化，请先卸载原应用" },
+                { "INSTALL_FAILED_DEXOPT", "设备优化应用失败，通常是空间不足或系统异常" },
+                { "INSTALL_FAILED_CONTAINER_ERROR", "设备无法写入应用存储位置" },
+                { "INSTALL_FAILED_INVALID_INSTALL_LOCATION", "安装位置无效" },
+                { "INSTALL_FAILED_MEDIA_UNAVAILABLE", "安装存储不可用" },
+                { "INSTALL_FAILED_INTERNAL_ERROR", "设备内部错误导致安装失败" },
+                { "INSTALL_FAILED_NO_SIGNATURE", "APK 未签名或签名信息无效" },
+                { "INSTALL_PARSE_FAILED_NO_CERTIFICATES", "APK 未签名或签名信息无效" },
+                { "INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES", "APK 签名与设备已有应用不一致" },
+                { "INSTALL_PARSE_FAILED_MANIFEST_MALFORMED", "APK 的 AndroidManifest 格式异常" },
+                { "INSTALL_PARSE_FAILED_NOT_APK", "文件不是有效的 APK" }
+            };
+
+        /// <summary>
+        /// 把 adb 安装错误压成一句可读说明；已知错误给出中文解释并保留错误码，未知错误显示原文。
+        /// </summary>
+        public static string DescribeInstallError(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error)) return "未知错误";
+
+            string upper = error.ToUpperInvariant();
+
+            if (upper.Contains("DEVICE OFFLINE") || upper.Contains("ERROR: CLOSED"))
+            {
+                return "设备已断开或未响应，请重新连接后重试";
+            }
+            if (upper.Contains("命令执行超时"))
+            {
+                return "安装命令超时，设备端可能仍在处理，请稍后检查应用列表";
+            }
+            if (upper.Contains("PERMISSION DENIED"))
+            {
+                return "设备拒绝访问，请检查 USB / WiFi 调试授权或应用安装限制";
+            }
+
+            string code = ExtractInstallErrorCode(error);
+            if (!string.IsNullOrEmpty(code))
+            {
+                string message;
+                if (InstallErrorMessages.TryGetValue(code, out message))
+                {
+                    return message + "（" + code + "）";
+                }
+            }
+
+            foreach (KeyValuePair<string, string> pair in InstallErrorMessages)
+            {
+                if (upper.Contains(pair.Key))
+                {
+                    return pair.Value + "（" + pair.Key + "）";
+                }
+            }
+
+            return FirstLine(error);
+        }
+
+        private static string ExtractInstallErrorCode(string error)
+        {
+            const string marker = "Failure [";
+            int index = error.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) return null;
+
+            int start = index + marker.Length;
+            int end = error.IndexOf(']', start);
+            if (end <= start) end = error.Length;
+
+            string inner = error.Substring(start, end - start).Trim();
+            int split = inner.IndexOfAny(new[] { ' ', ':', '\r', '\n' });
+            return split > 0 ? inner.Substring(0, split).Trim() : inner;
+        }
+
+        private static string FirstLine(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "未知错误";
+
+            string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length == 0 ? "未知错误" : lines[0].Trim();
+        }
+
         /// <summary>
         /// 把设备序列号包裹成 adb -s 参数可用的形式：含空格（如 mDNS/TLS 连接名
         /// `adb-xxxx._adb-tls-connect._tcp`）时用双引号括起，避免命令被空格截断；

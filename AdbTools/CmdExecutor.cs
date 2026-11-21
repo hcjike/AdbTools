@@ -92,7 +92,10 @@ namespace AdbTools
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         UseShellExecute = false,
-                        CreateNoWindow = true
+                        CreateNoWindow = true,
+                        // adb 以 UTF-8 输出；不指定时 .NET 按系统 ANSI 解码，中文路径会变成乱码。
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8
                     };
 
                     // 边执行边异步读取输出：
@@ -109,6 +112,9 @@ namespace AdbTools
 
                     try
                     {
+                        // 关闭命令行回显，避免 cmd.exe 按 ANSI 代码页回显含中文的命令造成乱码噪声。
+                        process.StandardInput.WriteLine("@echo off");
+
                         bool wroteAny = false;
                         foreach (string command in commands)
                         {

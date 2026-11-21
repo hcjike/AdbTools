@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterOwner" Background="#FFF3F4F6" FontSize="13"
         ShowInTaskbar="False" UseLayoutRounding="True" SnapsToDevicePixels="True"
         Closed="Window_Closed">
-    <Grid Margin="8">
+    <Grid Margin="10">
         <Border Background="White" CornerRadius="12" BorderBrush="#FFE5E7EB" BorderThickness="1">
             <StackPanel>
                 <!-- 应用信息：浅蓝底 + 左侧蓝条，名称与包名都自动换行 -->
