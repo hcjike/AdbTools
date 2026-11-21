@@ -25,6 +25,7 @@ namespace AdbTools.bean
         private bool _fromCache;
         private bool _isUninstalled;
         private bool _isDebug;
+        private bool _isSelected;
         private ImageSource _icon;
 
         public string PackageName { get; set; }
@@ -263,6 +264,18 @@ namespace AdbTools.bean
         public bool IsNotBusy
         {
             get { return !_isBusy; }
+        }
+
+        /// <summary>批量操作选择状态；放在模型里，不受列表虚拟化容器回收影响。</summary>
+        public bool IsSelected
+        {
+            get { return _isSelected; }
+            set
+            {
+                if (_isSelected == value) return;
+                _isSelected = value;
+                Raise("IsSelected");
+            }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

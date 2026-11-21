@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -26,6 +28,50 @@ namespace AdbTools
         public Brush Foreground { get; }
     }
 
+    /// <summary>支持批量增删的 ObservableCollection；用 Reset 通知，兼容 WPF 的 ListCollectionView。</summary>
+    internal sealed class RangeObservableCollection<T> : ObservableCollection<T>
+    {
+        public void AddRange(IEnumerable<T> items)
+        {
+            ApplyBatch(items, 0);
+        }
+
+        public void RemoveRange(int index, int count)
+        {
+            if (count <= 0) return;
+            if (index < 0 || index + count > Count) throw new ArgumentOutOfRangeException(nameof(count));
+
+            if (index == 0)
+            {
+                ApplyBatch(null, count);
+                return;
+            }
+
+            for (int i = 0; i < count; i++) Items.RemoveAt(index);
+            NotifyReset();
+        }
+
+        public void ApplyBatch(IEnumerable<T> itemsToAdd, int removeFromStart)
+        {
+            if (removeFromStart < 0 || removeFromStart > Count)
+                throw new ArgumentOutOfRangeException(nameof(removeFromStart));
+
+            var added = itemsToAdd == null ? new List<T>() : new List<T>(itemsToAdd);
+            if (removeFromStart == 0 && added.Count == 0) return;
+
+            for (int i = 0; i < removeFromStart; i++) Items.RemoveAt(0);
+            foreach (T item in added) Items.Add(item);
+            NotifyReset();
+        }
+
+        private void NotifyReset()
+        {
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+    }
+
     /// <summary>
     /// 独立的设备日志窗口：流式读取 logcat，支持缓冲区切换、级别与关键字过滤、
     /// 暂停/继续、清空、保存到日志目录。
@@ -34,6 +80,10 @@ namespace AdbTools
     {
         private const int MaxVisibleLines = 5000;
         private const int MaxRawLines = 20000;
+        private const int MaxFrozenLines = 20000;
+        private const int MaxPendingLines = 5000;
+        private const int FlushBatchSize = 400;
+        private const int InitialTailLines = 200;
 
         // 与 Android Studio logcat 对齐的级别配色（Holo 体系）
         private static readonly Brush VerboseBrush = Frozen("#FFA8A8A8");   // V 灰
@@ -50,19 +100,23 @@ namespace AdbTools
         private readonly string _serial;
         private readonly string _deviceName;
 
-        private readonly ObservableCollection<LogLine> _visible = new ObservableCollection<LogLine>();
+        private readonly RangeObservableCollection<LogLine> _visible = new RangeObservableCollection<LogLine>();
         private readonly List<string> _raw = new List<string>();
         private readonly List<LogLine> _pending = new List<LogLine>();
         private readonly object _rawLock = new object();
         private readonly object _pendingLock = new object();
+        private readonly object _processLock = new object();
 
         private Process _process;
         private Thread _reader;
         private volatile bool _closing;
         private bool _paused;
         private string _buffer = "main";
-        private int _minLevel;
-        private string _keyword = string.Empty;
+        private volatile int _minLevel;
+        private volatile string _keyword = string.Empty;
+        private volatile bool _tailDisabled;
+        private bool _suppressAutoWrapEvent;
+        private int _streamGeneration;
 
         /// <summary>状态栏临时提示（复制成功等），到期后自动恢复常规状态。</summary>
         private string _flashMessage;
@@ -84,7 +138,9 @@ namespace AdbTools
 
             // 自动换行：按全局配置初始化，切换时立即保存
             bool wrap = Globals.AppSettings.LOG_WRAP_LINES;
+            _suppressAutoWrapEvent = true;
             autoWrapBox.IsChecked = wrap;
+            _suppressAutoWrapEvent = false;
             ApplyWrap(wrap);
 
             InitBuffers();
@@ -110,16 +166,28 @@ namespace AdbTools
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            StartStream();
             _flushTimer.Start();
+            StartStream();
         }
 
         /// <summary>自动换行开关：切换行模板并持久化。</summary>
         private void AutoWrap_Changed(object sender, RoutedEventArgs e)
         {
+            if (_suppressAutoWrapEvent) return;
+
             bool wrap = autoWrapBox.IsChecked == true;
-            Globals.AppSettings.LOG_WRAP_LINES = wrap;
+            if (Globals.AppSettings.LOG_WRAP_LINES != wrap)
+            {
+                Globals.AppSettings.LOG_WRAP_LINES = wrap;
+            }
             ApplyWrap(wrap);
+        }
+
+        /// <summary>重新开启自动滚动时，用最新缓存重建视图并回到底部。</summary>
+        private void AutoScroll_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!IsLoaded || autoScrollBox.IsChecked != true) return;
+            RebuildView();
         }
 
         /// <summary>换行开启时行宽贴合视口、禁用横向滚动条；关闭时恢复横向滚动。</summary>
@@ -133,9 +201,10 @@ namespace AdbTools
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             _closing = true;
+            Interlocked.Increment(ref _streamGeneration);
             try { _flushTimer?.Stop(); } catch { }
             try { _filterTimer?.Stop(); } catch { }
-            KillProcess();
+            KillProcessCore();
         }
 
         private void InitBuffers()
@@ -418,10 +487,22 @@ namespace AdbTools
 
         private void StartStream()
         {
-            KillProcess();
+            // 立即作废旧流，避免旧读取线程继续写缓存；真正启动放到后台线程。
+            int generation = Interlocked.Increment(ref _streamGeneration);
+            ThreadPool.QueueUserWorkItem(_ => StartStreamCore(generation));
+        }
 
+        private void StartStreamCore(int generation)
+        {
+            KillProcessCore();
+            if (_closing || generation != _streamGeneration) return;
+
+            bool useTail = !_tailDisabled;
             string arguments = "-s " + Globals.QuoteSerial(_serial)
-                + " logcat -b " + _buffer + " -v threadtime";
+                + " logcat -b " + _buffer
+                + (useTail ? " -T " + InitialTailLines : string.Empty)
+                + " -v threadtime";
+
             var psi = new ProcessStartInfo(_adbPath, arguments)
             {
                 RedirectStandardOutput = true,
@@ -433,9 +514,13 @@ namespace AdbTools
             };
 
             Process process = new Process { StartInfo = psi };
+            var stderr = new StringBuilder();
+            var stderrLock = new object();
             process.ErrorDataReceived += (s, e) =>
             {
-                if (!string.IsNullOrEmpty(e.Data)) AddLine("[adb] " + e.Data);
+                if (string.IsNullOrEmpty(e.Data)) return;
+                lock (stderrLock) stderr.AppendLine(e.Data);
+                AddLine("[adb] " + e.Data);
             };
 
             try
@@ -445,35 +530,23 @@ namespace AdbTools
             }
             catch (Exception ex)
             {
-                UpdateStatus("启动日志流失败：" + ex.Message);
+                UpdateStatusOnUi("启动日志流失败：" + ex.Message);
                 try { process.Dispose(); } catch { }
                 return;
             }
 
-            _process = process;
-            UpdateStatus("日志流已启动");
-
-            _reader = new Thread(() =>
+            lock (_processLock)
             {
-                try
+                if (_closing || generation != _streamGeneration)
                 {
-                    string line;
-                    while (!_closing && (line = process.StandardOutput.ReadLine()) != null)
-                    {
-                        AddLine(line);
-                    }
+                    TryTerminateProcess(process);
+                    return;
                 }
-                catch
-                {
-                    // 关闭窗口/重连时进程被结束，读取会抛异常，属正常退出
-                }
+                _process = process;
+            }
+            UpdateStatusOnUi("日志流已启动");
 
-                if (!_closing)
-                {
-                    Dispatcher.BeginInvoke(new Action(() =>
-                        UpdateStatus("日志流已结束，设备可能已断开，可点「重连」")));
-                }
-            })
+            _reader = new Thread(() => ReaderLoop(process, generation, useTail, stderr, stderrLock))
             {
                 IsBackground = true,
                 Name = "device-logcat"
@@ -481,14 +554,78 @@ namespace AdbTools
             _reader.Start();
         }
 
-        private void KillProcess()
+        private void ReaderLoop(Process process, int generation, bool useTail,
+            StringBuilder stderr, object stderrLock)
         {
-            Process process = _process;
-            _process = null;
-            if (process == null) return;
+            try
+            {
+                string line;
+                while (!_closing && generation == _streamGeneration
+                    && (line = process.StandardOutput.ReadLine()) != null)
+                {
+                    AddLine(line);
+                }
+            }
+            catch
+            {
+                // 关闭窗口/重连时进程被结束，读取会抛异常，属正常退出
+            }
 
+            if (_closing || generation != _streamGeneration) return;
+
+            if (useTail && !_tailDisabled)
+            {
+                string errorText;
+                lock (stderrLock) errorText = stderr.ToString();
+                if (IsUnsupportedTailOption(errorText))
+                {
+                    _tailDisabled = true;
+                    UpdateStatusOnUi("设备 logcat 不支持 -T，已切换到兼容模式");
+                    StartStream();
+                    return;
+                }
+            }
+
+            UpdateStatusOnUi("日志流已结束，设备可能已断开，可点「重连」");
+        }
+
+        private static bool IsUnsupportedTailOption(string stderr)
+        {
+            if (string.IsNullOrEmpty(stderr)) return false;
+            return stderr.IndexOf("unrecognized option", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("unknown option", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("invalid option", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("bad option", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void KillProcessCore()
+        {
+            Process process;
+            lock (_processLock)
+            {
+                process = _process;
+                _process = null;
+            }
+            if (process != null) TryTerminateProcess(process);
+        }
+
+        private static void TryTerminateProcess(Process process)
+        {
             try { if (!process.HasExited) process.Kill(); } catch { }
             try { process.Dispose(); } catch { }
+        }
+
+        private void UpdateStatusOnUi(string hint = null)
+        {
+            if (_closing) return;
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!_closing) UpdateStatus(hint);
+                }));
+            }
+            catch { }
         }
 
         private void AddLine(string line)
@@ -508,7 +645,8 @@ namespace AdbTools
             lock (_pendingLock)
             {
                 _pending.Add(item);
-                if (_pending.Count > MaxRawLines) _pending.RemoveRange(0, _pending.Count - MaxRawLines);
+                if (_pending.Count > MaxPendingLines)
+                    _pending.RemoveRange(0, _pending.Count - MaxPendingLines);
             }
         }
 
@@ -590,22 +728,41 @@ namespace AdbTools
         {
             if (_paused) return;
 
+            bool follow = autoScrollBox.IsChecked == true;
+            int limit = follow ? MaxVisibleLines : MaxFrozenLines;
+
             LogLine[] lines;
             lock (_pendingLock)
             {
                 if (_pending.Count == 0) return;
-                lines = _pending.ToArray();
-                _pending.Clear();
+
+                // 关闭自动滚动后不再从顶部裁剪，避免当前阅读位置漂移；到上限才暂停追加。
+                if (!follow && _visible.Count >= limit)
+                {
+                    UpdateStatus();
+                    return;
+                }
+
+                int take = Math.Min(_pending.Count, FlushBatchSize);
+                if (!follow) take = Math.Min(take, limit - _visible.Count);
+                lines = new LogLine[take];
+                _pending.CopyTo(0, lines, 0, take);
+                _pending.RemoveRange(0, take);
             }
 
-            foreach (LogLine line in lines)
+            if (follow)
             {
-                _visible.Add(line);
+                int excess = Math.Max(0, _visible.Count + lines.Length - MaxVisibleLines);
+                _visible.ApplyBatch(lines, excess);
             }
-            while (_visible.Count > MaxVisibleLines) _visible.RemoveAt(0);
+            else
+            {
+                // 正常 Add 不会重建虚拟面板，能保持当前滚动位置；Reset 会带来轻微抖动。
+                foreach (LogLine line in lines) _visible.Add(line);
+            }
 
             UpdateStatus();
-            ScrollToBottom();
+            if (follow) ScrollToBottom();
         }
 
         private void RebuildView()
@@ -615,16 +772,18 @@ namespace AdbTools
             string[] snapshot;
             lock (_rawLock) snapshot = _raw.ToArray();
 
-            _visible.Clear();
+            var rebuilt = new List<LogLine>();
             int start = Math.Max(0, snapshot.Length - MaxVisibleLines);
             for (int i = start; i < snapshot.Length; i++)
             {
                 int level = GetLevel(snapshot[i]);
                 if (Matches(snapshot[i], level))
                 {
-                    _visible.Add(new LogLine(snapshot[i], BrushForLevel(level, snapshot[i])));
+                    rebuilt.Add(new LogLine(snapshot[i], BrushForLevel(level, snapshot[i])));
                 }
             }
+
+            _visible.ApplyBatch(rebuilt, _visible.Count);
 
             UpdateStatus();
             ScrollToBottom();
@@ -636,13 +795,20 @@ namespace AdbTools
         /// </summary>
         private void ScrollToBottom()
         {
-            if (autoScrollBox.IsChecked != true) return;
+            if (_closing || autoScrollBox.IsChecked != true) return;
 
-            ScrollViewer viewer = FindScrollViewer(logList);
-            if (viewer != null)
+            // Reset 通知会让列表在后续布局阶段重建，立即读 ScrollableHeight 拿到的是旧值。
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                viewer.ScrollToVerticalOffset(viewer.ScrollableHeight);
-            }
+                if (_closing || autoScrollBox.IsChecked != true) return;
+
+                logList.UpdateLayout();
+                ScrollViewer viewer = FindScrollViewer(logList);
+                if (viewer != null)
+                {
+                    viewer.ScrollToVerticalOffset(viewer.ScrollableHeight);
+                }
+            }), DispatcherPriority.Background);
         }
 
         private static ScrollViewer FindScrollViewer(DependencyObject parent)

@@ -37,6 +37,32 @@ namespace AdbTools
         private bool _resolveStoppedByUser;
         private int _filterIndex;
         private int _debugLoadGeneration;
+        private bool _batchBusy;
+        private bool _batchCancelled;
+        private bool _syncingSelection;
+
+        private enum AppAction
+        {
+            Toggle,
+            Disable,
+            Enable,
+            Restore,
+            Uninstall,
+            ForceStop,
+            ClearData
+        }
+
+        private sealed class AppActionPlan
+        {
+            public AppInfo App;
+            public AppAction Action;
+            public string Name;
+            public string Command;
+            public Func<string, string> CheckFailure;
+            public Action<AppInfo> OnSuccess;
+            public int TimeoutSeconds;
+            public bool PauseResolving;
+        }
 
         public string AdbPath { get; set; }
 
@@ -69,6 +95,7 @@ namespace AdbTools
         private void Window_Closed(object sender, EventArgs e)
         {
             _statusTimer.Stop();
+            _batchCancelled = true;
             if (_resolver != null)
             {
                 _resolver.Stop();
@@ -602,11 +629,23 @@ namespace AdbTools
 
         private void ReResolveName(AppInfo app)
         {
-            app.DisplayName = null;
-            app.IsBusy = true;
+            ReResolveNames(new[] { app });
+        }
 
+        private void ReResolveNames(IEnumerable<AppInfo> apps)
+        {
+            AppInfo[] targets = apps.Where(a => a != null && !a.IsBusy).Distinct().ToArray();
+            if (targets.Length == 0) return;
+
+            foreach (AppInfo app in targets)
+            {
+                app.DisplayName = null;
+                app.IsBusy = true;
+            }
+
+            int concurrency = Math.Min(6, Math.Max(1, targets.Length));
             AppLabelResolver resolver = new AppLabelResolver(AdbPath, DeviceInfo.SerialArg, _deviceKey, Dispatcher,
-                message => SetStatus(message, NormalBrush), 1);
+                message => SetStatus(message, NormalBrush), concurrency);
 
             resolver.ItemIconResolved += Resolver_IconResolved;
             resolver.ItemResolved += (target, label, done, total) =>
@@ -615,15 +654,15 @@ namespace AdbTools
                 if (!string.IsNullOrEmpty(label))
                 {
                     target.DisplayName = label;
-                    SetStatus("已获取应用名：" + label, OkBrush);
+                    SetStatus("已获取应用名：" + label + "（" + done + "/" + total + "）", OkBrush);
                 }
                 else
                 {
-                    SetStatus("未能获取应用名，仍显示包名：" + target.PackageName, ErrorBrush);
+                    SetStatus("未能获取应用名，仍显示包名：" + target.PackageName + "（" + done + "/" + total + "）", ErrorBrush);
                 }
             };
 
-            resolver.Start(new[] { app });
+            resolver.Start(targets);
         }
 
         // ------------------------------------------------------------ 行内操作
@@ -668,87 +707,7 @@ namespace AdbTools
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
-            // 已卸载的应用：这个按钮用于恢复
-            if (app.IsUninstalled)
-            {
-                RestoreApp(app);
-                return;
-            }
-
-            bool disable = !app.IsDisabled;
-
-            // 停用/启用都先确认：系统类应用额外说明风险
-            if (!ConfirmAction(app,
-                    disable ? "确认停用" : "确认启用",
-                    disable
-                        ? "停用后应用图标将被隐藏且无法启动，用户数据仍保留，可随时重新启用。"
-                        : "启用后应用将恢复可用。",
-                    disable
-                        ? "停用系统组件可能导致依赖它的功能异常、桌面或系统界面异常，严重时需要刷机恢复。"
-                        : "启用系统组件一般无风险，但可能使之前被有意屏蔽的功能重新生效。"))
-            {
-                return;
-            }
-
-            string action = disable ? "停用" : "启用";
-            string command = disable
-                ? Command("shell pm disable-user --user 0 " + app.PackageName)
-                : Command("shell pm enable " + app.PackageName);
-
-            RunAction(app, action, command, CheckPmFailure, result =>
-            {
-                app.IsDisabled = disable;
-                _view.Refresh();
-                UpdateCounts();
-                SetStatus(action + "成功：" + app.Title, OkBrush);
-            });
-        }
-
-        /// <summary>
-        /// 恢复已卸载的应用：系统里的安装文件还在，用 install-existing 重新装回来，
-        /// 不需要重新下载 APK。
-        /// </summary>
-        private void RestoreApp(AppInfo app)
-        {
-            if (!ConfirmAction(app, "确认恢复",
-                    "将重新安装该应用，安装后可以正常使用。",
-                    "恢复系统组件一般没有风险，恢复后会重新出现在桌面上。"))
-            {
-                return;
-            }
-
-            RunAction(app, "恢复",
-                Command("shell pm install-existing --user 0 " + app.PackageName),
-                result =>
-                {
-                    string failure = CheckPmFailure(result);
-                    if (failure == null)
-                    {
-                        return null;
-                    }
-
-                    // 老系统没有这个命令，或者安装文件已被清理，给出可操作的提示
-                    if (failure.IndexOf("unknown", StringComparison.OrdinalIgnoreCase) >= 0
-                        || failure.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return "当前系统不支持恢复命令，请用应用商店重新安装";
-                    }
-                    if (failure.IndexOf("doesn't exist", StringComparison.OrdinalIgnoreCase) >= 0
-                        || failure.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0
-                        || failure.IndexOf("no such", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return "系统里找不到该应用的安装文件，无法恢复，请重新安装";
-                    }
-                    return failure;
-                },
-                result =>
-                {
-                    app.IsUninstalled = false;
-                    app.IsDisabled = false;
-                    _view.Refresh();
-                    UpdateCounts();
-                    SetStatus("已恢复 " + app.Title, OkBrush);
-                });
+            ExecuteActions(new[] { app }, AppAction.Toggle);
         }
 
         private void UninstallApp_Click(object sender, RoutedEventArgs e)
@@ -756,30 +715,7 @@ namespace AdbTools
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
-            if (!ConfirmAction(app, "确认卸载",
-                    app.IsSystem
-                        ? "从手机上移除，系统自带的安装文件仍保留在系统分区。\r\n" +
-                          "刷新列表后，可在「已卸载应用」里点「恢复」重新装回来，但账号与数据已被清除。\r\n" +
-                          "若只想暂时隐藏并保留数据，建议改用「停用」。"
-                        : "将卸载该应用并删除本地数据，不可撤销。",
-                    "卸载系统组件可能导致系统功能缺失或桌面异常，之后需要重新安装才能恢复。",
-                    MessageBoxImage.Warning))
-            {
-                return;
-            }
-
-            // 系统应用只能用 --user 0 卸载（等同冻结），第三方应用直接卸载
-            string command = app.IsSystem
-                ? Command("shell pm uninstall --user 0 " + app.PackageName)
-                : Command("uninstall " + app.PackageName);
-
-            RunAction(app, "卸载", command, CheckPmFailure, result =>
-            {
-                _apps.Remove(app);
-                UpdateEmptyHint();
-                UpdateCounts();
-                SetStatus("已卸载 " + app.Title, OkBrush);
-            });
+            ExecuteActions(new[] { app }, AppAction.Uninstall);
         }
 
         private void More_Click(object sender, RoutedEventArgs e)
@@ -796,7 +732,7 @@ namespace AdbTools
             menu.Items.Add(new Separator());
             menu.Items.Add(CreateMenuItem("复制包名", itemStyle, () => CopyText(app.PackageName, "包名")));
             menu.Items.Add(CreateMenuItem("复制 APK 路径", itemStyle, () => CopyText(app.ApkPath, "APK 路径")));
-            menu.Items.Add(CreateMenuItem("重新获取应用名", itemStyle, () => ReResolveName(app)));
+            menu.Items.Add(CreateMenuItem("解析名称", itemStyle, () => ReResolveName(app)));
 
             menu.PlacementTarget = button;
             menu.Placement = PlacementMode.Bottom;
@@ -805,31 +741,13 @@ namespace AdbTools
 
         private void ForceStop(AppInfo app)
         {
-            if (!ConfirmAction(app, "确认强制停止",
-                    "将结束该应用的进程，正在进行的任务会被中断。",
-                    "强制停止系统组件可能导致相关功能短暂异常，部分组件会自动重启。"))
-            {
-                return;
-            }
-
-            RunAction(app, "强制停止", Command("shell am force-stop " + app.PackageName), CheckPmFailure,
-                result => SetStatus("已强制停止 " + app.Title, OkBrush));
+            ExecuteActions(new[] { app }, AppAction.ForceStop);
         }
 
         /// <summary>清除全部数据：会连同缓存一起删除，不可撤销。</summary>
         private void ClearData(AppInfo app)
         {
-            if (!ConfirmAction(app, "确认清除数据",
-                    "会删除该应用的账号、登录状态、设置与缓存，不可撤销。",
-                    "清除系统组件的数据可能导致系统设置丢失或组件首次启动异常。",
-                    MessageBoxImage.Warning))
-            {
-                return;
-            }
-
-            RunAction(app, "清除数据", Command("shell pm clear " + app.PackageName), CheckPmFailure,
-                result => SetStatus("已清除数据：" + app.Title, OkBrush),
-                180, true);
+            ExecuteActions(new[] { app }, AppAction.ClearData);
         }
 
         private void CopyText(string text, string name)
@@ -845,67 +763,464 @@ namespace AdbTools
             }
         }
 
-        /// <summary>统一的命令执行与结果处理：成功/失败都回到行内状态与状态栏。</summary>
-        /// <param name="timeoutSeconds">命令超时时间，清理类操作需要更久</param>
-        /// <param name="pauseResolving">清理类操作期间暂停名称解析，避免抢设备 IO 与带宽</param>
-        private void RunAction(AppInfo app, string action, string command,
-            Func<string, string> checkFailure, Action<string> onSuccess,
-            int timeoutSeconds = 60, bool pauseResolving = false)
+        /// <summary>单条/多选统一执行入口：顺序执行、逐条更新行状态、最后汇总结果。</summary>
+        private void ExecuteActions(IEnumerable<AppInfo> apps, AppAction action)
         {
-            // 该行已有命令在执行时忽略重复点击（“更多”菜单可反复打开，容易重复触发）
-            if (app.IsBusy)
+            if (_batchBusy || apps == null) return;
+
+            AppInfo[] targets = apps.Where(a => a != null && !a.IsBusy).Distinct().ToArray();
+            if (targets.Length == 0)
             {
+                SetStatus(apps.Any(a => a != null)
+                    ? "所选应用正在处理中，请稍后再试"
+                    : "请先选择应用", ErrorBrush);
                 return;
             }
 
-            app.IsBusy = true;
-            if (pauseResolving)
-            {
-                SuspendResolving();
-                SetStatus("正在" + action + "：" + app.Title + "，应用数据较多时可能需要一两分钟，请勿重复点击",
-                    NormalBrush, false);
-            }
+            if (!ConfirmTargets(targets, action)) return;
+
+            _batchBusy = true;
+            _batchCancelled = false;
+            SetBatchBusy(true);
+
+            bool pauseResolving = action == AppAction.ClearData;
+            if (pauseResolving) SuspendResolving();
+
+            var failures = new List<string>();
+            int successCount = 0;
+            int skippedCount = 0;
+            string actionName = ActionName(action);
+            progressText.Text = actionName + " 0/" + targets.Length;
 
             Action finish = () =>
             {
-                app.IsBusy = false;
+                _batchBusy = false;
+                SetBatchBusy(false);
                 if (pauseResolving) ResumeResolving();
+
+                _view.Refresh();
+                UpdateEmptyHint();
+                UpdateCounts();
+                UpdateSelectionText();
+                progressText.Text = string.Empty;
+
+                string summary = actionName + "完成：成功 " + successCount
+                    + "，失败 " + failures.Count
+                    + (skippedCount > 0 ? "，跳过 " + skippedCount : "");
+                if (failures.Count > 0)
+                {
+                    summary += "。失败：" + string.Join("；", failures);
+                    SetStatus(summary, ErrorBrush, false);
+                    if (!_batchCancelled)
+                    {
+                        MessageBox.Show(this, summary, "操作结果",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                else
+                {
+                    SetStatus(summary, OkBrush);
+                }
             };
 
-            CmdExecutor.ExecuteCommandAndReturnAsync(new[] { command },
-                result =>
+            Action<int> runNext = null;
+            runNext = index =>
+            {
+                if (_batchCancelled || index >= targets.Length)
                 {
                     finish();
+                    return;
+                }
 
-                    string failure = checkFailure == null ? null : checkFailure(result);
-                    if (failure != null)
-                    {
-                        SetStatus(action + "失败：" + failure, ErrorBrush);
-                        MessageBox.Show(this, "【" + app.Title + "】" + action + "失败：\r\n" + failure,
-                            "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-
-                    if (onSuccess != null) onSuccess(result);
-                },
-                err =>
+                AppInfo app = targets[index];
+                if (app.IsBusy)
                 {
-                    finish();
+                    skippedCount++;
+                    runNext(index + 1);
+                    return;
+                }
 
-                    // 清理类命令在设备端可能长时间不返回，本地超时并不代表没执行
-                    if (err != null && err.IndexOf("命令执行超时", StringComparison.Ordinal) >= 0)
+                AppActionPlan plan = BuildPlan(app, action);
+                if (plan == null)
+                {
+                    skippedCount++;
+                    runNext(index + 1);
+                    return;
+                }
+
+                app.IsBusy = true;
+                progressText.Text = plan.Name + " " + (index + 1) + "/" + targets.Length;
+
+                CmdExecutor.ExecuteCommandAndReturnAsync(new[] { plan.Command },
+                    result =>
                     {
-                        SetStatus(action + "耗时较长，设备端可能仍在处理：" + app.Title, ErrorBrush);
+                        app.IsBusy = false;
+                        string failure = plan.CheckFailure == null ? null : plan.CheckFailure(result);
+                        if (failure != null)
+                        {
+                            failures.Add(app.Title + "：" + failure);
+                        }
+                        else
+                        {
+                            successCount++;
+                            if (plan.OnSuccess != null) plan.OnSuccess(app);
+                        }
+                        runNext(index + 1);
+                    },
+                    err =>
+                    {
+                        app.IsBusy = false;
+                        if (err != null && err.IndexOf("命令执行超时", StringComparison.Ordinal) >= 0)
+                        {
+                            failures.Add(app.Title + "：命令超时，设备端可能仍在处理");
+                        }
+                        else
+                        {
+                            failures.Add(app.Title + "：" + FirstLine(err));
+                        }
+                        runNext(index + 1);
                         return true;
-                    }
+                    },
+                    plan.TimeoutSeconds);
+            };
 
-                    string message = FirstLine(err);
-                    SetStatus(action + "失败：" + message, ErrorBrush);
-                    MessageBox.Show(this, "【" + app.Title + "】" + action + "失败：\r\n" + message,
-                        "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return true;
-                },
-                timeoutSeconds);
+            runNext(0);
+        }
+
+        private AppActionPlan BuildPlan(AppInfo app, AppAction action)
+        {
+            if ((action == AppAction.Disable || action == AppAction.Enable) && app.IsUninstalled)
+            {
+                return null;
+            }
+
+            AppAction effective = action == AppAction.Toggle && app.IsUninstalled
+                ? AppAction.Restore
+                : action;
+
+            switch (effective)
+            {
+                case AppAction.Toggle:
+                case AppAction.Disable:
+                case AppAction.Enable:
+                {
+                    bool disable = action == AppAction.Disable
+                        || (action == AppAction.Toggle && !app.IsDisabled);
+                    return new AppActionPlan
+                    {
+                        App = app,
+                        Action = effective,
+                        Name = disable ? "停用" : "启用",
+                        Command = disable
+                            ? Command("shell pm disable-user --user 0 " + app.PackageName)
+                            : Command("shell pm enable " + app.PackageName),
+                        CheckFailure = CheckPmFailure,
+                        TimeoutSeconds = 60,
+                        OnSuccess = a => a.IsDisabled = disable
+                    };
+                }
+                case AppAction.Restore:
+                    return new AppActionPlan
+                    {
+                        App = app,
+                        Action = effective,
+                        Name = "恢复",
+                        Command = Command("shell pm install-existing --user 0 " + app.PackageName),
+                        CheckFailure = RestoreFailure,
+                        TimeoutSeconds = 60,
+                        OnSuccess = a =>
+                        {
+                            a.IsUninstalled = false;
+                            a.IsDisabled = false;
+                        }
+                    };
+                case AppAction.Uninstall:
+                    return new AppActionPlan
+                    {
+                        App = app,
+                        Action = effective,
+                        Name = "卸载",
+                        Command = app.IsSystem
+                            ? Command("shell pm uninstall --user 0 " + app.PackageName)
+                            : Command("uninstall " + app.PackageName),
+                        CheckFailure = CheckPmFailure,
+                        TimeoutSeconds = 60,
+                        OnSuccess = a => _apps.Remove(a)
+                    };
+                case AppAction.ForceStop:
+                    return new AppActionPlan
+                    {
+                        App = app,
+                        Action = effective,
+                        Name = "强制停止",
+                        Command = Command("shell am force-stop " + app.PackageName),
+                        CheckFailure = CheckPmFailure,
+                        TimeoutSeconds = 60
+                    };
+                case AppAction.ClearData:
+                    return new AppActionPlan
+                    {
+                        App = app,
+                        Action = effective,
+                        Name = "清除数据",
+                        Command = Command("shell pm clear " + app.PackageName),
+                        CheckFailure = CheckPmFailure,
+                        TimeoutSeconds = 180,
+                        PauseResolving = true
+                    };
+            }
+            return null;
+        }
+
+        private static string RestoreFailure(string result)
+        {
+            string failure = CheckPmFailure(result);
+            if (failure == null) return null;
+
+            if (failure.IndexOf("unknown", StringComparison.OrdinalIgnoreCase) >= 0
+                || failure.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "当前系统不支持恢复命令，请用应用商店重新安装";
+            }
+            if (failure.IndexOf("doesn't exist", StringComparison.OrdinalIgnoreCase) >= 0
+                || failure.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0
+                || failure.IndexOf("no such", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "系统里找不到该应用的安装文件，无法恢复，请重新安装";
+            }
+            return failure;
+        }
+
+        private static string ActionName(AppAction action)
+        {
+            switch (action)
+            {
+                case AppAction.Disable: return "停用";
+                case AppAction.Enable: return "启用";
+                case AppAction.Restore: return "恢复";
+                case AppAction.Uninstall: return "卸载";
+                case AppAction.ForceStop: return "强制停止";
+                case AppAction.ClearData: return "清除数据";
+                default: return "停用/启用";
+            }
+        }
+
+        private bool ConfirmTargets(AppInfo[] targets, AppAction action)
+        {
+            if (targets.Length == 1) return ConfirmSingle(targets[0], action);
+
+            string name = ActionName(action);
+            bool sensitive = targets.Any(a => a.IsSystem || a.IsService);
+            string text = "确认对选中的 " + targets.Length + " 个应用执行「" + name + "」？\r\n";
+            text += sensitive
+                ? "其中包含系统应用或系统服务，请确认已了解风险。"
+                : "操作将按顺序逐个执行，完成后统一汇总结果。";
+            if (action == AppAction.Uninstall || action == AppAction.ClearData)
+            {
+                text += "\r\n该操作不可撤销。";
+            }
+
+            return MessageBox.Show(this, text, name, MessageBoxButton.OKCancel,
+                sensitive ? MessageBoxImage.Warning : MessageBoxImage.Question) == MessageBoxResult.OK;
+        }
+
+        private bool ConfirmSingle(AppInfo app, AppAction action)
+        {
+            if (action == AppAction.Toggle && app.IsUninstalled) action = AppAction.Restore;
+
+            switch (action)
+            {
+                case AppAction.Disable:
+                    return ConfirmAction(app, "确认停用",
+                        "停用后应用图标将被隐藏且无法启动，用户数据仍保留，可随时重新启用。",
+                        "停用系统组件可能导致依赖它的功能异常、桌面或系统界面异常，严重时需要刷机恢复。");
+                case AppAction.Enable:
+                    return ConfirmAction(app, "确认启用",
+                        "启用后应用将恢复可用。",
+                        "启用系统组件一般无风险，但可能使之前被有意屏蔽的功能重新生效。");
+                case AppAction.Restore:
+                    return ConfirmAction(app, "确认恢复",
+                        "将重新安装该应用，安装后可以正常使用。",
+                        "恢复系统组件一般没有风险，恢复后会重新出现在桌面上。");
+                case AppAction.Uninstall:
+                    return ConfirmAction(app, "确认卸载",
+                        app.IsSystem
+                            ? "从手机上移除，系统自带的安装文件仍保留在系统分区。\r\n" +
+                              "刷新列表后，可在「已卸载应用」里点「恢复」重新装回来，但账号与数据已被清除。\r\n" +
+                              "若只想暂时隐藏并保留数据，建议改用「停用」。"
+                            : "将卸载该应用并删除本地数据，不可撤销。",
+                        "卸载系统组件可能导致系统功能缺失或桌面异常，之后需要重新安装才能恢复。",
+                        MessageBoxImage.Warning);
+                case AppAction.ForceStop:
+                    return ConfirmAction(app, "确认强制停止",
+                        "将结束该应用的进程，正在进行的任务会被中断。",
+                        "强制停止系统组件可能导致相关功能短暂异常，部分组件会自动重启。");
+                case AppAction.ClearData:
+                    return ConfirmAction(app, "确认清除数据",
+                        "会删除该应用的账号、登录状态、设置与缓存，不可撤销。",
+                        "清除系统组件的数据可能导致系统设置丢失或组件首次启动异常。",
+                        MessageBoxImage.Warning);
+                default:
+                    bool disable = !app.IsDisabled;
+                    return ConfirmAction(app,
+                        disable ? "确认停用" : "确认启用",
+                        disable
+                            ? "停用后应用图标将被隐藏且无法启动，用户数据仍保留，可随时重新启用。"
+                            : "启用后应用将恢复可用。",
+                        disable
+                            ? "停用系统组件可能导致依赖它的功能异常、桌面或系统界面异常，严重时需要刷机恢复。"
+                            : "启用系统组件一般无风险，但可能使之前被有意屏蔽的功能重新生效。");
+            }
+        }
+
+        private void SetBatchBusy(bool busy)
+        {
+            stopBatchButton.IsEnabled = true;
+            stopBatchButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            foreach (UIElement child in selectionButtonPanel.Children)
+            {
+                child.IsEnabled = !busy;
+            }
+            foreach (UIElement child in batchButtonPanel.Children)
+            {
+                child.IsEnabled = !busy;
+            }
+            refreshButton.IsEnabled = !busy && !_loading;
+        }
+
+        private AppInfo[] GetSelectedApps()
+        {
+            return _apps.Where(a => a != null && a.IsSelected).ToArray();
+        }
+
+        private void UpdateSelectionText()
+        {
+            selectionText.Text = "已选 " + GetSelectedApps().Length + " 项";
+        }
+
+        private void Selection_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateSelectionText();
+        }
+
+        private void AppList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncingSelection) return;
+
+            _syncingSelection = true;
+            foreach (AppInfo app in e.RemovedItems.OfType<AppInfo>())
+            {
+                app.IsSelected = false;
+            }
+            foreach (AppInfo app in e.AddedItems.OfType<AppInfo>())
+            {
+                app.IsSelected = true;
+            }
+            _syncingSelection = false;
+            UpdateSelectionText();
+        }
+
+        private void SyncListSelectionFromModel()
+        {
+            _syncingSelection = true;
+            appList.SelectedItems.Clear();
+            foreach (AppInfo app in _view)
+            {
+                if (app.IsSelected) appList.SelectedItems.Add(app);
+            }
+            _syncingSelection = false;
+        }
+
+        private void SelectAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (_batchBusy) return;
+            foreach (AppInfo app in _view) app.IsSelected = true;
+            SyncListSelectionFromModel();
+            UpdateSelectionText();
+        }
+
+        private void InvertSelection_Click(object sender, RoutedEventArgs e)
+        {
+            if (_batchBusy) return;
+            foreach (AppInfo app in _view) app.IsSelected = !app.IsSelected;
+            SyncListSelectionFromModel();
+            UpdateSelectionText();
+        }
+
+        private void ClearSelection_Click(object sender, RoutedEventArgs e)
+        {
+            if (_batchBusy) return;
+            foreach (AppInfo app in _apps) app.IsSelected = false;
+            SyncListSelectionFromModel();
+            UpdateSelectionText();
+        }
+
+        private void SelectionCheckBox_Click(object sender, RoutedEventArgs e)
+        {
+            CheckBox box = sender as CheckBox;
+            AppInfo app = box == null ? null : box.DataContext as AppInfo;
+            if (app == null) return;
+
+            _syncingSelection = true;
+            if (app.IsSelected)
+            {
+                if (!appList.SelectedItems.Contains(app)) appList.SelectedItems.Add(app);
+            }
+            else if (appList.SelectedItems.Contains(app))
+            {
+                appList.SelectedItems.Remove(app);
+            }
+            _syncingSelection = false;
+            UpdateSelectionText();
+        }
+
+        private void BatchDisable_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteActions(GetSelectedApps(), AppAction.Disable);
+        }
+
+        private void BatchEnable_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteActions(GetSelectedApps(), AppAction.Enable);
+        }
+
+        private void BatchUninstall_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteActions(GetSelectedApps(), AppAction.Uninstall);
+        }
+
+        private void BatchForceStop_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteActions(GetSelectedApps(), AppAction.ForceStop);
+        }
+
+        private void BatchClearData_Click(object sender, RoutedEventArgs e)
+        {
+            ExecuteActions(GetSelectedApps(), AppAction.ClearData);
+        }
+
+        private void BatchReResolve_Click(object sender, RoutedEventArgs e)
+        {
+            if (_batchBusy) return;
+
+            AppInfo[] targets = GetSelectedApps();
+            if (targets.Length == 0)
+            {
+                SetStatus("请先选择应用", ErrorBrush);
+                return;
+            }
+
+            ReResolveNames(targets);
+            SetStatus("正在解析 " + targets.Length + " 个应用名…", NormalBrush, false);
+        }
+
+        private void StopBatch_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_batchBusy) return;
+
+            _batchCancelled = true;
+            stopBatchButton.IsEnabled = false;
+            SetStatus("正在停止操作，当前命令执行完后不再继续…", NormalBrush, false);
         }
 
         /// <summary>
@@ -1083,6 +1398,7 @@ namespace AdbTools
 
             statusText.Text = text;
             statusText.Foreground = NormalBrush;
+            UpdateSelectionText();
         }
 
         private void SetStatus(string text, Brush brush, bool temporary = true)

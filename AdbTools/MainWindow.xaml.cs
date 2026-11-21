@@ -989,6 +989,20 @@ namespace AdbTools
                 });
         }
 
+        private void openAppLogItem_Click(object sender, RoutedEventArgs e)
+        {
+            about_popup.IsOpen = false;
+
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe", Globals.LogDirectory);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("打开日志目录失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void openLogDirItem_Click(object sender, RoutedEventArgs e)
         {
             Device device = GetSelectedDevice();
