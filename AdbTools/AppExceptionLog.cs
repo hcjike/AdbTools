@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 
@@ -81,19 +82,20 @@ namespace AdbTools
             return builder.ToString();
         }
 
-        /// <summary>只保留最近 7 天的异常日志。</summary>
+        /// <summary>只保留最近 7 份异常日志。</summary>
         private static void CleanupOldLogs()
         {
             try
             {
-                DateTime limit = DateTime.Now.AddDays(-7);
-                foreach (string file in Directory.GetFiles(Globals.LogDirectory, "AppException-*.log"))
+                const int retention = 7;
+                string[] files = Directory.GetFiles(Globals.LogDirectory, "AppException-*.log");
+                if (files.Length <= retention) return;
+
+                foreach (string file in files
+                    .OrderByDescending(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                    .Skip(retention))
                 {
-                    try
-                    {
-                        if (File.GetLastWriteTime(file) < limit) File.Delete(file);
-                    }
-                    catch { }
+                    try { File.Delete(file); } catch { }
                 }
             }
             catch

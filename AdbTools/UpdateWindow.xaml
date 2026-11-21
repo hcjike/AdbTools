@@ -8,7 +8,7 @@
         Title="软件更新" Width="360" SizeToContent="Height" FontSize="14"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
     <Grid Margin="0">
-        <Border Background="White" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="20">
+        <Border Background="White" BorderBrush="#FFE5E7EB" BorderThickness="0" Padding="10">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="14" ShadowDepth="0" Color="#FF1F2937" Opacity="0.12"/>
             </Border.Effect>

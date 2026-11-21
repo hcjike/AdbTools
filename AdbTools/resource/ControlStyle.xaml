@@ -94,7 +94,7 @@
         </Setter>
     </Style>
 
-    <!--全局复选框：圆角蓝勾，整行悬停高亮，未选中也保留方框占位-->
+    <!--全局复选框：圆角蓝勾，无悬停背景，未选中也保留方框占位-->
     <Style TargetType="{x:Type CheckBox}">
         <Setter Property="Foreground" Value="#FF1F2937"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -117,9 +117,6 @@
                         </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bg" Property="Background" Value="#FFF3F4F6"/>
-                        </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="box" Property="Background" Value="#FF2A9FFF"/>
                             <Setter TargetName="box" Property="BorderBrush" Value="#FF2A9FFF"/>

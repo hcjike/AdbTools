@@ -191,6 +191,14 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="ApkInstallWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="InstallErrorWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -216,8 +224,11 @@
     </Compile>
     <Compile Include="AppExceptionLog.cs" />
     <Compile Include="AppManagement\ApkInfoReader.cs" />
+    <Compile Include="AppManagement\ApkIconMemoryReader.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
+    <Compile Include="AppManagement\DailyLogger.cs" />
+    <Compile Include="AppManagement\InstallLog.cs" />
     <Compile Include="AppManagement\AppDeviceKey.cs" />
     <Compile Include="AppManagement\AppIconStore.cs" />
     <Compile Include="AppManagement\AppLabelStore.cs" />
@@ -227,6 +238,7 @@
     <Compile Include="AppManagement\VectorIconRenderer.cs" />
     <Compile Include="AppManagement\WebpDecoder.cs" />
     <Compile Include="bean\AppInfo.cs" />
+    <Compile Include="bean\ApkInstallItem.cs" />
     <Compile Include="bean\Device.cs" />
     <Compile Include="bean\GithubReleasesAssets.cs" />
     <Compile Include="bean\GithubReleases.cs" />
@@ -260,6 +272,12 @@
     </Compile>
     <Compile Include="InstallConfirmWindow.xaml.cs">
       <DependentUpon>InstallConfirmWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="ApkInstallWindow.xaml.cs">
+      <DependentUpon>ApkInstallWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="InstallErrorWindow.xaml.cs">
+      <DependentUpon>InstallErrorWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>

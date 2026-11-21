@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -707,6 +708,7 @@ namespace AdbTools
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
+            SelectOnly(app);
             ExecuteActions(new[] { app }, AppAction.Toggle);
         }
 
@@ -715,6 +717,7 @@ namespace AdbTools
             AppInfo app = GetApp(sender);
             if (app == null) return;
 
+            SelectOnly(app);
             ExecuteActions(new[] { app }, AppAction.Uninstall);
         }
 
@@ -723,6 +726,8 @@ namespace AdbTools
             Button button = sender as Button;
             AppInfo app = button == null ? null : button.DataContext as AppInfo;
             if (app == null) return;
+
+            SelectOnly(app);
 
             Style itemStyle = TryFindResource("UserMenuItemStyle") as Style;
             ContextMenu menu = new ContextMenu();
@@ -1095,12 +1100,38 @@ namespace AdbTools
 
         private void UpdateSelectionText()
         {
+            AppInfo[] visibleApps = _view == null
+                ? new AppInfo[0]
+                : _view.Cast<AppInfo>().ToArray();
+            bool allVisibleSelected = visibleApps.Length > 0 && visibleApps.All(a => a.IsSelected);
+            selectAllButton.Content = allVisibleSelected ? "取消全选" : "全选";
             selectionText.Text = "已选 " + GetSelectedApps().Length + " 项";
         }
 
         private void Selection_Changed(object sender, RoutedEventArgs e)
         {
             UpdateSelectionText();
+        }
+
+        private void AppItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // 普通单击不改变选择；Ctrl / Shift 多选、复选框和行内按钮保持原行为
+            if (Keyboard.Modifiers != ModifierKeys.None) return;
+
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            if (FindAncestor<CheckBox>(source) != null || FindAncestor<ButtonBase>(source) != null) return;
+
+            e.Handled = true;
+        }
+
+        private static T FindAncestor<T>(DependencyObject element) where T : DependencyObject
+        {
+            while (element != null)
+            {
+                if (element is T match) return match;
+                element = VisualTreeHelper.GetParent(element);
+            }
+            return null;
         }
 
         private void AppList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1131,10 +1162,23 @@ namespace AdbTools
             _syncingSelection = false;
         }
 
+        /// <summary>单行操作前调用：只保留目标项选中，避免批量状态和当前操作对象混淆。</summary>
+        private void SelectOnly(AppInfo target)
+        {
+            if (_batchBusy || target == null) return;
+
+            foreach (AppInfo app in _apps) app.IsSelected = ReferenceEquals(app, target);
+            SyncListSelectionFromModel();
+            UpdateSelectionText();
+        }
+
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
             if (_batchBusy) return;
-            foreach (AppInfo app in _view) app.IsSelected = true;
+
+            AppInfo[] visibleApps = _view.Cast<AppInfo>().ToArray();
+            bool select = visibleApps.Length > 0 && !visibleApps.All(a => a.IsSelected);
+            foreach (AppInfo app in visibleApps) app.IsSelected = select;
             SyncListSelectionFromModel();
             UpdateSelectionText();
         }
@@ -1143,14 +1187,6 @@ namespace AdbTools
         {
             if (_batchBusy) return;
             foreach (AppInfo app in _view) app.IsSelected = !app.IsSelected;
-            SyncListSelectionFromModel();
-            UpdateSelectionText();
-        }
-
-        private void ClearSelection_Click(object sender, RoutedEventArgs e)
-        {
-            if (_batchBusy) return;
-            foreach (AppInfo app in _apps) app.IsSelected = false;
             SyncListSelectionFromModel();
             UpdateSelectionText();
         }

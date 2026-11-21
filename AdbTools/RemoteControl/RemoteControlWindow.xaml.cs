@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -1117,20 +1118,20 @@ namespace AdbTools.RemoteControl
             catch { }
         }
 
-        /// <summary>只保留最近 7 天的日志，避免长期运行后日志目录无限增长。</summary>
+        /// <summary>只保留最近 7 份日志，避免长期运行后日志目录无限增长。</summary>
         private static void CleanupOldLogs()
         {
             try
             {
-                string dir = AdbTools.Globals.LogDirectory;
-                DateTime limit = DateTime.Now.AddDays(-7);
-                foreach (string file in Directory.GetFiles(dir, "RemoteControl-*.log"))
+                const int retention = 7;
+                string[] files = Directory.GetFiles(AdbTools.Globals.LogDirectory, "RemoteControl-*.log");
+                if (files.Length <= retention) return;
+
+                foreach (string file in files
+                    .OrderByDescending(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                    .Skip(retention))
                 {
-                    try
-                    {
-                        if (File.GetLastWriteTime(file) < limit) File.Delete(file);
-                    }
-                    catch { }
+                    try { File.Delete(file); } catch { }
                 }
             }
             catch { }

@@ -1,0 +1,269 @@
+<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="AdbTools.ApkInstallWindow"
+        Title="选择要安装的应用" Width="720" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="13"
+        ShowInTaskbar="False" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Closed="Window_Closed" ResizeMode="NoResize" PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <Style x:Key="ToolButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Background" Value="#FF2563EB" />
+        </Style>
+
+        <Style x:Key="StartButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Background" Value="#FF10B981" />
+        </Style>
+
+        <Style x:Key="CancelButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Background" Value="#FF6B7280" />
+        </Style>
+
+        <Style x:Key="SelectAllToolButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Background" Value="#FF0EA5E9" />
+        </Style>
+
+        <Style x:Key="InvertToolButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Background" Value="#FF7C3AED" />
+        </Style>
+
+        <Style x:Key="ClearSelectionToolButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Background" Value="#FF0D9488" />
+        </Style>
+
+        <Style x:Key="ApkCardStyle" TargetType="{x:Type Border}">
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#FFE5E7EB" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFF9FBFE" />
+                    <Setter Property="BorderBrush" Value="#FFBFD8FF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Border Background="White" CornerRadius="10" BorderBrush="#FFE5E7EB" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="#FFF8FAFC" CornerRadius="10,10,0,0"
+                        BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1" Padding="12">
+                    <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Border Background="#FFE7F8F1" CornerRadius="6" Padding="8,3"
+                                VerticalAlignment="Center">
+                            <TextBlock Text="设备" FontSize="12" Foreground="#FF059669"
+                                       FontWeight="SemiBold" />
+                        </Border>
+                        <TextBlock x:Name="deviceText" Foreground="#FF000000" FontWeight="SemiBold"
+                                   Margin="8,0,0,0" MaxWidth="520" TextWrapping="Wrap"
+                                   TextAlignment="Center" VerticalAlignment="Center" />
+                    </WrapPanel>
+                </Border>
+
+                <ListBox x:Name="apkList" Grid.Row="1" Margin="12,10,12,0"
+                         MaxHeight="450" BorderThickness="0" Background="Transparent"
+                         SelectionMode="Extended" SelectionChanged="ApkList_SelectionChanged"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling" av:ItemsSource="{av:SampleData ItemCount=5}">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="{x:Type ListBoxItem}">
+                            <EventSetter Event="PreviewMouseLeftButtonDown"
+                                         Handler="ApkItem_PreviewMouseLeftButtonDown" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,8" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                                        <Border x:Name="selectionBorder" Background="Transparent"
+                                                BorderBrush="Transparent" BorderThickness="2"
+                                                CornerRadius="8">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="selectionBorder"
+                                                        Property="BorderBrush" Value="#FF2A9FFF" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource ApkCardStyle}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <CheckBox Grid.Row="0" Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              IsEnabled="{Binding SelectionEnabled}" Height="40"
+                                              PreviewMouseLeftButtonDown="ItemCheckBox_PreviewMouseLeftButtonDown"
+                                              VerticalAlignment="Center" Margin="0,0,10,0" />
+
+                                    <Border Grid.Row="0" Grid.Column="1" Width="40" Height="40" CornerRadius="9"
+                                            Background="{Binding IconBackground}" VerticalAlignment="Center"
+                                            Margin="0,0,12,0">
+                                        <Grid>
+                                            <TextBlock Text="{Binding Initial}" Foreground="White"
+                                                       FontSize="16" FontWeight="SemiBold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}" />
+                                            <Image Source="{Binding Icon}" Stretch="Uniform"
+                                                   Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <StackPanel Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Label}" FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="#FF000000" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding PackageName}" FontFamily="Consolas"
+                                                   FontSize="12.5" Foreground="#FF1D4ED8"
+                                                   Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+
+                                    <Border x:Name="statusChip" Grid.Row="0" Grid.Column="3"
+                                            MinWidth="72" CornerRadius="8" Padding="12,6"
+                                            Margin="12,0,0,0" VerticalAlignment="Center"
+                                            Background="#FFF1F5F9" BorderBrush="#FFE2E8F0"
+                                            BorderThickness="1"
+                                            ToolTipService.IsEnabled="{Binding HasError}"
+                                            ToolTipService.ShowDuration="8000">
+                                        <Border.ToolTip>
+                                            <ToolTip MaxWidth="360">
+                                                <TextBlock Text="{Binding ErrorText}" MaxWidth="340"
+                                                           TextWrapping="Wrap" FontSize="12"
+                                                           Foreground="#FFB91C1C" />
+                                            </ToolTip>
+                                        </Border.ToolTip>
+                                        <TextBlock x:Name="statusText" FontSize="14" FontWeight="SemiBold"
+                                                   TextAlignment="Center"
+                                                   Text="{Binding InstallStateText}"
+                                                   Foreground="#FF334155" />
+                                    </Border>
+
+                                    <StackPanel Grid.Row="1" Grid.ColumnSpan="4" Margin="0,10,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="#FFDBEAFE" CornerRadius="4" Padding="6,1"
+                                                    VerticalAlignment="Top">
+                                                <TextBlock Text="文件" FontSize="11" Foreground="#FF1E3A8A" />
+                                            </Border>
+                                            <TextBlock Grid.Column="1" Text="{Binding FilePath}"
+                                                       FontSize="12" Foreground="#FF374151"
+                                                       Margin="10,0,0,0" TextWrapping="Wrap" />
+                                        </Grid>
+
+                                        <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                            <Border Background="#FFDCFCE7" CornerRadius="4" Padding="7,2"
+                                                    Margin="0,0,8,0">
+                                                <TextBlock FontSize="12" Foreground="#FF166534">
+                                                    <Run Text="大小 " />
+                                                    <Run Text="{Binding SizeText}" />
+                                                </TextBlock>
+                                            </Border>
+                                            <Border Background="#FFFEF3C7" CornerRadius="4" Padding="7,2">
+                                                <TextBlock FontSize="12" Foreground="#FF92400E">
+                                                    <Run Text="解析 " />
+                                                    <Run Text="{Binding ParseState}" />
+                                                </TextBlock>
+                                            </Border>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding InstallStateText}" Value="未选择">
+                                    <Setter TargetName="statusChip" Property="Border.Background" Value="#FFF8FAFC" />
+                                    <Setter TargetName="statusChip" Property="Border.BorderBrush" Value="#FFE2E8F0" />
+                                    <Setter TargetName="statusText" Property="TextBlock.Foreground" Value="#FF475569" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding InstallStateText}" Value="安装中">
+                                    <Setter TargetName="statusChip" Property="Border.Background" Value="#FFFEF3C7" />
+                                    <Setter TargetName="statusChip" Property="Border.BorderBrush" Value="#FFFDE68A" />
+                                    <Setter TargetName="statusText" Property="TextBlock.Foreground" Value="#FF92400E" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding InstallStateText}" Value="成功">
+                                    <Setter TargetName="statusChip" Property="Border.Background" Value="#FFECFDF5" />
+                                    <Setter TargetName="statusChip" Property="Border.BorderBrush" Value="#FFA7F3D0" />
+                                    <Setter TargetName="statusText" Property="TextBlock.Foreground" Value="#FF047857" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding InstallStateText}" Value="失败">
+                                    <Setter TargetName="statusChip" Property="Border.Background" Value="#FFFEE2E2" />
+                                    <Setter TargetName="statusChip" Property="Border.BorderBrush" Value="#FFFECACA" />
+                                    <Setter TargetName="statusText" Property="TextBlock.Foreground" Value="#FFB91C1C" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding InstallStateText}" Value="跳过">
+                                    <Setter TargetName="statusChip" Property="Border.Background" Value="#FFF1F5F9" />
+                                    <Setter TargetName="statusChip" Property="Border.BorderBrush" Value="#FFE2E8F0" />
+                                    <Setter TargetName="statusText" Property="TextBlock.Foreground" Value="#FF475569" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Grid Grid.Row="2" Margin="12,8,12,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                        <Button x:Name="selectAllButton" Content="全选"
+                                Style="{StaticResource SelectAllToolButtonStyle}" Click="SelectAll_Click" />
+                        <Button x:Name="invertButton" Content="反选"
+                                Style="{StaticResource InvertToolButtonStyle}" Click="Invert_Click" />
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                            <TextBlock x:Name="summaryText" Foreground="#FF6B7280" VerticalAlignment="Center" />
+                            <TextBlock x:Name="selectionText" Foreground="#FF6B7280"
+                                       VerticalAlignment="Center" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock x:Name="progressText" Foreground="#FF2563EB" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <Button x:Name="startButton" Content="开始安装" Style="{StaticResource StartButtonStyle}"
+                                IsEnabled="False" Click="Start_Click" />
+                        <Button x:Name="cancelButton" Content="取消" Style="{StaticResource CancelButtonStyle}"
+                                Click="Cancel_Click" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
