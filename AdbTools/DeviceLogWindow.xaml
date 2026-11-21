@@ -231,6 +231,7 @@
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <CheckBox x:Name="autoScrollBox" Content="自动滚动" IsChecked="True"
+                          Checked="AutoScroll_Changed" Unchecked="AutoScroll_Changed"
                           FontSize="13" Foreground="#FF1F2937"
                           VerticalAlignment="Center" Margin="0,0,8,0" Padding="2,3"/>
                 <CheckBox x:Name="autoWrapBox" Content="自动换行"
