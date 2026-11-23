@@ -31,12 +31,15 @@ namespace AdbTools.bean
 
         private string _label;
         private string _packageName;
+        private int _minSdkVersion;
         private string _sizeText;
         private bool _isSelected = true;
         private bool _selectionEnabled = true;
         private string _parseState = "等待解析";
         private ApkInstallState _installState = ApkInstallState.Pending;
         private string _errorText;
+        private bool _sdkIncompatible;
+        private string _sdkErrorText;
         private ImageSource _icon;
 
         public ApkInstallItem(string filePath, string sizeText)
@@ -58,6 +61,38 @@ namespace AdbTools.bean
         {
             get { return _packageName; }
             set { Set(ref _packageName, value, nameof(PackageName)); }
+        }
+
+        /// <summary>从安装包读取的最低 SDK 版本；0 表示未读到。</summary>
+        public int MinSdkVersion
+        {
+            get { return _minSdkVersion; }
+            set { Set(ref _minSdkVersion, value, nameof(MinSdkVersion)); }
+        }
+
+        public string MinSdkText
+        {
+            get { return _minSdkVersion > 0 ? _minSdkVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) : "未知"; }
+        }
+
+        /// <summary>最低 SDK 高于当前设备，不兼容不可安装。</summary>
+        public bool SdkIncompatible
+        {
+            get { return _sdkIncompatible; }
+            set { Set(ref _sdkIncompatible, value, nameof(SdkIncompatible)); }
+        }
+
+        /// <summary>SDK 不兼容的具体原因，用于列表和提示。</summary>
+        public string SdkErrorText
+        {
+            get { return _sdkErrorText; }
+            set { Set(ref _sdkErrorText, value, nameof(SdkErrorText)); }
+        }
+
+        /// <summary>状态 chip 是否有可展示的错误（安装失败或 SDK 不兼容）。</summary>
+        public bool HasDisplayError
+        {
+            get { return HasError || _sdkIncompatible; }
         }
 
         /// <summary>直接从 APK 读取到内存的图标；不缓存、不落盘。</summary>
@@ -198,9 +233,18 @@ namespace AdbTools.bean
                 Raise(nameof(Initial));
                 Raise(nameof(AvatarBrush));
             }
+            else if (propertyName == nameof(MinSdkVersion))
+            {
+                Raise(nameof(MinSdkText));
+            }
             else if (propertyName == nameof(ErrorText))
             {
                 Raise(nameof(HasError));
+                Raise(nameof(HasDisplayError));
+            }
+            else if (propertyName == nameof(SdkIncompatible))
+            {
+                Raise(nameof(HasDisplayError));
             }
         }
 

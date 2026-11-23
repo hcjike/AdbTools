@@ -123,6 +123,60 @@ namespace AdbTools
             return null;
         }
 
+        /// <summary>读取 &lt;uses-sdk&gt; 上的 android:minSdkVersion；读不到返回 0。</summary>
+        public static int ReadMinSdkVersion(byte[] manifest)
+        {
+            if (manifest == null || manifest.Length < 8)
+            {
+                return 0;
+            }
+
+            ResStringPool pool = null;
+            int pos = 8; // 跳过文件头
+
+            while (pos + 8 <= manifest.Length)
+            {
+                ushort type = ChunkReader.U16(manifest, pos);
+                ushort headerSize = ChunkReader.U16(manifest, pos + 2);
+                uint size = ChunkReader.U32(manifest, pos + 4);
+                if (size < 8 || pos + (long)size > manifest.Length)
+                {
+                    return 0;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(manifest, pos);
+                }
+                else if (type == ChunkXmlStartElement && pool != null && headerSize >= 16 && headerSize <= size)
+                {
+                    int nameIndex = ChunkReader.I32(manifest, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "uses-sdk")
+                    {
+                        XmlAttr attr;
+                        if (!TryGetAttr(ReadAttributes(manifest, pos, headerSize, pool), "minSdkVersion", out attr))
+                        {
+                            return 0;
+                        }
+
+                        if (attr.ValueType == ValueTypeIntDec || attr.ValueType == ValueTypeIntHex)
+                        {
+                            return unchecked((int)attr.ValueData);
+                        }
+
+                        int parsed;
+                        return int.TryParse(attr.Literal, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
+                            ? parsed
+                            : 0;
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return 0;
+        }
+
         /// <summary>
         /// 按资源 id 取文件在 APK 内的路径（如 res/mipmap-xxxhdpi-v4/ic_launcher.png）。
         /// 图标通常有多份密度版本，这里取最高密度；adaptive-icon 会返回 .xml 路径。

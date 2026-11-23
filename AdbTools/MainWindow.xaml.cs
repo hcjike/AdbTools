@@ -687,7 +687,7 @@ namespace AdbTools
         }
 
         /// <summary>从 cmd 回显中解析 SDK 版本号（取第一行可解析为整数的内容）。</summary>
-        private static int ParseSdkVersion(string output)
+        internal static int ParseSdkVersion(string output)
         {
             if (string.IsNullOrEmpty(output))
             {
@@ -1638,7 +1638,11 @@ namespace AdbTools
                     // 本地值会覆盖样式中的悬停/选中效果，拖放结束后清除）
                     if (grid.FindName("itemCard") is Border itemCard)
                     {
-                        itemCard.Background = new SolidColorBrush(Color.FromArgb(0xa0, 0x1f, 0x29, 0x3b));
+                        itemCard.Background = new SolidColorBrush(Color.FromArgb(0x70, 0x1f, 0x29, 0x3b));
+                    }
+                    if (grid.FindName("dragLabelBorder") is Border labelBorder)
+                    {
+                        labelBorder.Visibility = Visibility.Visible;
                     }
                     if (grid.FindName("dragLabel") is Label dragLabel)
                     {
@@ -1646,7 +1650,7 @@ namespace AdbTools
                         dragLabel.Content = exceededMax
                             ? $"文件过多（超过 {maxFileCount} 个）"
                             : dragFilevalid
-                                ? $"松手{(apkList.Count <= 1 ? "" : "依次")}安装 {apkList.Count} 个文件"
+                                ? $"松手添加 {apkList.Count} 个 APK 到安装列表"
                                 : "未检测到有效的 APK 文件!";
                         dragLabel.Foreground = dragFilevalid ? Brushes.LightGreen : Brushes.LightCoral;
                         dragLabel.FontWeight = FontWeights.Bold;
@@ -1706,12 +1710,16 @@ namespace AdbTools
                 dragLabel.Visibility = Visibility.Collapsed;
                 dragLabel.Content = "";
             }
+            if (grid.FindName("dragLabelBorder") is Border labelBorder)
+            {
+                labelBorder.Visibility = Visibility.Collapsed;
+            }
         }
 
         /// <summary>
         /// 从拖放的数据中提取所有 APK 文件（支持目录递归，无权限目录自动跳过）
         /// </summary>
-        private static List<string> GetAllApkFilesFromDrop(string[] files)
+        internal static List<string> GetAllApkFilesFromDrop(string[] files)
         {
             var apkFiles = new List<string>();
             // "*.apk.*" 的通配语义也会命中 a.apk，两个模式会重叠，按路径去重
@@ -1754,7 +1762,7 @@ namespace AdbTools
         /// 是否为可安装的 APK 文件：常规以 .apk 结尾；
         /// 微信、QQ 等分发工具会把文件存成 xxx.apk.1 / xxx.apk.2，这类也认作 APK。
         /// </summary>
-        private static bool IsApkFile(string path)
+        internal static bool IsApkFile(string path)
         {
             string name = Path.GetFileName(path);
             if (string.IsNullOrEmpty(name))
