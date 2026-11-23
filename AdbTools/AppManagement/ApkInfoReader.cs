@@ -17,11 +17,12 @@ namespace AdbTools
         /// <summary>资源表上限：超过则不解析名称，避免极端文件拖慢弹窗。</summary>
         private const long MaxArscBytes = 48 * 1024 * 1024;
 
-        /// <summary>读取应用显示名与包名；取不到时对应值为 null。</summary>
-        public static void Read(string apkPath, out string label, out string packageName)
+        /// <summary>读取应用显示名、包名与最低 SDK 版本；取不到时字符串为 null、SDK 为 0。</summary>
+        public static void Read(string apkPath, out string label, out string packageName, out int minSdkVersion)
         {
             label = null;
             packageName = null;
+            minSdkVersion = 0;
 
             try
             {
@@ -34,6 +35,7 @@ namespace AdbTools
                     }
 
                     packageName = ApkLabelReader.ReadPackageName(manifest);
+                    minSdkVersion = ApkLabelReader.ReadMinSdkVersion(manifest);
 
                     byte[] arsc = ReadEntry(zip, "resources.arsc", MaxArscBytes);
                     label = ApkLabelReader.ReadLabel(manifest, arsc);
@@ -41,8 +43,15 @@ namespace AdbTools
             }
             catch (Exception)
             {
-                // 损坏、被加密或非标准打包：保持 null，弹窗只显示文件信息
+                // 损坏、被加密或非标准打包：保持默认值，弹窗只显示文件信息
             }
+        }
+
+        /// <summary>读取应用显示名与包名；取不到时对应值为 null。</summary>
+        public static void Read(string apkPath, out string label, out string packageName)
+        {
+            int minSdkVersion;
+            Read(apkPath, out label, out packageName, out minSdkVersion);
         }
 
         private static byte[] ReadEntry(ZipArchive zip, string entryName, long maxBytes)

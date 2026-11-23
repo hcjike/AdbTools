@@ -11,6 +11,9 @@ namespace AdbTools.bean
         /// </summary>
         public const string UnknownName = "unknown";
 
+        private static readonly Brush WifiBrush = CreateBrush(0x10, 0xB9, 0x81);
+        private static readonly Brush UsbBrush = CreateBrush(0xF5, 0x9E, 0x0B);
+
         public string DeviceMark { get; set; }
 
         public string DeviceBrand { get; set; }
@@ -23,6 +26,30 @@ namespace AdbTools.bean
         /// 读取随品牌型号一起完成，打开应用列表时可直接使用，不必再发命令。
         /// </summary>
         public string HardwareKey { get; set; }
+
+        private int _sdkVersion;
+
+        /// <summary>
+        /// 系统 SDK 版本（ro.build.version.sdk，如 Android 7.0 为 24）。
+        /// 随品牌型号一起读取，用于安装前校验 APK 的最低 SDK 要求；0 表示未取到。
+        /// </summary>
+        public int SdkVersion
+        {
+            get { return _sdkVersion; }
+            set
+            {
+                if (_sdkVersion == value) return;
+                _sdkVersion = value;
+                OnPropertyChanged(nameof(SdkVersion));
+                OnPropertyChanged(nameof(SdkText));
+            }
+        }
+
+        /// <summary>设备卡片上的 SDK 徽标文案。</summary>
+        public string SdkText
+        {
+            get { return _sdkVersion > 0 ? "SDK " + _sdkVersion : null; }
+        }
 
         /// <summary>序列号是否已尝试读取过：失败时不反复查询，避免定时刷新持续发命令。</summary>
         private bool _keyQueried;
@@ -57,19 +84,20 @@ namespace AdbTools.bean
             bool needModel = string.IsNullOrWhiteSpace(DeviceModel);
             // 序列号只查一次：个别设备取不到时不反复尝试，避免定时刷新持续发命令
             bool needKey = string.IsNullOrWhiteSpace(HardwareKey) && !_keyQueried;
+            bool needSdk = SdkVersion <= 0;
 
-            if (needBrand || needModel || needKey)
+            if (needBrand || needModel || needKey || needSdk)
             {
-                QueryDeviceProps(needBrand, needModel, needKey);
+                QueryDeviceProps(needBrand, needModel, needKey, needSdk);
             }
         }
 
         /// <summary>
-        /// 一次取回品牌、型号与硬件序列号：都合并在同一条 shell 命令里，
-        /// 比分开查省几次 adb 往返。输出用 @@B / @@M / @@S / @@K 分段，
+        /// 一次取回品牌、型号、硬件序列号与系统 SDK：都合并在同一条 shell 命令里，
+        /// 比分开查省几次 adb 往返。输出用 @@B / @@M / @@S / @@K / @@V 分段，
         /// 某个属性为空时也不会张冠李戴。
         /// </summary>
-        private void QueryDeviceProps(bool needBrand, bool needModel, bool needKey)
+        private void QueryDeviceProps(bool needBrand, bool needModel, bool needKey, bool needSdk)
         {
             if (needKey)
             {
@@ -78,7 +106,8 @@ namespace AdbTools.bean
 
             string command = MainWindow.adbPath + " -s " + SerialArg
                 + " shell \"echo @@B; getprop ro.product.brand; echo @@M; getprop ro.product.model"
-                + "; echo @@S; getprop ro.serialno; echo @@K; getprop ro.boot.serialno\"";
+                + "; echo @@S; getprop ro.serialno; echo @@K; getprop ro.boot.serialno"
+                + "; echo @@V; getprop ro.build.version.sdk\"";
 
             CmdExecutor.ExecuteCommandAndReturnAsync(new[] { command }, result =>
             {
@@ -87,7 +116,8 @@ namespace AdbTools.bean
                 string model;
                 string serial;
                 string bootSerial;
-                ParseDeviceProps(result, out brand, out model, out serial, out bootSerial);
+                int sdk;
+                ParseDeviceProps(result, out brand, out model, out serial, out bootSerial, out sdk);
 
                 bool changed = false;
                 if (needBrand && !string.IsNullOrWhiteSpace(brand))
@@ -108,6 +138,11 @@ namespace AdbTools.bean
                     {
                         HardwareKey = key;
                     }
+                }
+
+                if (needSdk && sdk > 0)
+                {
+                    SdkVersion = sdk;
                 }
 
                 if (changed)
@@ -137,12 +172,13 @@ namespace AdbTools.bean
         /// 跳过命令回显行，按分段标记取值，各段取最后一个有效行。
         /// </summary>
         private static void ParseDeviceProps(string result, out string brand, out string model,
-            out string serial, out string bootSerial)
+            out string serial, out string bootSerial, out int sdk)
         {
             brand = null;
             model = null;
             serial = null;
             bootSerial = null;
+            sdk = 0;
             if (string.IsNullOrEmpty(result))
             {
                 return;
@@ -165,6 +201,7 @@ namespace AdbTools.bean
                 if (line == "@@M") { section = "m"; continue; }
                 if (line == "@@S") { section = "s"; continue; }
                 if (line == "@@K") { section = "k"; continue; }
+                if (line == "@@V") { section = "v"; continue; }
 
                 // 提示符行与 adb 错误信息都不是属性值
                 if (line.Contains(">") || LooksLikeError(line)) continue;
@@ -173,6 +210,11 @@ namespace AdbTools.bean
                 else if (section == "m") model = line;
                 else if (section == "s") serial = line;
                 else if (section == "k") bootSerial = line;
+                else if (section == "v")
+                {
+                    int value;
+                    if (int.TryParse(line, out value)) sdk = value;
+                }
             }
         }
 
@@ -197,7 +239,7 @@ namespace AdbTools.bean
             DeviceMarkVisible = !string.Equals(DeviceInfo, DeviceMark, StringComparison.Ordinal);
 
             ConnectWay = IsWifiConnect ? "WiFi" : "USB";
-            ConnectWayColor = IsWifiConnect ? Brushes.Green : Brushes.Orange;
+            ConnectWayColor = IsWifiConnect ? WifiBrush : UsbBrush;
 
             ShowDeviceName = DeviceMarkVisible ? $"{DeviceInfo} {ConnectWay} ({DeviceMark})".Trim() : $"{DeviceInfo} {ConnectWay}".Trim();
             OnPropertyChanged(string.Empty);
@@ -210,6 +252,11 @@ namespace AdbTools.bean
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-
+        private static Brush CreateBrush(byte r, byte g, byte b)
+        {
+            SolidColorBrush brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
     }
 }

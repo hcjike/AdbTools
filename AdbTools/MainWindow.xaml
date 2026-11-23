@@ -574,15 +574,33 @@
                                     <TextBlock Text="{Binding Path=DeviceInfo, Mode=Default}" FontSize="14" FontWeight="SemiBold" Foreground="Black" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path=DeviceInfo, Mode=Default}"/>
                                     <TextBlock Text="{Binding Path=DeviceMark, Mode=Default}" FontSize="11.5" Foreground="#FF6B7280" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path=DeviceMark, Mode=Default}" Visibility="{Binding Path=DeviceMarkVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                 </StackPanel>
-                                <!-- 连接方式徽章 -->
-                                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="9" Padding="8,1" Margin="8,0,0,0" Background="{Binding Path=ConnectWayColor, Mode=Default}">
-                                    <TextBlock Text="{Binding Path=ConnectWay, Mode=Default}" Foreground="White" FontSize="11.5" FontWeight="SemiBold"/>
-                                </Border>
+                                <!-- 连接方式与 SDK 徽章（上下堆叠，未读到 SDK 时隐藏） -->
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <Border MinWidth="56" CornerRadius="9" Padding="8,1" Background="{Binding Path=ConnectWayColor, Mode=Default}">
+                                        <TextBlock Text="{Binding Path=ConnectWay, Mode=Default}" Foreground="White" FontSize="11.5" FontWeight="SemiBold" TextAlignment="Center"/>
+                                    </Border>
+                                    <Border MinWidth="56" CornerRadius="9" Padding="6,1" Margin="0,3,0,0" Background="#FF2563EB">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Path=SdkVersion, Mode=Default}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding Path=SdkText, Mode=OneWay}" Foreground="White" FontSize="11.5" FontWeight="SemiBold" TextAlignment="Center"/>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
                             <!-- 行底部分隔线（与文字左对齐） -->
                             <Rectangle Height="1" Fill="#FFEEF0F3" VerticalAlignment="Bottom" Margin="60,0,0,0" IsHitTestVisible="False" SnapsToDevicePixels="True"/>
-                            <!-- 拖放提示层 -->
-                            <Label x:Name="dragLabel" Visibility="Collapsed" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Foreground="White"/>
+                            <!-- 拖放提示层：居中的深色提示块，与底层内容互不干扰 -->
+                            <Border x:Name="dragLabelBorder" Visibility="Collapsed" HorizontalAlignment="Center"
+                                    VerticalAlignment="Center" Background="#E61F293B" CornerRadius="6" Padding="14,6">
+                                <Label x:Name="dragLabel" Foreground="White" Padding="0"
+                                       VerticalContentAlignment="Center" HorizontalContentAlignment="Center"/>
+                            </Border>
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
