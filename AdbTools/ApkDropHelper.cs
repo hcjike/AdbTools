@@ -11,6 +11,15 @@ namespace AdbTools
     /// </summary>
     internal static class ApkDropHelper
     {
+        /// <summary>
+        /// 拖入内容的缓存键：同一次拖拽里 WPF 会为每个子元素反复触发 DragEnter，
+        /// 调用方用它判断「这批路径是不是刚分析过」，避免重复枚举目录。
+        /// </summary>
+        internal static string BuildCacheKey(string[] files)
+        {
+            return files == null || files.Length == 0 ? string.Empty : string.Join("\u0001", files);
+        }
+
         /// <summary>拖放分析结果，供窗口决定能否放入及如何呈现。</summary>
         internal sealed class DropResult
         {

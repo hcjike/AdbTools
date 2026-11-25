@@ -58,6 +58,9 @@ namespace AdbTools.FileBrowser
         /// <summary>操作结果提示的自动隐藏计时器。</summary>
         private readonly DispatcherTimer _actionTipTimer = new DispatcherTimer();
 
+        /// <summary>拖拽提示的兜底巡检：DragLeave 漏发时靠它把提示收掉。</summary>
+        private readonly DragHintWatchdog _dropHintWatch;
+
         /// <summary>当前列表里的条目，用于把异步解析出来的应用名、图标回填到对应行。</summary>
         private List<DeviceFileEntry> _visibleEntries = new List<DeviceFileEntry>();
 
@@ -147,6 +150,9 @@ namespace AdbTools.FileBrowser
                 actionTip.Visibility = Visibility.Collapsed;
             };
 
+            _dropHintWatch = new DragHintWatchdog(this,
+                () => dropHintBorder.Visibility == Visibility.Visible, HideDropHint);
+
             _deviceName = string.IsNullOrEmpty(deviceName) ? serial : deviceName;
             _serial = serial;
             _adbPath = (adbPath ?? string.Empty).Trim('"');
@@ -193,6 +199,7 @@ namespace AdbTools.FileBrowser
         {
             _closed = true;
             _actionTipTimer.Stop();
+            _dropHintWatch.Stop();
             StopPackageResolver();
 
             lock (OpenWindows)
@@ -786,10 +793,14 @@ namespace AdbTools.FileBrowser
             dropHintText.Text = text;
             dropHintText.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
             dropHintBorder.Visibility = Visibility.Visible;
+
+            // 提示显示期间巡检鼠标状态，防止漏发的 DragLeave 让提示一直挂着
+            _dropHintWatch.Start();
         }
 
         private void HideDropHint()
         {
+            _dropHintWatch.Stop();
             dropHintBorder.Visibility = Visibility.Collapsed;
             _dragValid = false;
         }
@@ -914,7 +925,10 @@ namespace AdbTools.FileBrowser
             _busy = true;
             _cancelRequested = false;
             _conflictAll = null;
-            SetBusyUi(true, action + "中 0/" + items.Count);
+            // 新一批不沿用上一批的节流时间戳；往回拨 1 秒保证首条进度不被节流掉
+            // （TickCount 约 25 天回绕一次，这里用 unchecked 让差值计算照常成立）
+            _lastProgressTick = unchecked(Environment.TickCount - 1000);
+            SetBusyUi(true, action + "中");
             SetProgressBusy(true);
 
             bool runAs = _service.IsRunAsMode;

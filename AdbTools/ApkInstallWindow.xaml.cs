@@ -61,9 +61,20 @@ namespace AdbTools
         private bool _dragFileValid;
         private string _truncatedHint;
 
+        /// <summary>拖放提示的兜底巡检：DragLeave 漏发时把遮罩收掉。</summary>
+        private readonly DragHintWatchdog _dropHintWatch;
+
+        /// <summary>上一次分析过的拖入内容；同一次拖拽内的重复 DragEnter 直接复用。</summary>
+        private string _lastDropKey;
+        private bool _lastDropValid;
+        private string _lastDropHint;
+
         public ApkInstallWindow(IEnumerable<string> paths, Device device, string adbPath)
         {
             InitializeComponent();
+
+            _dropHintWatch = new DragHintWatchdog(this,
+                () => dropHintBorder.Visibility == Visibility.Visible, ResetDropHint);
 
             _device = device;
             _adbPath = adbPath;
@@ -602,17 +613,25 @@ namespace AdbTools
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
 
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            var result = ApkDropHelper.Analyze(
-                files, MaxFileCount, _knownPaths, _items.Count, MaxApkItems, _busy, "列表",
-                (text, valid) =>
-                {
-                    dropHintText.Text = text;
-                    dropHintText.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
-                });
-            _dragFileValid = result.Valid;
+
+            // DragEnter 在列表项之间移动时也会反复触发，同一批文件只分析一次
+            string key = ApkDropHelper.BuildCacheKey(files);
+            if (key != _lastDropKey)
+            {
+                var result = ApkDropHelper.Analyze(
+                    files, MaxFileCount, _knownPaths, _items.Count, MaxApkItems, _busy, "列表", null);
+                _lastDropKey = key;
+                _lastDropValid = result.Valid;
+                _lastDropHint = result.HintText;
+            }
+
+            _dragFileValid = _lastDropValid;
+            dropHintText.Text = _lastDropHint;
+            dropHintText.Foreground = _dragFileValid ? Brushes.LightGreen : Brushes.LightCoral;
             e.Effects = _dragFileValid ? DragDropEffects.Copy : DragDropEffects.None;
             dropOverlay.Visibility = Visibility.Visible;
             dropHintBorder.Visibility = Visibility.Visible;
+            _dropHintWatch.Start();
             e.Handled = true;
         }
 
@@ -647,10 +666,12 @@ namespace AdbTools
 
         private void ResetDropHint()
         {
+            _dropHintWatch.Stop();
             dropOverlay.Visibility = Visibility.Collapsed;
             dropHintBorder.Visibility = Visibility.Collapsed;
             dropHintText.Text = string.Empty;
             _dragFileValid = false;
+            _lastDropKey = null;     // 下一次拖入重新分析，列表内容可能已经变化
         }
 
         private void SelectAll_Click(object sender, RoutedEventArgs e)

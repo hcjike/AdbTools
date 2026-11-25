@@ -234,6 +234,7 @@
     <Compile Include="AppManagement\ApkInfoReader.cs" />
     <Compile Include="AppManagement\ApkIconMemoryReader.cs" />
     <Compile Include="ApkDropHelper.cs" />
+    <Compile Include="DragHintWatchdog.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
     <Compile Include="AppManagement\DailyLogger.cs" />

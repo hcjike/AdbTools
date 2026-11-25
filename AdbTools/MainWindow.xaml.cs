@@ -64,6 +64,8 @@ namespace AdbTools
         {
             InitializeComponent();
 
+            dragHintWatch = new DragHintWatchdog(this, () => dragOverlayGrid != null, HideDragOverlay);
+
             deviceAddressHistory = new ObservableCollection<string>();
             deviceAddressList = new ObservableCollection<Device>();
 
@@ -1627,51 +1629,95 @@ namespace AdbTools
         private bool dragFilevalid = false;
         private int maxFileCount = Globals.DropLimits.MaxFileCount;
 
+        /// <summary>拖放提示的兜底巡检：DragLeave 漏发时把卡片上的蒙层收掉。</summary>
+        private readonly DragHintWatchdog dragHintWatch;
+
+        /// <summary>当前显示着拖放蒙层的卡片；为 null 表示没有。</summary>
+        private Grid dragOverlayGrid;
+
+        /// <summary>上一次分析过的拖入内容；同一批文件在卡片之间移动时不重复分析。</summary>
+        private string lastDropKey;
+        private bool lastDropValid;
+        private string lastDropHint;
+
         private void listBoxItem_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                var result = ApkDropHelper.Analyze(
-                    files, maxFileCount, null, 0, Globals.DropLimits.MaxApkCount, false, "安装列表",
-                    (text, valid) =>
-                    {
-                        if (sender is Grid grid && grid.FindName("dragLabel") is Label dragLabel)
-                        {
-                            dragLabel.Content = text;
-                            dragLabel.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
-                        }
-                    });
-                dragFilevalid = result.Valid;
+
+                // DragEnter 在卡片内部子元素之间移动时也会反复触发，同一批文件只分析一次
+                string key = ApkDropHelper.BuildCacheKey(files);
+                if (key != lastDropKey)
+                {
+                    var result = ApkDropHelper.Analyze(
+                        files, maxFileCount, null, 0, Globals.DropLimits.MaxApkCount, false, "安装列表", null);
+                    lastDropKey = key;
+                    lastDropValid = result.Valid;
+                    lastDropHint = result.HintText;
+                }
+
+                dragFilevalid = lastDropValid;
                 e.Effects = dragFilevalid ? DragDropEffects.Copy : DragDropEffects.None;
 
-                if (sender is Grid grid2)
-                {
-                    // 半透明深色蒙层提示拖放目标（直接设置卡片背景，
-                    // 本地值会覆盖样式中的悬停/选中效果，拖放结束后清除）
-                    if (grid2.FindName("itemCard") is Border itemCard)
-                    {
-                        itemCard.Background = new SolidColorBrush(Color.FromArgb(0x70, 0x1f, 0x29, 0x3b));
-                    }
-                    if (grid2.FindName("dragLabelBorder") is Border labelBorder)
-                    {
-                        labelBorder.Visibility = Visibility.Visible;
-                    }
-                    if (grid2.FindName("dragLabel") is Label dragLabel2)
-                    {
-                        dragLabel2.Visibility = Visibility.Visible;
-                        dragLabel2.FontWeight = FontWeights.Bold;
-                    }
-                }
+                if (sender is Grid grid) ShowDragOverlay(grid);
             }
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// 半透明深色蒙层提示拖放目标（直接设置卡片背景，本地值会覆盖样式中的悬停/选中效果，
+        /// 拖放结束后清除）。
+        /// </summary>
+        private void ShowDragOverlay(Grid grid)
+        {
+            if (grid.FindName("itemCard") is Border itemCard)
+            {
+                itemCard.Background = new SolidColorBrush(Color.FromArgb(0x70, 0x1f, 0x29, 0x3b));
+            }
+            if (grid.FindName("dragLabelBorder") is Border labelBorder)
+            {
+                labelBorder.Visibility = Visibility.Visible;
+            }
+            if (grid.FindName("dragLabel") is Label dragLabel)
+            {
+                dragLabel.Content = lastDropHint;
+                dragLabel.Foreground = lastDropValid ? Brushes.LightGreen : Brushes.LightCoral;
+                dragLabel.Visibility = Visibility.Visible;
+                dragLabel.FontWeight = FontWeights.Bold;
+            }
+
+            dragOverlayGrid = grid;
+            dragHintWatch.Start();
+        }
+
+        /// <summary>兜底收起：漏发 DragLeave 时按真实鼠标状态清掉残留的蒙层。</summary>
+        private void HideDragOverlay()
+        {
+            if (dragOverlayGrid != null) ResetDragOverlay(dragOverlayGrid);
+            dragOverlayGrid = null;
+            dragFilevalid = false;
+            lastDropKey = null;
         }
 
         private void listBoxItem_DragLeave(object sender, DragEventArgs e)
         {
             if (sender is Grid grid)
             {
+                // 卡片内部子元素之间移动也会冒泡 DragLeave，指针还在卡片里就不算离开
+                Point p = e.GetPosition(grid);
+                if (p.X >= 0 && p.Y >= 0 && p.X <= grid.ActualWidth && p.Y <= grid.ActualHeight)
+                {
+                    e.Handled = true;
+                    return;
+                }
+
                 ResetDragOverlay(grid);
+                if (ReferenceEquals(dragOverlayGrid, grid))
+                {
+                    dragOverlayGrid = null;
+                    dragHintWatch.Stop();
+                }
             }
             e.Handled = true;
         }
@@ -1684,13 +1730,18 @@ namespace AdbTools
 
         private void listBoxItem_Drop(object sender, DragEventArgs e)
         {
+            bool valid = dragFilevalid;
+
             // 先恢复背景和标签
             if (sender is Grid grid)
             {
                 ResetDragOverlay(grid);
             }
+            dragOverlayGrid = null;
+            dragHintWatch.Stop();
+            lastDropKey = null;      // 下一次拖入重新分析，已安装列表可能已经变化
 
-            if (e.Data.GetDataPresent(DataFormats.FileDrop) && dragFilevalid
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) && valid
                 && ((FrameworkElement)sender).DataContext is Device targetDevice)
             {
                 bool dropExceeded;
