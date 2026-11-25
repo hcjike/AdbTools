@@ -988,7 +988,11 @@ namespace AdbTools.FileBrowser
                             entries.AddRange(part);
                         }
 
-                        stats.Total = entries.Count(o => !o.IsDirectory);
+                        // 进度按文件数统计；整批全是文件夹（如上传空文件夹）时改为按文件夹计数，
+                        // 否则会停在 0/0 并显示「无可传文件」，看起来像没成功
+                        int fileCount = entries.Count(o => !o.IsDirectory);
+                        bool countDirectories = fileCount == 0 && entries.Count > 0;
+                        stats.Total = countDirectories ? entries.Count : fileCount;
                         stats.Failed = failed.Count;
                         UpdateProgressTotal(stats.Total);
 
@@ -1006,6 +1010,12 @@ namespace AdbTools.FileBrowser
                                 {
                                     failed.Add(ShortName(entry.DevicePath) + "：" + message);
                                     stats.Failed = failed.Count;
+                                }
+
+                                if (countDirectories && !_cancelRequested)
+                                {
+                                    stats.Done++;
+                                    ReportProgress(action, entry, stats);
                                 }
                                 continue;
                             }
