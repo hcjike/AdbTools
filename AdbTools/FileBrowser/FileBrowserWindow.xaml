@@ -257,6 +257,15 @@
                 </StackPanel>
             </Border>
 
+            <!-- 操作结果提示：默认隐藏，操作后显示最多 5 秒 -->
+            <Border x:Name="actionTip" Visibility="Collapsed" HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom" Margin="0,0,0,12" MaxWidth="760"
+                    Background="#E60F172A" CornerRadius="8" Padding="14,7"
+                    IsHitTestVisible="False" Panel.ZIndex="2">
+                <TextBlock x:Name="actionTipText" Foreground="White" FontSize="12.5"
+                           TextWrapping="Wrap" TextAlignment="Center" />
+            </Border>
+
         </Grid>
 
         <!-- 底部：状态信息、应用列表筛选与传输控制 -->

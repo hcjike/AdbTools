@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using AdbTools.bean;
@@ -52,6 +53,9 @@ namespace AdbTools.FileBrowser
 
         /// <summary>后台解析应用名的任务；切换目录 / 关闭窗口时停止。</summary>
         private AppLabelResolver _resolver;
+
+        /// <summary>操作结果提示的自动隐藏计时器。</summary>
+        private readonly DispatcherTimer _actionTipTimer = new DispatcherTimer();
 
         /// <summary>当前列表里的条目，用于把异步解析出来的应用名、图标回填到对应行。</summary>
         private List<DeviceFileEntry> _visibleEntries = new List<DeviceFileEntry>();
@@ -130,6 +134,13 @@ namespace AdbTools.FileBrowser
         {
             InitializeComponent();
 
+            _actionTipTimer.Interval = TimeSpan.FromSeconds(5);
+            _actionTipTimer.Tick += (s, e) =>
+            {
+                _actionTipTimer.Stop();
+                actionTip.Visibility = Visibility.Collapsed;
+            };
+
             _deviceName = string.IsNullOrEmpty(deviceName) ? serial : deviceName;
             _serial = serial;
             _adbPath = (adbPath ?? string.Empty).Trim('"');
@@ -175,6 +186,7 @@ namespace AdbTools.FileBrowser
         private void Window_Closed(object sender, EventArgs e)
         {
             _closed = true;
+            _actionTipTimer.Stop();
             StopPackageResolver();
 
             lock (OpenWindows)
@@ -829,6 +841,10 @@ namespace AdbTools.FileBrowser
                             "以下项目" + action + "失败：\r\n\r\n" + string.Join("\r\n", failed.Take(10)),
                             "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
+                    else
+                    {
+                        ShowActionTip(summary, true);
+                    }
 
                     // 上传会改变当前目录内容，下载不影响；统一刷新一次最简单。
                     // 应用列表不是真实目录，刷新会把窗口带到上一个目录，这里必须跳过。
@@ -978,6 +994,7 @@ namespace AdbTools.FileBrowser
                         return;
                     }
 
+                    ShowActionTip(action + "成功", true);
                     if (onSuccess != null) onSuccess();
                     else Navigate(_currentPath);
                 }));
@@ -1847,6 +1864,21 @@ namespace AdbTools.FileBrowser
         {
             if (_closed) return;
             statusText.Text = text;
+        }
+
+        /// <summary>在列表下方显示操作结果提示，5 秒后自动隐藏；新的提示覆盖旧的。</summary>
+        private void ShowActionTip(string text, bool success)
+        {
+            if (_closed || string.IsNullOrWhiteSpace(text)) return;
+
+            actionTipText.Text = text;
+            actionTipText.Foreground = success
+                ? new SolidColorBrush(Color.FromRgb(0x86, 0xEF, 0xAC))
+                : new SolidColorBrush(Color.FromRgb(0xFE, 0xCA, 0xCA));
+            actionTip.Visibility = Visibility.Visible;
+
+            _actionTipTimer.Stop();
+            _actionTipTimer.Start();
         }
 
         /// <summary>状态栏常驻信息：共 N 项，有选中时追加已选数量。</summary>
