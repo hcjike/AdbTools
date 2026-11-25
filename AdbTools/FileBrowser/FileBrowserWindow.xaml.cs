@@ -52,6 +52,14 @@ namespace AdbTools.FileBrowser
         private static readonly Regex PackageNamePattern =
             new Regex(@"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$", RegexOptions.Compiled);
 
+        /// <summary>解包目录/安装包的后缀：.apk、.apks，以及重名下载产生的 .apk.1 / .apk.2。</summary>
+        private static readonly Regex ApkSuffixPattern =
+            new Regex(@"\.apk(s)?(\.\d+)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>复制产生的后缀：<c>name (1)</c>、<c>name (2)</c>。</summary>
+        private static readonly Regex CopySuffixPattern =
+            new Regex(@"\s*\(\d+\)$", RegexOptions.Compiled);
+
         /// <summary>后台解析应用名的任务；切换目录 / 关闭窗口时停止。</summary>
         private AppLabelResolver _resolver;
 
@@ -126,6 +134,13 @@ namespace AdbTools.FileBrowser
         private bool _ctrlDragActive;
         private Point _dragStartPoint;
 
+        /// <summary>
+        /// 最近一次右键点中的条目，null 表示点在列表空白处。
+        /// 右键不改动已选中的多选行，所以菜单里的操作对象必须取这份记录，
+        /// 不能用 SelectedItem（否则会误操作别的行）。
+        /// </summary>
+        private DeviceFileEntry _contextEntry;
+
         /// <summary>本次目录的原始条目（未排序），点列头时基于它重新排。</summary>
         private List<DeviceFileEntry> _baseEntries = new List<DeviceFileEntry>();
 
@@ -164,6 +179,7 @@ namespace AdbTools.FileBrowser
 
             LoadSortPreference();
             InitSorting();
+            InitColumnWidths();
 
             lock (OpenWindows)
             {
@@ -278,7 +294,6 @@ namespace AdbTools.FileBrowser
             }
             _inPackageList = false;
             packageFilterButton.Visibility = Visibility.Collapsed;
-            fileList.ContextMenu = null;
             SetFileOpsEnabled(true);
 
             HideListNotice();
@@ -468,10 +483,24 @@ namespace AdbTools.FileBrowser
             // MouseDoubleClick 对右键双击也会触发：只允许左键双击进入目录/应用数据
             if (e.ChangedButton != MouseButton.Left) return;
 
-            DeviceFileEntry entry = fileList.SelectedItem as DeviceFileEntry;
-            if (entry == null) return;
+            OpenEntry(fileList.SelectedItem as DeviceFileEntry);
+        }
 
-            // 应用列表里的一行：双击进入该应用的私有目录
+        /// <summary>右键菜单的「打开」：与双击同一套语义。</summary>
+        private void contextOpen_Click(object sender, RoutedEventArgs e)
+        {
+            OpenEntry(_contextEntry ?? fileList.SelectedItem as DeviceFileEntry);
+        }
+
+        /// <summary>
+        /// 打开一个条目：应用列表行进入其私有目录，目录进入，文件（含链接）下载。
+        /// 双击与右键菜单都走这里，保证两种入口行为一致。
+        /// </summary>
+        private void OpenEntry(DeviceFileEntry entry)
+        {
+            if (entry == null || _busy) return;
+
+            // 应用列表里的一行：进入该应用的私有目录
             if (entry.Package != null)
             {
                 // 非 debug 包在 root 设备上同样可以进（CanOpen 已在构建列表时算好）
@@ -657,9 +686,15 @@ namespace AdbTools.FileBrowser
 
         private static bool IsOverScrollBar(DependencyObject source)
         {
+            return IsInsideVisual<System.Windows.Controls.Primitives.ScrollBar>(source);
+        }
+
+        /// <summary>沿视觉树向上查找是否落在某个控件内部（列头、滚动条等）。</summary>
+        private static bool IsInsideVisual<T>(DependencyObject source) where T : DependencyObject
+        {
             while (source != null)
             {
-                if (source is System.Windows.Controls.Primitives.ScrollBar) return true;
+                if (source is T) return true;
                 try
                 {
                     source = VisualTreeHelper.GetParent(source);
@@ -670,6 +705,19 @@ namespace AdbTools.FileBrowser
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 列头与滚动条上不弹右键菜单：这两个位置的右键不属于列表内容，
+        /// 菜单里的操作没有明确目标，交给滚动/排序本身更符合预期。
+        /// </summary>
+        private void fileList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            if (IsOverScrollBar(source) || IsInsideVisual<GridViewColumnHeader>(source))
+            {
+                e.Handled = true;
+            }
         }
 
         #endregion
@@ -878,19 +926,73 @@ namespace AdbTools.FileBrowser
 
         private void download_Click(object sender, RoutedEventArgs e)
         {
-            if (_inPackageList)
-            {
-                SetStatus("应用列表里不能下载，请先双击进入某个应用的数据目录");
-                return;
-            }
-
             List<DeviceFileEntry> selected = SelectedEntries();
             if (selected.Count == 0)
             {
-                SetStatus("请先选择要下载的文件或文件夹");
+                SetStatus(_inPackageList
+                    ? "请先选择要下载的应用（可多选）"
+                    : "请先选择要下载的文件或文件夹");
                 return;
             }
+
+            // 应用列表里的行没有真实路径：整批按「应用私有数据」处理
+            if (_inPackageList || selected.All(o => o.Package != null))
+            {
+                DownloadAppData(selected);
+                return;
+            }
+
             DownloadEntries(selected);
+        }
+
+        /// <summary>
+        /// 下载应用私有数据：每个应用对应一个本地目录（目标/包名），逐包串行取回。
+        /// run-as 身份是单值，同一时刻只能以一个应用的身份读；root 设备则由普通 shell 直接读。
+        /// </summary>
+        private void DownloadAppData(List<DeviceFileEntry> apps)
+        {
+            if (_busy) return;
+
+            List<DeviceFileEntry> openable = apps
+                .Where(o => o.CanOpen && !string.IsNullOrEmpty(o.Package))
+                .ToList();
+            int skipped = apps.Count - openable.Count;
+
+            if (openable.Count == 0)
+            {
+                SetStatus(_rootShell
+                    ? "没有可下载的应用"
+                    : "选中的应用都不是 debug 包，无法以应用身份读取私有数据");
+                return;
+            }
+
+            string target = PickFolder("选择把应用数据下载到哪个文件夹", _lastLocalDirectory);
+            if (target == null) return;
+            _lastLocalDirectory = target;
+
+            // 私有目录是逐文件写入的，本地同名文件会被静默覆盖，开始前统一确认一次
+            if (openable.Exists(o => Directory.Exists(Path.Combine(target, o.Package))))
+            {
+                MessageBoxResult result = MessageBox.Show(this,
+                    "目标文件夹里已存在同名应用目录，继续将合并写入并覆盖同名文件。\r\n\r\n确定继续吗？",
+                    "下载确认", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+                if (result != MessageBoxResult.Yes) return;
+            }
+
+            var items = new List<TransferItem>();
+            foreach (DeviceFileEntry entry in openable)
+            {
+                // root 设备用普通 shell 直接读，不必切换 run-as 身份；
+                // 整目录 pull 交给 adb，避免为每个小文件单独起一个 adb 进程
+                items.Add(_rootShell
+                    ? new TransferItem(false, Path.Combine(target, entry.Package),
+                        "/data/data/" + entry.Package, null, true)
+                    : new TransferItem(false, Path.Combine(target, entry.Package),
+                        "/data/data/" + entry.Package, entry.Package));
+            }
+
+            RunTransfer("下载", items,
+                skipped > 0 ? "已跳过 " + skipped + " 个不可访问的应用" : null);
         }
 
         private void DownloadEntries(List<DeviceFileEntry> entries)
@@ -918,7 +1020,7 @@ namespace AdbTools.FileBrowser
             RunTransfer("下载", items);
         }
 
-        private void RunTransfer(string action, List<TransferItem> items)
+        private void RunTransfer(string action, List<TransferItem> items, string note = null)
         {
             if (items == null || items.Count == 0) return;
 
@@ -931,19 +1033,25 @@ namespace AdbTools.FileBrowser
             SetBusyUi(true, action + "中");
             SetProgressBusy(true);
 
-            bool runAs = _service.IsRunAsMode;
+            // 每个条目整树传输（run-as 身份或 root 下的整目录 pull），不做「先扫描再逐文件」
+            bool wholeEntry = _service.IsRunAsMode
+                || items.Exists(o => o.RunAsPackage != null || o.TreeTransfer);
 
             var thread = new Thread(() =>
             {
                 var stats = new TransferStats();
                 var failed = new List<string>();
 
-                // 应用私有目录只能整目录 cp -r，仍按顶层条目计数
-                _service.Progress = text => UpdateStatus(action + "：" + text);
+                // 批内进度前缀：run-as 下载时逐应用刷新，状态栏同时带上「第几个应用」
+                string progressPrefix = action + "中";
+                _service.Progress = text => UpdateStatus(progressPrefix + " · " + text);
 
-                if (!runAs)
+                // 取消标志与目录缓存统一在这里重置。Transfer 内部不再重置，
+                // 否则逐个文件/逐个应用调用时会把用户刚发出的取消请求抹掉。
+                _service.BeginBatch();
+
+                if (!wholeEntry)
                 {
-                    _service.BeginBatch();
                     _service.ResolveConflict = info =>
                     {
                         try
@@ -960,7 +1068,7 @@ namespace AdbTools.FileBrowser
 
                 try
                 {
-                    if (runAs)
+                    if (wholeEntry)
                     {
                         stats.Total = items.Count;
                         UpdateProgressTotal(stats.Total);
@@ -969,25 +1077,33 @@ namespace AdbTools.FileBrowser
                         {
                             if (_cancelRequested) break;
 
-                            UpdateStatus(action + "中 · " + ShortName(item));
+                            // 每个应用一个身份：run-as 只能在自己的数据目录内活动
+                            if (item.RunAsPackage != null) _service.RunAsPackage = item.RunAsPackage;
+
+                            string label = ShortName(item);
+                            progressPrefix = action + "中 · " + label
+                                + " (" + (stats.Done + 1) + "/" + stats.Total + ")";
+                            UpdateStatus(progressPrefix);
 
                             string message;
                             if (!_service.Transfer(item.Upload, item.LocalPath, item.DevicePath, out message))
                             {
                                 if (_cancelRequested) break;
-                                failed.Add(ShortName(item) + "：" + message);
+                                failed.Add(label + "：" + message);
                             }
 
                             if (_cancelRequested) break;
 
                             stats.Done++;
                             stats.Failed = failed.Count;
-                            ReportProgress(action, null, stats);
+                            ReportProgress(action, label, stats);
                         }
                     }
                     else
                     {
-                        // 阶段1：扫描出全部条目，得到「共多少个文件」
+                        // 阶段1：扫描出全部条目（文件 + 子文件夹），进度按条目总数统计。
+                        // 上传时每个文件夹都要单独 mkdir，下载时也要建目录，都算一次处理；
+                        // 这样「已完成/总数」与失败项数始终自洽（失败数不会超过总数）。
                         UpdateStatus(action + "前统计文件…");
                         var entries = new List<TransferEntry>();
                         foreach (TransferItem item in items)
@@ -1002,35 +1118,40 @@ namespace AdbTools.FileBrowser
                             entries.AddRange(part);
                         }
 
-                        // 进度按文件数统计；整批全是文件夹（如上传空文件夹）时改为按文件夹计数，
-                        // 否则会停在 0/0 并显示「无可传文件」，看起来像没成功
-                        int fileCount = entries.Count(o => !o.IsDirectory);
-                        bool countDirectories = fileCount == 0 && entries.Count > 0;
-                        stats.Total = countDirectories ? entries.Count : fileCount;
+                        stats.Total = entries.Count;
+                        stats.TotalFiles = entries.Count(o => !o.IsDirectory);
+                        stats.TotalDirs = stats.Total - stats.TotalFiles;
                         stats.Failed = failed.Count;
                         UpdateProgressTotal(stats.Total);
 
-                        // 阶段2：逐个文件传，每个文件前判断冲突
+                        // 阶段2：逐个条目传，文件前判断冲突
                         foreach (TransferEntry entry in entries)
                         {
                             if (_cancelRequested) break;
 
+                            string entryName = Path.GetFileName(entry.LocalPath);
+
                             string message;
                             TransferOutcome outcome = _service.TransferFile(entry, out message);
 
+                            // 文件夹只建目录：成功或失败都算已处理，失败项单独计数
                             if (entry.IsDirectory)
                             {
-                                if (outcome == TransferOutcome.Failed && !_cancelRequested)
+                                if (_cancelRequested) break;
+
+                                if (outcome == TransferOutcome.Failed)
                                 {
-                                    failed.Add(ShortName(entry.DevicePath) + "：" + message);
+                                    failed.Add(entryName + "：" + message);
                                     stats.Failed = failed.Count;
                                 }
-
-                                if (countDirectories && !_cancelRequested)
+                                else
                                 {
-                                    stats.Done++;
-                                    ReportProgress(action, entry, stats);
+                                    stats.AddedDirectories++;
                                 }
+
+                                stats.Done++;
+                                stats.DoneDirs++;
+                                ReportProgress(action, entryName, stats);
                                 continue;
                             }
 
@@ -1039,6 +1160,7 @@ namespace AdbTools.FileBrowser
                             if (_cancelRequested) break;
 
                             stats.Done++;
+                            stats.DoneFiles++;
                             if (outcome == TransferOutcome.Skipped) stats.Skipped++;
                             else if (outcome == TransferOutcome.Overwritten) stats.Overwritten++;
                             else if (outcome == TransferOutcome.KeptBoth) stats.KeptBoth++;
@@ -1046,12 +1168,11 @@ namespace AdbTools.FileBrowser
                             else if (outcome == TransferOutcome.Failed)
                             {
                                 if (_cancelRequested) break;
-                                failed.Add(ShortName(entry.Upload ? entry.LocalPath : entry.DevicePath)
-                                    + "：" + message);
+                                failed.Add(entryName + "：" + message);
                             }
 
                             stats.Failed = failed.Count;
-                            ReportProgress(action, entry, stats);
+                            ReportProgress(action, entryName, stats);
                         }
                     }
                 }
@@ -1059,6 +1180,8 @@ namespace AdbTools.FileBrowser
                 {
                     _service.Progress = null;
                     _service.ResolveConflict = null;
+                    // 批量下载应用数据期间临时切过身份，结束后回到当前浏览状态
+                    if (items.Exists(o => o.RunAsPackage != null)) _service.RunAsPackage = _runAsPackage;
                 }
 
                 bool cancelled = _cancelRequested;
@@ -1073,13 +1196,38 @@ namespace AdbTools.FileBrowser
                     SetBusyUi(false, null);
                     SetProgressBusy(false);
 
-                    string summary = cancelled
-                        ? action + "已取消（" + stats.Done + "/" + stats.Total + "）"
-                        : action + "完成 " + stats.Done + "/" + stats.Total;
-                    if (stats.Added > 0) summary += "，已新增 " + stats.Added;
-                    if (stats.Overwritten > 0) summary += "，已覆盖 " + stats.Overwritten;
-                    if (stats.KeptBoth > 0) summary += "，已重命名 " + stats.KeptBoth;
-                    if (stats.Skipped > 0) summary += "，已跳过 " + stats.Skipped;
+                    // 汇总把文件和文件夹分开给进度：两类单位不同，混在一起时
+                    // 「151/161」与「已新增 86」看起来会对不上
+                    string progress;
+                    if (stats.TotalFiles + stats.TotalDirs > 0)
+                    {
+                        var parts = new List<string>();
+                        if (stats.TotalFiles > 0)
+                            parts.Add("文件 " + stats.DoneFiles + "/" + stats.TotalFiles);
+                        if (stats.TotalDirs > 0)
+                            parts.Add("文件夹 " + stats.DoneDirs + "/" + stats.TotalDirs);
+                        progress = string.Join("，", parts);
+                    }
+                    else
+                    {
+                        // 应用私有数据整目录传输：按应用 / 顶层条目计数
+                        progress = stats.Done + "/" + stats.Total;
+                    }
+
+                    string summary = (cancelled ? action + "已取消" : action + "完成")
+                        + "（" + progress + "）";
+                    if (!string.IsNullOrEmpty(note)) summary += "，" + note;
+
+                    if (stats.Added > 0 || stats.AddedDirectories > 0)
+                    {
+                        var added = new List<string>();
+                        if (stats.Added > 0) added.Add(stats.Added + " 个文件");
+                        if (stats.AddedDirectories > 0) added.Add(stats.AddedDirectories + " 个文件夹");
+                        summary += "，已新增 " + string.Join("、", added);
+                    }
+                    if (stats.Overwritten > 0) summary += "，已覆盖 " + stats.Overwritten + " 个文件";
+                    if (stats.KeptBoth > 0) summary += "，已重命名 " + stats.KeptBoth + " 个文件";
+                    if (stats.Skipped > 0) summary += "，已跳过 " + stats.Skipped + " 个文件";
                     if (stats.Failed > 0) summary += "，失败 " + stats.Failed + " 项";
                     SetStatus(summary);
 
@@ -1170,7 +1318,7 @@ namespace AdbTools.FileBrowser
                     transferBar.IsIndeterminate = total <= 0;
                     transferBar.Maximum = total <= 0 ? 1 : total;
                     transferBar.Value = 0;
-                    transferProgressText.Text = total <= 0 ? "无可传文件" : "0/" + total;
+                    transferProgressText.Text = total <= 0 ? "无可传项目" : "0/" + total;
                     if (total > 0) StopProgressPulse();
                 }));
             }
@@ -1181,15 +1329,11 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>刷新「已完成/总数」进度；按 80ms 节流，避免大量小文件刷爆 UI。</summary>
-        private void ReportProgress(string action, TransferEntry entry, TransferStats stats)
+        private void ReportProgress(string action, string name, TransferStats stats)
         {
             int now = Environment.TickCount;
             if (stats.Done < stats.Total && now - _lastProgressTick < 80) return;
             _lastProgressTick = now;
-
-            string name = entry == null
-                ? null
-                : Path.GetFileName(entry.LocalPath);
 
             try
             {
@@ -1202,14 +1346,11 @@ namespace AdbTools.FileBrowser
                     transferBar.Value = Math.Min(stats.Done, stats.Total);
                     transferProgressText.Text = stats.Done + "/" + stats.Total;
 
-                    // 完成比例已经在进度条里显示，状态栏只留当前文件名与分类统计
+                    // 过程中只给基础提示：当前项目 + 已完成/总数。
+                    // 新增/覆盖/跳过这类分类数量逐项跳变没意义，等整批结束时在汇总里一次性给出。
                     string text = action + "中";
                     if (!string.IsNullOrEmpty(name)) text += " · " + name;
-                    if (stats.Added > 0) text += "    已新增 " + stats.Added;
-                    if (stats.Overwritten > 0) text += "    已覆盖 " + stats.Overwritten;
-                    if (stats.KeptBoth > 0) text += "    已重命名 " + stats.KeptBoth;
-                    if (stats.Skipped > 0) text += "    已跳过 " + stats.Skipped;
-                    if (stats.Failed > 0) text += "    失败 " + stats.Failed;
+                    if (stats.Total > 0) text += "    " + stats.Done + "/" + stats.Total;
                     SetStatus(text);
                 }));
             }
@@ -1219,21 +1360,34 @@ namespace AdbTools.FileBrowser
             }
         }
 
-        /// <summary>一批传输的计数：Done 为已处理文件数，其余是其中各类结果的数量。</summary>
+        /// <summary>一批传输的计数：Done 为已处理条目数（含文件夹），其余是其中各类结果的数量。</summary>
         private struct TransferStats
         {
-            /// <summary>已处理的文件数（含覆盖/重命名/跳过/失败）。</summary>
+            /// <summary>已处理的条目数（文件 + 文件夹，含覆盖/重命名/跳过/失败）。</summary>
             public int Done;
 
-            /// <summary>本批文件总数。</summary>
+            /// <summary>本批条目总数（文件 + 文件夹）。</summary>
             public int Total;
 
-            /// <summary>目标原本没有同名项，直接写入。</summary>
+            /// <summary>扫描出来的文件数 / 文件夹数，用于把汇总拆成两类各自的进度。</summary>
+            public int TotalFiles;
+            public int TotalDirs;
+
+            /// <summary>已处理的文件数 / 文件夹数。</summary>
+            public int DoneFiles;
+            public int DoneDirs;
+
+            /// <summary>文件里目标原本没有同名项、直接写入的数量。</summary>
             public int Added;
+
+            /// <summary>成功创建的文件夹数量（与文件的新增分开统计）。</summary>
+            public int AddedDirectories;
 
             public int Overwritten;
             public int KeptBoth;
             public int Skipped;
+
+            /// <summary>失败项数（文件 + 文件夹）。</summary>
             public int Failed;
         }
 
@@ -1254,7 +1408,13 @@ namespace AdbTools.FileBrowser
         {
             if (_busy || _inPackageList) return;
 
-            var input = new InputWindow { Title = "新建文件夹", Owner = this };
+            var input = new InputWindow
+            {
+                Title = "新建文件夹",
+                Owner = this,
+                Hint = "在 " + _currentPath + " 下新建文件夹",
+                HintHighlight = _currentPath
+            };
             if (input.ShowDialog() != true) return;
 
             string name = (input.Result ?? string.Empty).Trim();
@@ -1281,7 +1441,13 @@ namespace AdbTools.FileBrowser
                 return;
             }
 
-            var input = new InputWindow { Title = "重命名", Owner = this };
+            var input = new InputWindow
+            {
+                Title = "重命名",
+                Owner = this,
+                Hint = "原名：" + entry.Name,
+                HintHighlight = entry.Name
+            };
             input.content.Text = entry.Name;
             input.content.SelectAll();
             if (input.ShowDialog() != true) return;
@@ -1505,9 +1671,10 @@ namespace AdbTools.FileBrowser
         {
             if (_closed) return;
 
-            // 应用列表不是真实目录，上传/下载/新建/重命名/删除都不可用
+            // 应用列表不是真实目录：上传、新建、重命名、删除都不可用，
+            // 但可以多选应用，批量下载它们各自的私有数据目录
             SetFileOpsEnabled(false);
-            fileList.ContextMenu = null;
+            downloadButton.IsEnabled = true;
 
             int total = _allPackageEntries.Count;
             int accessible = _allPackageEntries.Count(o => o.CanOpen);
@@ -1744,14 +1911,19 @@ namespace AdbTools.FileBrowser
             _pendingPackages = new List<string>();
             _pendingApks = null;
 
+            // 只有文件夹参与：目录名可能是包名（/data/data、/sdcard/Android/data 等）
             var candidates = new List<DeviceFileEntry>();
             foreach (DeviceFileEntry entry in entries)
             {
-                if (entry.IsDirectory && IsPackageName(entry.Name)) candidates.Add(entry);
+                entry.PackageHint = GuessPackageName(entry);
+                if (entry.PackageHint != null) candidates.Add(entry);
             }
             if (candidates.Count == 0) return;
 
-            List<string> names = candidates.Select(o => o.Name).ToList();
+            List<string> names = candidates
+                .Select(o => o.PackageHint)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
             Dictionary<string, string> labels;
             Dictionary<string, ImageSource> icons;
@@ -1767,47 +1939,51 @@ namespace AdbTools.FileBrowser
                 return;   // 缓存库不可用：保持包名 + 文件夹图标
             }
 
+            // 多个目录可能推断出同一个包名（如 com.foo 与 com.foo (1)），待办按包名去重
+            var pending = new HashSet<string>(StringComparer.Ordinal);
             foreach (DeviceFileEntry entry in candidates)
             {
                 string label;
-                if (labels.TryGetValue(entry.Name, out label) && !string.IsNullOrEmpty(label))
+                if (labels.TryGetValue(entry.PackageHint, out label) && !string.IsNullOrEmpty(label))
                 {
                     entry.AppLabel = label;
                 }
 
                 ImageSource icon;
-                if (icons.TryGetValue(entry.Name, out icon) && icon != null)
+                if (icons.TryGetValue(entry.PackageHint, out icon) && icon != null)
                 {
                     entry.IconOverride = icon;
                 }
 
                 // 已知"确定没有名字"的不再重试，避免每次进目录都拉一遍 APK
-                if (string.IsNullOrEmpty(entry.AppLabel) && !resolvedEmpty.Contains(entry.Name))
+                if (string.IsNullOrEmpty(entry.AppLabel) && !resolvedEmpty.Contains(entry.PackageHint))
                 {
-                    _pendingPackages.Add(entry.Name);
+                    pending.Add(entry.PackageHint);
                 }
             }
 
-            if (_pendingPackages.Count > 0)
-            {
-                _pendingApks = _service.ListPackageApkPaths(out _);
-            }
+            if (pending.Count == 0) return;
+
+            _pendingPackages = pending.ToList();
+            _pendingApks = _service.ListPackageApkPaths(out _);
         }
 
         /// <summary>
         /// 后台解析应用名与图标（复用应用列表的 AppLabelResolver，结果同样写入缓存库）。
         /// 解析完成的回调在 UI 线程，直接回填到对应行。
         /// </summary>
-        private void StartPackageResolver(string forcePackage = null)
+        /// <param name="forcePackages">
+        /// 非空表示只强制解析这几个包（右键「解析应用」，支持多选）；
+        /// 解析器把从设备取到的新名称/图标直接覆盖写回缓存，不删除旧数据。
+        /// </param>
+        private void StartPackageResolver(IList<string> forcePackages = null)
         {
             StopPackageResolver();
             if (_pendingApks == null || _pendingApks.Count == 0) return;
 
-            // 平时只解析缓存未命中的包；右键「重新获取」时只强制解析选中的那一个包，
-            // 解析器把从设备取到的新名称/图标直接覆盖写回缓存，不删除旧数据。
-            List<string> names = forcePackage != null
-                ? new List<string> { forcePackage }
-                : _pendingPackages;
+            // 平时只解析缓存未命中的包；右键「解析应用」时只强制解析选中的那几个包
+            bool force = forcePackages != null && forcePackages.Count > 0;
+            List<string> names = force ? new List<string>(forcePackages) : _pendingPackages;
             if (names.Count == 0) return;
 
             var apps = new List<AppInfo>();
@@ -1820,7 +1996,7 @@ namespace AdbTools.FileBrowser
             if (apps.Count == 0) return;
 
             _resolver = new AppLabelResolver(_adbPath, _serial, _deviceKey, Dispatcher,
-                message => { }, 4, forcePackage != null);
+                message => { }, 4, force);
 
             _resolver.ItemResolved += (app, label, version, done, total) =>
             {
@@ -1854,7 +2030,8 @@ namespace AdbTools.FileBrowser
         {
             foreach (DeviceFileEntry entry in AllKnownEntries())
             {
-                if (string.Equals(entry.Name, package, StringComparison.Ordinal))
+                // 目录/APK 的条目名不一定等于包名，按推断出来的 PackageHint 匹配
+                if (string.Equals(entry.PackageHint ?? entry.Name, package, StringComparison.Ordinal))
                 {
                     entry.AppLabel = label;
                 }
@@ -1865,7 +2042,7 @@ namespace AdbTools.FileBrowser
         {
             foreach (DeviceFileEntry entry in AllKnownEntries())
             {
-                if (string.Equals(entry.Name, package, StringComparison.Ordinal))
+                if (string.Equals(entry.PackageHint ?? entry.Name, package, StringComparison.Ordinal))
                 {
                     entry.IconOverride = icon;
                 }
@@ -1886,7 +2063,50 @@ namespace AdbTools.FileBrowser
         /// <summary>目录名是否像包名：至少包含一个点，仅字母数字下划线。</summary>
         private static bool IsPackageName(string name)
         {
-            return !string.IsNullOrEmpty(name) && name.Length <= 128 && PackageNamePattern.IsMatch(name);
+            if (string.IsNullOrEmpty(name) || name.Length > 128) return false;
+            if (!PackageNamePattern.IsMatch(name)) return false;
+
+            // 末段必须含字母：排除 v1.2.3、2024.01.02 这类版本号/日期式文件名
+            int index = name.LastIndexOf('.');
+            for (int i = index + 1; i < name.Length; i++)
+            {
+                char c = name[i];
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_') return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 从目录名推断包名：先剥掉 .apk、-1、 (1) 这类下载/复制后缀，再按包名规则匹配。
+        /// 只处理文件夹——文件不参与识别：安装包未必已安装，靠读 APK 解析会产生大量设备交互，
+        /// 安装包的解析交给安装流程。
+        /// </summary>
+        private static string GuessPackageName(DeviceFileEntry entry)
+        {
+            if (entry == null || !entry.IsDirectory || string.IsNullOrEmpty(entry.Name)) return null;
+
+            string name = ApkSuffixPattern.Replace(entry.Name, string.Empty);
+            return MatchPackageName(name);
+        }
+
+        /// <summary>剥掉复制/下载后缀后匹配包名，取能匹配的最长前缀。</summary>
+        private static string MatchPackageName(string name)
+        {
+            if (IsPackageName(name)) return name;
+
+            string trimmed = CopySuffixPattern.Replace(name, string.Empty);
+            if (!string.Equals(trimmed, name, StringComparison.Ordinal) && IsPackageName(trimmed)) return trimmed;
+
+            // com.foo.bar-1 / com.foo.bar-copy：'-' 不是合法包名字符，逐段向左剥
+            int dash = trimmed.LastIndexOf('-');
+            while (dash > 0)
+            {
+                string head = trimmed.Substring(0, dash);
+                if (IsPackageName(head)) return head;
+                dash = head.LastIndexOf('-');
+            }
+
+            return null;
         }
 
         #endregion
@@ -1911,6 +2131,106 @@ namespace AdbTools.FileBrowser
 
             UpdateHeaderArrows();
         }
+
+        #region 《列宽按比例锁定》
+
+        /// <summary>
+        /// 各列宽度占比：名称、类型、大小、修改时间、权限，总和为 1。
+        /// 窗口缩放时按当前可用宽度重新分配；列头拖动已在样式里去掉，
+        /// 所以列宽始终由这组比例决定，不会出现各列被拖乱的情况。
+        /// </summary>
+        private static readonly double[] ColumnWidthRatios = { 0.45, 0.10, 0.12, 0.19, 0.14 };
+
+        private System.Windows.Controls.GridView _fileGridView;
+        private ScrollViewer _listScrollViewer;
+        private bool _columnWidthsUpdating;
+
+        private void InitColumnWidths()
+        {
+            _fileGridView = fileList.View as System.Windows.Controls.GridView;
+            if (_fileGridView == null) return;
+
+            fileList.SizeChanged += FileList_SizeChanged;
+            fileList.Loaded += FileList_Loaded;
+            UpdateColumnWidths();
+        }
+
+        private void FileList_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateColumnWidths();
+        }
+
+        /// <summary>
+        /// 拿到列表内部的 ScrollViewer。只监听 ListView 的 SizeChanged 是不够的：
+        /// 换到文件多的目录时竖向滚动条出现，视口宽度会变小，而 ListView 自身尺寸没变。
+        /// </summary>
+        private void FileList_Loaded(object sender, RoutedEventArgs e)
+        {
+            _listScrollViewer = FindVisualChild<ScrollViewer>(fileList);
+            if (_listScrollViewer != null)
+            {
+                _listScrollViewer.ScrollChanged += ListScrollViewer_ScrollChanged;
+            }
+
+            UpdateColumnWidths();
+        }
+
+        private void ListScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            // 只有视口宽度变化（滚动条出现/消失）才需要重算列宽
+            if (e.ViewportWidthChange != 0) UpdateColumnWidths();
+        }
+
+        /// <summary>按当前视口宽度重算各列宽度，取整后始终小于视口，避免横向滚动条。</summary>
+        private void UpdateColumnWidths()
+        {
+            if (_columnWidthsUpdating || _fileGridView == null) return;
+
+            // 优先用滚动视口宽度（已扣除竖向滚动条和边框），拿不到时退回控件宽度
+            double available = _listScrollViewer != null && _listScrollViewer.ViewportWidth > 0
+                ? _listScrollViewer.ViewportWidth
+                : fileList.ActualWidth - 20;
+
+            // 再留 1px 余量：列宽总和与视口相等时，浮点舍入也会判成“略宽”而冒出横向滚动条
+            available -= 1;
+            if (available <= 0) return;
+
+            _columnWidthsUpdating = true;
+            try
+            {
+                int count = Math.Min(ColumnWidthRatios.Length, _fileGridView.Columns.Count);
+                for (int i = 0; i < count; i++)
+                {
+                    _fileGridView.Columns[i].Width =
+                        Math.Max(48, Math.Floor(available * ColumnWidthRatios[i]));
+                }
+            }
+            finally
+            {
+                _columnWidthsUpdating = false;
+            }
+        }
+
+        /// <summary>在视觉树里查找第一个指定类型的子元素（用于取 ListView 内部的 ScrollViewer）。</summary>
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+
+                T typed = child as T;
+                if (typed != null) return typed;
+
+                T nested = FindVisualChild<T>(child);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        #endregion
 
         private void Header_Click(object sender, RoutedEventArgs e)
         {
@@ -1984,70 +2304,217 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>
-        /// 右键不改变选中状态：只有点中的那行**本来就是当前单选的项**时才挂「重新获取」菜单。
-        /// 右键空白、未选中的行、普通文件/目录或多选时都不显示菜单。
+        /// 右键按下时修正选中状态，并记录操作目标。
+        /// 与资源管理器一致：右键未选中的行 → 只选中它；右键已选中的行 → 保持多选不动；
+        /// 右键空白 → 清空选择。菜单里的操作对象始终取 <see cref="_contextEntry"/>。
         /// </summary>
         private void fileList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             DependencyObject source = e.OriginalSource as DependencyObject;
-            ListViewItem item = source == null ? null
-                : fileList.ContainerFromElement(source) as ListViewItem;
-            UpdateFileContextMenu(item == null ? null : item.DataContext as DeviceFileEntry);
-        }
 
-        /// <summary>仅当右键点中的是当前单选的包名文件夹/应用行时挂菜单，其它情况移除菜单。</summary>
-        private void UpdateFileContextMenu(DeviceFileEntry clicked)
-        {
-            DeviceFileEntry selected = fileList.SelectedItem as DeviceFileEntry;
-            bool isPackageRow = clicked != null
-                && ((_inPackageList && !string.IsNullOrEmpty(clicked.Package))
-                    || (!_inPackageList && clicked.IsDirectory && IsPackageName(clicked.Name)));
-            bool singlePackageFolder = clicked != null
-                && ReferenceEquals(clicked, selected)
-                && fileList.SelectedItems.Count == 1
-                && isPackageRow;
-            fileList.ContextMenu = singlePackageFolder
-                ? FindResource("PackageFolderContextMenu") as ContextMenu
-                : null;
+            // 列头与滚动条上右键不是针对列表内容：不动选择，也不弹菜单
+            if (IsOverScrollBar(source) || IsInsideVisual<GridViewColumnHeader>(source)) return;
+
+            ListViewItem item = source == null
+                ? null
+                : fileList.ContainerFromElement(source) as ListViewItem;
+
+            if (item == null)
+            {
+                fileList.UnselectAll();
+            }
+            else if (!item.IsSelected)
+            {
+                // 右键未选中的行：改为单选这一行，避免菜单操作到别的行
+                // （Extended 模式下设置 SelectedItem 会清空其它选择）
+                fileList.SelectedItem = item.DataContext;
+            }
+
+            _contextEntry = item == null ? null : item.DataContext as DeviceFileEntry;
         }
 
         /// <summary>
-        /// 只重新解析选中的那一个包名：不重列目录、不清列表、不重载应用列表。
-        /// 解析器从设备取最新名称和图标后覆盖写回缓存，并通过事件只回填对应行。
+        /// 右键菜单弹出时按当前选择与所在模式刷新每一项的可见性与可用性。
+        /// 应用列表没有真实路径，只保留打开/下载应用数据/解析应用/筛选/刷新。
         /// </summary>
-        private void reloadPackageMenuItem_Click(object sender, RoutedEventArgs e)
+        private void FileContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            DeviceFileEntry target = _contextEntry;
+            int selectedCount = fileList.SelectedItems == null ? 0 : fileList.SelectedItems.Count;
+
+            bool hasTarget = target != null;
+            bool idle = !_busy;
+            bool singleSelection = selectedCount == 1;
+            bool isAppRow = hasTarget && !string.IsNullOrEmpty(target.Package);
+            bool fileMode = !_inPackageList;
+
+            // 打开：目录进入、文件下载、应用行进入其数据目录
+            ctxOpenMenuItem.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+            ctxOpenMenuItem.IsEnabled = idle;
+
+            // 下载：应用列表里即「下载选中应用的数据」，可多选；
+            // 多选里只要有一个可访问的应用就能下载（其余会被跳过并提示）
+            bool downloadable = !isAppRow
+                || fileList.SelectedItems.Cast<DeviceFileEntry>().Any(o => o.CanOpen);
+            ctxDownloadMenuItem.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+            ctxDownloadMenuItem.IsEnabled = idle && downloadable;
+            if (isAppRow)
+            {
+                ctxDownloadMenuItem.Header = selectedCount > 1
+                    ? "下载应用数据（" + selectedCount + " 项）"
+                    : "下载应用数据";
+            }
+            else
+            {
+                ctxDownloadMenuItem.Header = "下载到电脑";
+            }
+
+            // 当前文件夹组：上传与新建落到当前目录，与选中了哪些项无关
+            ctxSepFileOps.Visibility = fileMode && hasTarget ? Visibility.Visible : Visibility.Collapsed;
+            ctxFolderGroupMenuItem.Visibility = fileMode ? Visibility.Visible : Visibility.Collapsed;
+            ctxFolderGroupText.Text = "当前文件夹 · " + DirectoryLabel(_currentPath);
+            ctxFolderGroupMenuItem.ToolTip = _currentPath;
+
+            Visibility uploadVisibility = fileMode ? Visibility.Visible : Visibility.Collapsed;
+            ctxUploadFileMenuItem.Visibility = uploadVisibility;
+            ctxUploadFolderMenuItem.Visibility = uploadVisibility;
+            ctxNewFolderMenuItem.Visibility = uploadVisibility;
+            ctxUploadFileMenuItem.IsEnabled = idle;
+            ctxUploadFolderMenuItem.IsEnabled = idle;
+            ctxNewFolderMenuItem.IsEnabled = idle;
+
+            // 选中项组：重命名只支持单选，删除支持多选
+            bool selectionGroup = fileMode && hasTarget;
+            ctxSepEdit.Visibility = selectionGroup ? Visibility.Visible : Visibility.Collapsed;
+            ctxSelectionGroupMenuItem.Visibility = selectionGroup ? Visibility.Visible : Visibility.Collapsed;
+            ctxRenameMenuItem.Visibility = uploadVisibility;
+            ctxDeleteMenuItem.Visibility = uploadVisibility;
+            ctxRenameMenuItem.IsEnabled = idle && singleSelection;
+            ctxDeleteMenuItem.IsEnabled = idle;
+
+            if (selectionGroup)
+            {
+                ctxSelectionGroupText.Text = selectedCount > 1
+                    ? "选中项 · " + selectedCount + " 项"
+                    : "选中项 · " + target.Name;
+                ctxSelectionGroupMenuItem.ToolTip = selectedCount > 1
+                    ? "已选 " + selectedCount + " 项"
+                    : target.FullPath;
+            }
+
+            ctxSepPackage.Visibility = fileMode || hasTarget ? Visibility.Visible : Visibility.Collapsed;
+
+            // 解析应用：选中项里只要有一个应用行/包名目录就可用，执行时只处理这些项
+            int resolvableCount = ResolvablePackages().Count;
+            ctxResolveAppMenuItem.Visibility = resolvableCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            ctxResolveAppMenuItem.IsEnabled = idle;
+            ctxResolveAppMenuItem.Header = resolvableCount > 1
+                ? "解析应用（" + resolvableCount + " 个）"
+                : "解析应用";
+
+            // 应用列表里存在不可访问的应用时才有筛选的意义
+            bool canFilter = _inPackageList && _allPackageEntries.Exists(o => !o.CanOpen);
+            ctxFilterMenuItem.Visibility = canFilter ? Visibility.Visible : Visibility.Collapsed;
+            ctxFilterMenuItem.IsEnabled = idle;
+            ctxFilterMenuItem.Header = _showAllPackages ? "只看可访问" : "显示全部";
+
+            ctxRefreshMenuItem.IsEnabled = idle;
+        }
+
+        /// <summary>取设备路径的末级名称，用于菜单里说明操作目标；根目录显示 “/”。</summary>
+        private static string DirectoryLabel(string path)
+        {
+            string value = DeviceFileService.Normalize(path);
+            if (value == "/") return "/";
+
+            int index = value.LastIndexOf('/');
+            return index >= 0 ? value.Substring(index + 1) : value;
+        }
+
+        /// <summary>
+        /// 重新解析选中的应用（支持多选）：不重列目录、不清列表、不重载应用列表。
+        /// 选中项里只有应用行和包名目录参与解析，其余条目直接忽略。
+        /// </summary>
+        private void resolveAppMenuItem_Click(object sender, RoutedEventArgs e)
         {
             if (_busy) return;
 
-            DeviceFileEntry entry = fileList.SelectedItem as DeviceFileEntry;
-            if (entry == null) return;
+            List<string> packages = ResolvablePackages();
+            if (packages.Count == 0)
+            {
+                SetStatus("选中的项目里没有可解析的应用");
+                return;
+            }
 
-            string package = _inPackageList ? entry.Package : entry.Name;
-            if (string.IsNullOrEmpty(package)) return;
-
-            SetStatus("正在从设备重新获取 “" + package + "” 的应用数据…");
+            SetStatus("正在从设备重新获取 " + packages.Count + " 个应用的应用名与图标…");
 
             var thread = new Thread(() =>
             {
                 // 缓存命中时 _pendingApks 可能为空；只补取 APK 路径，不动列表数据
-                if (_pendingApks == null || !_pendingApks.ContainsKey(package))
+                bool missing = false;
+                foreach (string package in packages)
                 {
-                    Dictionary<string, string> paths = _service.ListPackageApkPaths(out _);
-                    if (_pendingApks == null) _pendingApks = paths;
-                    else foreach (KeyValuePair<string, string> pair in paths) _pendingApks[pair.Key] = pair.Value;
+                    if (_pendingApks == null || !_pendingApks.ContainsKey(package))
+                    {
+                        missing = true;
+                        break;
+                    }
                 }
+
+                Dictionary<string, string> paths = missing ? _service.ListPackageApkPaths(out _) : null;
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_closed) return;
-                    StartPackageResolver(package);
+
+                    if (paths != null)
+                    {
+                        // APK 路径表在 UI 线程合并，避免与后台解析同时读写
+                        if (_pendingApks == null) _pendingApks = paths;
+                        else foreach (KeyValuePair<string, string> pair in paths) _pendingApks[pair.Key] = pair.Value;
+                    }
+
+                    StartPackageResolver(packages);
+
+                    // 解析器没能启动（拿不到 APK 路径）时给个明确反馈，不要停在“正在获取”
+                    if (_resolver == null) SetStatus("无法获取这些应用的信息（设备可能不支持 pm -f 输出）");
                 }));
             })
             {
                 IsBackground = true,
-                Name = "refresh-one-package"
+                Name = "refresh-packages"
             };
             thread.Start();
+        }
+
+        /// <summary>
+        /// 当前选中项里能解析包名信息的应用：应用列表的应用行，或目录名恰好是包名的文件夹。
+        /// 多选时只取满足条件的项，同名包只保留一次。
+        /// </summary>
+        private List<string> ResolvablePackages()
+        {
+            var packages = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (DeviceFileEntry entry in SelectedEntries())
+            {
+                string package = ResolvablePackageOf(entry);
+                if (package != null && seen.Add(package)) packages.Add(package);
+            }
+            return packages;
+        }
+
+        private string ResolvablePackageOf(DeviceFileEntry entry)
+        {
+            if (entry == null) return null;
+
+            // 应用列表里的应用行：包名就在 Package 字段
+            if (!string.IsNullOrEmpty(entry.Package)) return entry.Package;
+
+            if (_inPackageList) return null;
+
+            // 目录名推断出来的包名（进入目录时已算好；文件不参与识别）
+            return entry.IsDirectory ? entry.PackageHint : null;
         }
 
         private List<DeviceFileEntry> ApplySort(List<DeviceFileEntry> entries)
@@ -2327,11 +2794,36 @@ namespace AdbTools.FileBrowser
             public string LocalPath { get; private set; }
             public string DevicePath { get; private set; }
 
+            /// <summary>
+            /// 这一项要用哪个应用的身份读取；非空表示批量下载应用私有数据，
+            /// 传输前会把服务切换到该 run-as 身份。普通传输为 null。
+            /// </summary>
+            public string RunAsPackage { get; private set; }
+
+            /// <summary>
+            /// true 表示让服务自己整目录传输（隐藏内部结构），不走「先扫描再逐文件」的流程。
+            /// root 设备批量下载应用数据时用它：目录递归交给 adb pull，避免为每个文件起一个进程。
+            /// </summary>
+            public bool TreeTransfer { get; private set; }
+
             public TransferItem(bool upload, string localPath, string devicePath)
+                : this(upload, localPath, devicePath, null, false)
+            {
+            }
+
+            public TransferItem(bool upload, string localPath, string devicePath, string runAsPackage)
+                : this(upload, localPath, devicePath, runAsPackage, false)
+            {
+            }
+
+            public TransferItem(bool upload, string localPath, string devicePath,
+                string runAsPackage, bool treeTransfer)
             {
                 Upload = upload;
                 LocalPath = localPath;
                 DevicePath = devicePath;
+                RunAsPackage = runAsPackage;
+                TreeTransfer = treeTransfer;
             }
         }
 

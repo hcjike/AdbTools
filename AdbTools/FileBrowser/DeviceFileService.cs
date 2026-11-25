@@ -295,7 +295,14 @@ namespace AdbTools.FileBrowser
         public bool Transfer(bool upload, string localPath, string devicePath, out string message)
         {
             message = null;
-            _cancelled = false;
+
+            // 取消标志由 BeginBatch() 统一重置：这里若重置，逐文件/逐应用循环里
+            // 每次调用都会把用户刚发出的取消请求抹掉，取消要等到整批结束才生效。
+            if (_cancelled)
+            {
+                message = "已取消";
+                return false;
+            }
 
             // 应用私有目录不能走 adb push/pull（那是 adbd 的身份）：
             // 读用 exec-out 以应用身份 cat，写先 push 到 /data/local/tmp 再 run-as cp 进目录。

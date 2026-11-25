@@ -52,11 +52,48 @@
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
 
-        <!-- 只在“单选一个包名文件夹”时挂到列表上，其它情况右键不弹菜单 -->
-        <ContextMenu x:Key="PackageFolderContextMenu">
-            <MenuItem Header="重新获取应用名与图标" Click="reloadPackageMenuItem_Click"
-                      ToolTip="从设备重新获取并更新缓存，不删除已有数据"/>
-        </ContextMenu>
+        <!-- 列头：自定义模板去掉默认的拖动分隔条（列宽由代码按比例锁定），
+             保留点击排序；浅灰底 + 底部细线，和工具栏的分隔风格一致。 -->
+        <Style TargetType="{x:Type GridViewColumnHeader}">
+            <Setter Property="Foreground" Value="#FF4B5563"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type GridViewColumnHeader}">
+                        <Border x:Name="bg" Background="#FFF7F8FA" BorderBrush="#FFE9EBEF"
+                                BorderThickness="0,0,0,1" Padding="6,5" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#FFF1F5F9"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#FFE8EEF6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 右键菜单里的分组提示条：浅色底、小字、圆角，看起来是一条说明而不是可点的菜单项。
+             用自定义模板彻底去掉悬停高亮与按下态；IsEnabled=False 保证点不动也进不了键盘导航。 -->
+        <Style x:Key="ContextHintMenuItemStyle" TargetType="{x:Type MenuItem}">
+            <Setter Property="IsEnabled" Value="False"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border Background="#FFEFF3F8" CornerRadius="4" Margin="4,3" Padding="8,4">
+                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="False"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -202,8 +239,52 @@
                       PreviewMouseMove="fileList_PreviewMouseMove"
                       PreviewMouseLeftButtonUp="fileList_PreviewMouseLeftButtonUp"
                       PreviewMouseRightButtonDown="fileList_PreviewMouseRightButtonDown"
+                      ContextMenuOpening="fileList_ContextMenuOpening"
                       SelectionMode="Extended" MouseDoubleClick="fileList_MouseDoubleClick"
-                      SelectionChanged="fileList_SelectionChanged">
+                      SelectionChanged="fileList_SelectionChanged"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <!-- 右键菜单：真实目录下提供打开/下载/上传/新建/重命名/删除，
+                     应用列表里只保留打开/下载应用数据/解析应用/筛选/刷新。
+                     上传与新建作用在「当前文件夹」，重命名与删除作用在「选中项」，
+                     这两组各用一个灰色标题标出操作目标，避免看错对象。
+                     各项的可见性与可用性在 Opened 里按当前选择动态计算。 -->
+                <ListView.ContextMenu>
+                    <ContextMenu x:Name="fileContextMenu" Opened="FileContextMenu_Opened" MinWidth="200">
+                        <MenuItem x:Name="ctxOpenMenuItem" Header="打开" Click="contextOpen_Click"/>
+                        <MenuItem x:Name="ctxDownloadMenuItem" Header="下载到电脑" Click="download_Click"/>
+                        <Separator x:Name="ctxSepFileOps"/>
+                        <MenuItem x:Name="ctxFolderGroupMenuItem"
+                                  Style="{StaticResource ContextHintMenuItemStyle}"
+                                  ToolTipService.ShowOnDisabled="True">
+                            <MenuItem.Header>
+                                <TextBlock x:Name="ctxFolderGroupText" FontSize="11.5"
+                                           FontWeight="SemiBold" Foreground="#FF475569"
+                                           MaxWidth="240" TextTrimming="CharacterEllipsis"/>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <MenuItem x:Name="ctxUploadFileMenuItem" Header="上传文件" Click="uploadFile_Click"/>
+                        <MenuItem x:Name="ctxUploadFolderMenuItem" Header="上传文件夹" Click="uploadFolder_Click"/>
+                        <MenuItem x:Name="ctxNewFolderMenuItem" Header="新建文件夹" Click="newFolder_Click"/>
+                        <Separator x:Name="ctxSepEdit"/>
+                        <MenuItem x:Name="ctxSelectionGroupMenuItem"
+                                  Style="{StaticResource ContextHintMenuItemStyle}"
+                                  ToolTipService.ShowOnDisabled="True">
+                            <MenuItem.Header>
+                                <TextBlock x:Name="ctxSelectionGroupText" FontSize="11.5"
+                                           FontWeight="SemiBold" Foreground="#FF475569"
+                                           MaxWidth="240" TextTrimming="CharacterEllipsis"/>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <MenuItem x:Name="ctxRenameMenuItem" Header="重命名" Click="rename_Click"/>
+                        <MenuItem x:Name="ctxDeleteMenuItem" Header="删除" Click="delete_Click"/>
+                        <Separator x:Name="ctxSepPackage"/>
+                        <MenuItem x:Name="ctxResolveAppMenuItem" Header="解析应用"
+                                  ToolTip="从设备重新获取并更新该应用的应用名与图标，不删除已有缓存"
+                                  Click="resolveAppMenuItem_Click"/>
+                        <MenuItem x:Name="ctxFilterMenuItem" Header="显示全部" Click="packageFilter_Click"/>
+                        <MenuItem x:Name="ctxRefreshMenuItem" Header="刷新" Click="refresh_Click"/>
+                    </ContextMenu>
+                </ListView.ContextMenu>
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="名称" Width="470">
@@ -253,7 +334,7 @@
                                     <TextBlock Text="{Binding TypeText}" VerticalAlignment="Center">
                                         <TextBlock.Style>
                                             <Style TargetType="{x:Type TextBlock}">
-                                                <Setter Property="Foreground" Value="#FF4B5563"/>
+                                                <Setter Property="Foreground" Value="#FF374151"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding CanOpen}" Value="False">
                                                         <Setter Property="Foreground" Value="#FF9CA3AF"/>
@@ -325,7 +406,21 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="statusText" VerticalAlignment="Center" Foreground="#FF4B5563" TextTrimming="CharacterEllipsis"/>
+            <!-- 状态栏：左侧蓝色竖线做视觉锚点，文字用接近正文的深色且不随状态变色；
+                 数字用等宽字形，进度从 99/161 跳到 100/161 时文本不会左右抖动 -->
+            <Grid Grid.Column="0" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="3" CornerRadius="1.5" Background="#FF2A9FFF"
+                        Margin="0,1,10,1" VerticalAlignment="Stretch"/>
+                <TextBlock x:Name="statusText" Grid.Column="1" VerticalAlignment="Center"
+                           Foreground="#FF111827"
+                           TextTrimming="CharacterEllipsis"
+                           TextOptions.TextFormattingMode="Display"
+                           Typography.NumeralAlignment="Tabular"/>
+            </Grid>
             <!-- 应用列表里用于切换“只看可访问 / 显示全部”，其余目录时隐藏 -->
             <Button x:Name="packageFilterButton" Grid.Column="1" Content="显示全部" Click="packageFilter_Click"
                     Visibility="Collapsed" Background="Transparent" Foreground="#FF2A9FFF"

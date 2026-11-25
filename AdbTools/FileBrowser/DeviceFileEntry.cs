@@ -48,6 +48,13 @@ namespace AdbTools.FileBrowser
         public bool CanRunAs { get; set; }
 
         /// <summary>
+        /// 从文件夹名推断出的包名：剥掉 .apk / -1 / (1) 这类下载、复制后缀后的结果。
+        /// 只有文件夹才可能非空（文件不参与识别）；应用列表里的应用行也用它保存包名。
+        /// 应用名、图标回填和「解析应用」都按这个字段匹配。
+        /// </summary>
+        public string PackageHint { get; set; }
+
+        /// <summary>
         /// 该应用的数据目录当前能不能打开：debug 包可以（run-as），
         /// 或者设备 shell 已是 root（所有应用都能开）。
         /// 普通文件条目恒为 true，只有应用列表里的“打不开的应用”才设为 false。
