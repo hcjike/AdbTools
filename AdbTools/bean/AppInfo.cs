@@ -18,6 +18,7 @@ namespace AdbTools.bean
         private static readonly Brush[] AvatarBrushes = CreateAvatarBrushes();
 
         private string _displayName;
+        private string _versionName;
         private bool _isDisabled;
         private bool _isBusy;
         private bool _isService;
@@ -125,6 +126,32 @@ namespace AdbTools.bean
                 Raise("Title");
                 Raise("Initial");
             }
+        }
+
+        /// <summary>版本号（versionName），由 APK 的 manifest/arsc 解析后回填，可来自缓存。</summary>
+        public string VersionName
+        {
+            get { return _versionName; }
+            set
+            {
+                if (_versionName == value) return;
+                _versionName = value;
+                Raise("VersionName");
+                Raise("VersionText");
+                Raise("HasVersion");
+            }
+        }
+
+        /// <summary>版本徽标文本：没有版本时显示空，由界面隐藏徽标。</summary>
+        public string VersionText
+        {
+            get { return string.IsNullOrWhiteSpace(_versionName) ? null : _versionName.Trim(); }
+        }
+
+        /// <summary>是否读到版本号，控制版本徽标显隐。</summary>
+        public bool HasVersion
+        {
+            get { return !string.IsNullOrWhiteSpace(_versionName); }
         }
 
         /// <summary>列表主标题：优先应用名，没有则显示包名。</summary>

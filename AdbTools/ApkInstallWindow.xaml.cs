@@ -24,7 +24,8 @@ namespace AdbTools
     public partial class ApkInstallWindow : Window
     {
         private const int ParseConcurrency = 4;
-        private const int MaxFileCount = 1000;
+        private const int MaxFileCount = Globals.DropLimits.MaxFileCount;
+        private const int MaxApkItems = Globals.DropLimits.MaxApkCount;
 
         private static readonly Brush SuccessSummaryBrush = new SolidColorBrush(Color.FromRgb(0x04, 0x78, 0x57));
         private static readonly Brush FailureSummaryBrush = new SolidColorBrush(Color.FromRgb(0xB9, 0x1C, 0x1C));
@@ -58,6 +59,7 @@ namespace AdbTools
         /// <summary>已添加的 APK 全路径（不区分大小写），用于按钮添加与拖放去重。</summary>
         private readonly HashSet<string> _knownPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _dragFileValid;
+        private string _truncatedHint;
 
         public ApkInstallWindow(IEnumerable<string> paths, Device device, string adbPath)
         {
@@ -153,14 +155,15 @@ namespace AdbTools
                         string label;
                         string packageName;
                         int minSdkVersion;
-                        ApkInfoReader.Read(item.FilePath, out label, out packageName, out minSdkVersion);
+                        string versionName;
+                        ApkInfoReader.Read(item.FilePath, out label, out packageName, out minSdkVersion, out versionName);
 
                         // 图标只读到内存，不做缓存、不落盘；失败时保持占位图
                         ImageSource icon = ApkIconMemoryReader.Read(item.FilePath);
 
                         if (!_closed)
                         {
-                            Dispatcher.BeginInvoke(new Action(() => ApplyParsed(item, label, packageName, minSdkVersion, icon)));
+                            Dispatcher.BeginInvoke(new Action(() => ApplyParsed(item, label, packageName, minSdkVersion, versionName, icon)));
                         }
                     }
                     catch (Exception)
@@ -179,13 +182,15 @@ namespace AdbTools
             }
         }
 
-        private void ApplyParsed(ApkInstallItem item, string label, string packageName, int minSdkVersion, ImageSource icon)
+        private void ApplyParsed(ApkInstallItem item, string label, string packageName,
+            int minSdkVersion, string versionName, ImageSource icon)
         {
             if (_closed) return;
 
             if (!string.IsNullOrWhiteSpace(label)) item.Label = label.Trim();
             item.PackageName = string.IsNullOrWhiteSpace(packageName) ? null : packageName.Trim();
             item.MinSdkVersion = minSdkVersion;
+            item.VersionName = string.IsNullOrWhiteSpace(versionName) ? null : versionName.Trim();
             item.Icon = icon;
             item.ParseState = string.IsNullOrWhiteSpace(packageName) ? "未解析" : "完成";
 
@@ -227,8 +232,15 @@ namespace AdbTools
             if (paths == null) return 0;
 
             List<ApkInstallItem> added = new List<ApkInstallItem>();
+            _truncatedHint = null;
             foreach (string path in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
             {
+                // 真正的开销在解析 APK（两次打开 zip、读资源表、解码图标），单独限制条目数
+                if (_items.Count >= MaxApkItems)
+                {
+                    _truncatedHint = "仅添加前 " + MaxApkItems + " 个 APK，其余未加入";
+                    break;
+                }
                 if (!_knownPaths.Add(path)) continue;
 
                 ApkInstallItem item = new ApkInstallItem(path, FormatSize(path));
@@ -237,7 +249,11 @@ namespace AdbTools
                 added.Add(item);
             }
 
-            if (added.Count == 0) return 0;
+            if (added.Count == 0)
+            {
+                if (_truncatedHint != null) UpdateSummary();
+                return 0;
+            }
 
             // 新增项也要解析，解析完成前暂时禁用开始安装；退出安装结束态
             _finished = false;
@@ -299,13 +315,27 @@ namespace AdbTools
             }
         }
 
+        /// <summary>列表为空时显示引导提示，隐藏列表本身。</summary>
+        private void UpdateEmptyHint()
+        {
+            bool empty = _items.Count == 0;
+            emptyHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            apkList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         private void UpdateSummary()
         {
+            UpdateEmptyHint();
+
             summaryText.Inlines.Clear();
             summaryText.Inlines.Add(new Run("共 " + _items.Count + " 项 · 已选 " + SelectedCount + " 项")
             {
                 Foreground = MutedSummaryBrush
             });
+            if (!string.IsNullOrEmpty(_truncatedHint))
+            {
+                summaryText.Inlines.Add(new Run(" · " + _truncatedHint) { Foreground = SkipSummaryBrush });
+            }
 
             // 结果栏仅安装完成后显示
             if (_finished)
@@ -389,7 +419,11 @@ namespace AdbTools
             while (element != null)
             {
                 if (element is T match) return match;
-                element = VisualTreeHelper.GetParent(element);
+
+                // Run 等文本内容元素不是 Visual，不能用 VisualTreeHelper 往上找
+                element = element is Visual
+                    ? VisualTreeHelper.GetParent(element)
+                    : LogicalTreeHelper.GetParent(element);
             }
             return null;
         }
@@ -529,7 +563,19 @@ namespace AdbTools
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
+            ShowAddApkDialog();
+        }
+
+        private void ShowAddApkDialog()
+        {
             if (_busy) return;
+
+            if (_items.Count >= MaxApkItems)
+            {
+                MessageBox.Show(this, "安装列表已满（" + MaxApkItems + " 个 APK），请先移除部分再添加。", "提示",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             OpenFileDialog dialog = new OpenFileDialog
             {
@@ -542,10 +588,10 @@ namespace AdbTools
             if (dialog.ShowDialog() != true) return;
 
             int added = AddPaths(dialog.FileNames);
-            if (added == 0)
+            if (added == 0 && string.IsNullOrEmpty(_truncatedHint))
             {
                 int count = dialog.FileNames.Count(p => !string.IsNullOrWhiteSpace(p)
-                    && MainWindow.IsApkFile(p) && _knownPaths.Contains(p));
+                    && ApkDropHelper.IsApkFile(p) && _knownPaths.Contains(p));
                 MessageBox.Show(this, "所选 " + count + " 个 APK 均已在列表中。", "提示",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -555,41 +601,16 @@ namespace AdbTools
         {
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
 
-            // 安装期间锁定添加，给出明确提示且不进入可添加状态
-            if (_busy)
-            {
-                _dragFileValid = false;
-                e.Effects = DragDropEffects.None;
-                dropHintText.Text = "正在安装，暂不能添加 APK";
-                dropHintText.Foreground = Brushes.LightCoral;
-                dropOverlay.Visibility = Visibility.Visible;
-                dropHintBorder.Visibility = Visibility.Visible;
-                e.Handled = true;
-                return;
-            }
-
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            bool exceededMax;
-            Globals.FileCounter.CountFiles(files, out exceededMax, MaxFileCount);
-            List<string> allApk = exceededMax
-                ? new List<string>()
-                : MainWindow.GetAllApkFilesFromDrop(files);
-
-            // 统计新增与重复数量，给出准确提示
-            int duplicateCount = allApk.Count(p => _knownPaths.Contains(p));
-            int newCount = allApk.Count - duplicateCount;
-            _dragFileValid = !exceededMax && newCount > 0;
+            var result = ApkDropHelper.Analyze(
+                files, MaxFileCount, _knownPaths, _items.Count, MaxApkItems, _busy, "列表",
+                (text, valid) =>
+                {
+                    dropHintText.Text = text;
+                    dropHintText.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
+                });
+            _dragFileValid = result.Valid;
             e.Effects = _dragFileValid ? DragDropEffects.Copy : DragDropEffects.None;
-
-            string duplicateHint = duplicateCount > 0 ? "，" + duplicateCount + " 个已添加过" : string.Empty;
-            dropHintText.Text = exceededMax
-                ? "文件过多（超过 " + MaxFileCount + " 个）"
-                : newCount > 0
-                    ? "松手添加 " + newCount + " 个 APK 到列表" + duplicateHint
-                    : duplicateCount > 0
-                        ? duplicateCount + " 个 APK 已添加过"
-                        : "未检测到有效的 APK 文件!";
-            dropHintText.Foreground = _dragFileValid ? Brushes.LightGreen : Brushes.LightCoral;
             dropOverlay.Visibility = Visibility.Visible;
             dropHintBorder.Visibility = Visibility.Visible;
             e.Handled = true;
@@ -619,12 +640,8 @@ namespace AdbTools
             }
 
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            bool exceededMax;
-            Globals.FileCounter.CountFiles(files, out exceededMax, MaxFileCount);
-            if (!exceededMax)
-            {
-                AddPaths(MainWindow.GetAllApkFilesFromDrop(files));
-            }
+            bool dropExceeded;
+            AddPaths(ApkDropHelper.CollectApkFiles(files, MaxFileCount, out dropExceeded));
             e.Handled = true;
         }
 

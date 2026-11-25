@@ -597,10 +597,11 @@ namespace AdbTools
             OpenApkInstallWindow(new List<string>(paths), device);
         }
 
-        /// <summary>打开可勾选的 APK 列表窗口，用户确认后再开始安装。</summary>
+        /// <summary>打开可勾选的 APK 列表窗口，用户确认后再开始安装；paths 为空时打开空窗口由用户添加。</summary>
         private void OpenApkInstallWindow(IReadOnlyList<string> paths, Device device)
         {
-            if (paths == null || paths.Count == 0 || device == null) return;
+            if (device == null) return;
+            if (paths == null) paths = new List<string>();
 
             ApkInstallWindow window = new ApkInstallWindow(paths, device, adbPath);
             window.Show();
@@ -805,6 +806,12 @@ namespace AdbTools
         internal void TrayOpenAppList(Device device)
         {
             OpenAppList(device);
+        }
+
+        /// <summary>托盘菜单：打开空的安装应用窗口，由用户添加 APK 后安装。</summary>
+        internal void TrayOpenApkInstall(Device device)
+        {
+            OpenApkInstallWindow(new List<string>(), device);
         }
 
         internal void TrayOpenShell(Device device)
@@ -1618,42 +1625,42 @@ namespace AdbTools
         #region 《拖放安装》
 
         private bool dragFilevalid = false;
-        private bool exceededMax = false;
-        private int maxFileCount = 1000;
+        private int maxFileCount = Globals.DropLimits.MaxFileCount;
 
         private void listBoxItem_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                Globals.FileCounter.CountFiles(files, out exceededMax, maxFileCount);
-
-                List<string> apkList = exceededMax ? new List<string>() : GetAllApkFilesFromDrop(files);
-                dragFilevalid = !exceededMax && apkList.Count > 0;
+                var result = ApkDropHelper.Analyze(
+                    files, maxFileCount, null, 0, Globals.DropLimits.MaxApkCount, false, "安装列表",
+                    (text, valid) =>
+                    {
+                        if (sender is Grid grid && grid.FindName("dragLabel") is Label dragLabel)
+                        {
+                            dragLabel.Content = text;
+                            dragLabel.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
+                        }
+                    });
+                dragFilevalid = result.Valid;
                 e.Effects = dragFilevalid ? DragDropEffects.Copy : DragDropEffects.None;
 
-                if (sender is Grid grid)
+                if (sender is Grid grid2)
                 {
                     // 半透明深色蒙层提示拖放目标（直接设置卡片背景，
                     // 本地值会覆盖样式中的悬停/选中效果，拖放结束后清除）
-                    if (grid.FindName("itemCard") is Border itemCard)
+                    if (grid2.FindName("itemCard") is Border itemCard)
                     {
                         itemCard.Background = new SolidColorBrush(Color.FromArgb(0x70, 0x1f, 0x29, 0x3b));
                     }
-                    if (grid.FindName("dragLabelBorder") is Border labelBorder)
+                    if (grid2.FindName("dragLabelBorder") is Border labelBorder)
                     {
                         labelBorder.Visibility = Visibility.Visible;
                     }
-                    if (grid.FindName("dragLabel") is Label dragLabel)
+                    if (grid2.FindName("dragLabel") is Label dragLabel2)
                     {
-                        dragLabel.Visibility = Visibility.Visible;
-                        dragLabel.Content = exceededMax
-                            ? $"文件过多（超过 {maxFileCount} 个）"
-                            : dragFilevalid
-                                ? $"松手添加 {apkList.Count} 个 APK 到安装列表"
-                                : "未检测到有效的 APK 文件!";
-                        dragLabel.Foreground = dragFilevalid ? Brushes.LightGreen : Brushes.LightCoral;
-                        dragLabel.FontWeight = FontWeights.Bold;
+                        dragLabel2.Visibility = Visibility.Visible;
+                        dragLabel2.FontWeight = FontWeights.Bold;
                     }
                 }
             }
@@ -1671,7 +1678,7 @@ namespace AdbTools
 
         private void listBoxItem_DragOver(object sender, DragEventArgs e)
         {
-            e.Effects = !exceededMax && dragFilevalid ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Effects = dragFilevalid ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
         }
 
@@ -1683,10 +1690,12 @@ namespace AdbTools
                 ResetDragOverlay(grid);
             }
 
-            if (e.Data.GetDataPresent(DataFormats.FileDrop) && !exceededMax
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) && dragFilevalid
                 && ((FrameworkElement)sender).DataContext is Device targetDevice)
             {
-                List<string> apkList = GetAllApkFilesFromDrop((string[])e.Data.GetData(DataFormats.FileDrop));
+                bool dropExceeded;
+                List<string> apkList = ApkDropHelper.CollectApkFiles(
+                    (string[])e.Data.GetData(DataFormats.FileDrop), maxFileCount, out dropExceeded);
                 if (apkList.Count > 0)
                 {
                     // 先弹出可勾选的 APK 列表，再由用户决定开始安装
@@ -1714,64 +1723,6 @@ namespace AdbTools
             {
                 labelBorder.Visibility = Visibility.Collapsed;
             }
-        }
-
-        /// <summary>
-        /// 从拖放的数据中提取所有 APK 文件（支持目录递归，无权限目录自动跳过）
-        /// </summary>
-        internal static List<string> GetAllApkFilesFromDrop(string[] files)
-        {
-            var apkFiles = new List<string>();
-            // "*.apk.*" 的通配语义也会命中 a.apk，两个模式会重叠，按路径去重
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (string path in files)
-            {
-                if (File.Exists(path))
-                {
-                    if (IsApkFile(path) && seen.Add(path))
-                    {
-                        apkFiles.Add(path);
-                    }
-                }
-                else if (Directory.Exists(path))
-                {
-                    // 使用 Directory.EnumerateFiles 递归搜索所有.apk文件
-                    try
-                    {
-                        foreach (string found in Directory.EnumerateFiles(path, "*.apk", SearchOption.AllDirectories))
-                        {
-                            if (seen.Add(found)) apkFiles.Add(found);
-                        }
-                        // 微信等分发工具会把 xxx.apk 存成 xxx.apk.1，一并找出来
-                        foreach (string found in Directory.EnumerateFiles(path, "*.apk.*", SearchOption.AllDirectories))
-                        {
-                            if (seen.Add(found)) apkFiles.Add(found);
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // 跳过无法访问的目录
-                    }
-                }
-            }
-            return apkFiles;
-        }
-
-        /// <summary>
-        /// 是否为可安装的 APK 文件：常规以 .apk 结尾；
-        /// 微信、QQ 等分发工具会把文件存成 xxx.apk.1 / xxx.apk.2，这类也认作 APK。
-        /// </summary>
-        internal static bool IsApkFile(string path)
-        {
-            string name = Path.GetFileName(path);
-            if (string.IsNullOrEmpty(name))
-            {
-                return false;
-            }
-
-            return name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)
-                || name.IndexOf(".apk.", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         #endregion

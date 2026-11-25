@@ -31,6 +31,7 @@ namespace AdbTools.bean
 
         private string _label;
         private string _packageName;
+        private string _versionName;
         private int _minSdkVersion;
         private string _sizeText;
         private bool _isSelected = true;
@@ -68,6 +69,19 @@ namespace AdbTools.bean
         {
             get { return _minSdkVersion; }
             set { Set(ref _minSdkVersion, value, nameof(MinSdkVersion)); }
+        }
+
+        /// <summary>从安装包读取的版本名（versionName）；null 表示未读到。</summary>
+        public string VersionName
+        {
+            get { return _versionName; }
+            set { Set(ref _versionName, value, nameof(VersionName)); }
+        }
+
+        /// <summary>徽标显示用版本文本，读不到时显示占位符。</summary>
+        public string VersionText
+        {
+            get { return string.IsNullOrWhiteSpace(_versionName) ? "未知" : _versionName.Trim(); }
         }
 
         public string MinSdkText
@@ -236,6 +250,10 @@ namespace AdbTools.bean
             else if (propertyName == nameof(MinSdkVersion))
             {
                 Raise(nameof(MinSdkText));
+            }
+            else if (propertyName == nameof(VersionName))
+            {
+                Raise(nameof(VersionText));
             }
             else if (propertyName == nameof(ErrorText))
             {

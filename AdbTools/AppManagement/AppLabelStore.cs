@@ -134,6 +134,94 @@ namespace AdbTools
             }
         }
 
+        /// <summary>批量取版本号：只返回已解析到版本的包（NULL 表示还没解析，不出现）。</summary>
+        public static Dictionary<string, string> GetVersions(string deviceKey, IEnumerable<string> packages)
+        {
+            Dictionary<string, string> versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (packages == null)
+            {
+                return versions;
+            }
+
+            List<string> names = Collect(packages);
+            if (names.Count == 0)
+            {
+                return versions;
+            }
+
+            try
+            {
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return versions;
+
+                    for (int offset = 0; offset < names.Count; offset += MaxParametersPerQuery)
+                    {
+                        int count = Math.Min(MaxParametersPerQuery, names.Count - offset);
+                        using (SQLiteCommand command = connection.CreateCommand())
+                        {
+                            StringBuilder sql = new StringBuilder(
+                                "SELECT package, version_name FROM app_label " +
+                                "WHERE device_key = @d AND version_name IS NOT NULL AND package IN (");
+                            command.Parameters.AddWithValue("@d", Key(deviceKey));
+                            AppendPackages(sql, command, names, offset, count);
+                            sql.Append(");");
+                            command.CommandText = sql.ToString();
+
+                            using (SQLiteDataReader reader = command.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    versions[reader.GetString(0)] = reader.GetString(1);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("批量读取应用版本失败：{0}", ex.Message);
+            }
+
+            return versions;
+        }
+
+        /// <summary>写入版本号；读不到版本时写空串作为"已尝试"标记，避免每次重解析。</summary>
+        public static void SetVersion(string deviceKey, string packageName, string version)
+        {
+            if (string.IsNullOrEmpty(packageName))
+            {
+                return;
+            }
+
+            try
+            {
+                using (SQLiteConnection connection = AppStore.OpenConnection())
+                {
+                    if (connection == null) return;
+
+                    using (SQLiteCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText =
+                            "INSERT INTO app_label(device_key, package, version_name, updated_at) " +
+                            "VALUES(@d, @p, @v, @t) " +
+                            "ON CONFLICT(device_key, package) DO UPDATE SET " +
+                            "version_name = excluded.version_name, updated_at = excluded.updated_at;";
+                        command.Parameters.AddWithValue("@d", Key(deviceKey));
+                        command.Parameters.AddWithValue("@p", packageName);
+                        command.Parameters.AddWithValue("@v", version ?? string.Empty);
+                        command.Parameters.AddWithValue("@t", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                        command.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("写入应用版本失败：{0}", ex.Message);
+            }
+        }
+
         /// <summary>批量取系统服务标记：只返回已判定的包（NULL 表示还没判定，不出现）。</summary>
         public static Dictionary<string, bool> GetServices(string deviceKey, IEnumerable<string> packages)
         {

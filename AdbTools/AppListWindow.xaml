@@ -2,11 +2,13 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="AdbTools.AppListWindow"
-        Title="应用列表" Height="720" Width="1040" MinHeight="460" MinWidth="760"
+        xmlns:local="clr-namespace:AdbTools"
+        Title="应用列表" Height="720" Width="1040" MinHeight="460" MinWidth="800"
         WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="13"
         Loaded="Window_Loaded" Closed="Window_Closed">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:RatioConverter x:Key="RatioConverter" />
 
         <!-- 行内操作按钮 -->
         <Style x:Key="RowButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
@@ -92,6 +94,7 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
     </Window.Resources>
 
     <Grid Margin="10">
@@ -181,9 +184,9 @@
                                     ToolTip="结束选中应用的进程，不会删除数据" />
                             <TextBlock Text="|" Foreground="#FFE5E7EB" Margin="8,0,2,0"
                                     VerticalAlignment="Center" />
-                            <Button Content="解析名称" Style="{StaticResource ResolveToolButtonStyle}"
+                            <Button Content="解析应用" Style="{StaticResource ResolveToolButtonStyle}"
                                     FontSize="12" Padding="10,4" Click="BatchReResolve_Click"
-                                    ToolTip="从设备重新解析选中应用的名称与图标" />
+                                    ToolTip="从设备重新解析选中应用的名称、图标与版本" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -207,75 +210,112 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Height="34"
-                                          Checked="Selection_Changed" Unchecked="Selection_Changed"
-                                          Click="SelectionCheckBox_Click"
-                                          VerticalAlignment="Center" Margin="0,0,10,0"
-                                          ToolTip="选择此应用" />
+                            <Grid Grid.Column="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                                <!-- 图标：取不到时用包名首字母 + 固定色块占位 -->
-                                <Border Width="34" Height="34" CornerRadius="9" Background="{Binding IconBackground}"
-                                        VerticalAlignment="Center" Margin="0,0,10,0">
-                                    <Grid>
-                                        <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="15"
-                                                   FontWeight="SemiBold" HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"
-                                                   Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}" />
-                                        <Image Source="{Binding Icon}" Stretch="Uniform"
-                                               Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
-                                    </Grid>
-                                </Border>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Height="34"
+                                              Checked="Selection_Changed" Unchecked="Selection_Changed"
+                                              Click="SelectionCheckBox_Click"
+                                              VerticalAlignment="Center" Margin="0,0,10,0"
+                                              ToolTip="选择此应用" />
 
-                                <StackPanel VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
-                                               Foreground="#FF111827" MaxWidth="420" VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis" />
-                                        <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,1"
+                                    <!-- 图标：取不到时用包名首字母 + 固定色块占位 -->
+                                    <Border Width="34" Height="34" CornerRadius="9" Background="{Binding IconBackground}"
+                                            VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <Grid>
+                                            <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="15"
+                                                       FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}" />
+                                            <Image Source="{Binding Icon}" Stretch="Uniform"
+                                                   Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <Grid x:Name="titleRow">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                                                   Foreground="#FF111827" VerticalAlignment="Center"
+                                                   MaxWidth="{Binding ActualWidth, ElementName=titleRow,
+                                                                Converter={StaticResource RatioConverter},
+                                                                ConverterParameter=0.49}"
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"
+                                                   ToolTipService.ShowDuration="8000" />
+                                        <ScrollViewer Grid.Column="1" Margin="8,0,0,0"
+                                                      VerticalAlignment="Center"
+                                                      HorizontalScrollBarVisibility="Hidden"
+                                                      VerticalScrollBarVisibility="Disabled"
+                                                      Loaded="BadgeScroller_Loaded"
+                                                      MouseMove="BadgeScroller_MouseMove"
+                                                      MouseLeftButtonUp="BadgeScroller_MouseUp"
+                                                      LostMouseCapture="BadgeScroller_LostMouseCapture">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Margin="0,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="#FFF1F5F9" VerticalAlignment="Center"
                                             Visibility="{Binding FromCache, Converter={StaticResource BoolToVis}}">
-                                            <Border.ToolTip>
-                                                <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="缓存"/></Bold><LineBreak/><Run Text="该行信息来自本地缓存，本次未重新读取设备资源。"/><LineBreak/><Run Text="判断：应用名之前已解析过并缓存，本次直接复用。"/></TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="缓存" FontSize="11" Foreground="#FF64748B" />
-                                        </Border>
-                                        <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,1"
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="缓存"/></Bold><LineBreak/><Run Text="该行信息来自本地缓存，本次未重新读取设备资源。"/><LineBreak/><Run Text="判断：应用名之前已解析过并缓存，本次直接复用。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="缓存" FontSize="11" Foreground="#FF64748B" />
+                                                </Border>
+                                                <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="#FFEFF6FF" VerticalAlignment="Center">
-                                            <Border.ToolTip>
-                                                <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="应用归属类型"/></Bold><LineBreak/><Run Text="“系统”=预装于系统分区，“第三方”=用户自行安装。"/><LineBreak/><Run Text="判断：安装位置在系统分区（/system、/vendor、/product 等）为“系统”，否则为“第三方”。"/></TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="{Binding TypeText}" FontSize="11" Foreground="#FF2A9FFF" />
-                                        </Border>
-                                        <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="应用归属类型"/></Bold><LineBreak/><Run Text="“系统”=预装于系统分区，“第三方”=用户自行安装。"/><LineBreak/><Run Text="判断：安装位置在系统分区（/system、/vendor、/product 等）为“系统”，否则为“第三方”。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="{Binding TypeText}" FontSize="11" Foreground="#FF2A9FFF" />
+                                                </Border>
+                                                <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                            Background="#F3E8FF" VerticalAlignment="Center"
+                                            ToolTipService.ShowDuration="8000"
+                                            Visibility="{Binding HasVersion, Converter={StaticResource BoolToVis}}">
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="版本号"/></Bold><LineBreak/><Run Text="从 APK 的 AndroidManifest 读取 versionName，结果缓存在本地数据库。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="{Binding VersionText, Mode=OneWay}" FontSize="11"
+                                                       Foreground="#FF7C3AED" MaxWidth="160"
+                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                                </Border>
+                                                <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="#FFFFF3E0" VerticalAlignment="Center"
                                             Visibility="{Binding IsService, Converter={StaticResource BoolToVis}}">
-                                            <Border.ToolTip>
-                                                <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="系统服务"/></Bold><LineBreak/><Run Text="系统应用里无桌面图标或常驻运行的后台服务型应用，停用/卸载风险较高。"/><LineBreak/><Run Text="判断：无桌面图标入口，或声明为常驻运行（persistent）。"/></TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="系统服务" FontSize="11" Foreground="#FFB45309" />
-                                        </Border>
-                                        <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="系统服务"/></Bold><LineBreak/><Run Text="系统应用里无桌面图标或常驻运行的后台服务型应用，停用/卸载风险较高。"/><LineBreak/><Run Text="判断：无桌面图标入口，或声明为常驻运行（persistent）。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="系统服务" FontSize="11" Foreground="#FFB45309" />
+                                                </Border>
+                                                <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="#FFECFDF5" VerticalAlignment="Center"
                                             Visibility="{Binding IsDebug, Converter={StaticResource BoolToVis}}">
-                                            <Border.ToolTip>
-                                                <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="Debug 应用"/></Bold><LineBreak/><Run Text="APK 的 AndroidManifest 里声明了 android:debuggable=&quot;true&quot;。"/><LineBreak/><Run Text="判断：dumpsys package 输出中该包的 flags 含 DEBUGGABLE；每次刷新重新读取，不使用缓存。"/></TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="Debug" FontSize="11" Foreground="#FF059669" />
-                                        </Border>
-                                        <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="Debug 应用"/></Bold><LineBreak/><Run Text="APK 的 AndroidManifest 里声明了 android:debuggable=&quot;true&quot;。"/><LineBreak/><Run Text="判断：dumpsys package 输出中该包的 flags 含 DEBUGGABLE；每次刷新重新读取，不使用缓存。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="Debug" FontSize="11" Foreground="#FF059669" />
+                                                </Border>
+                                                <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1"
                                             Background="{Binding StatusBackground}" VerticalAlignment="Center">
-                                            <Border.ToolTip>
-                                                <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="启用状态"/></Bold><LineBreak/><Run Text="“已停用”=应用被停用（冻结），“已启用”=正常可用。"/><LineBreak/><Run Text="判断：该应用当前是否处于停用状态。"/></TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                                    <Border.ToolTip>
+                                                        <TextBlock MaxWidth="300" TextWrapping="Wrap" FontSize="12"><Bold><Run Text="启用状态"/></Bold><LineBreak/><Run Text="“已停用”=应用被停用（冻结），“已启用”=正常可用。"/><LineBreak/><Run Text="判断：该应用当前是否处于停用状态。"/></TextBlock>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Text="{Binding StatusText}" FontSize="11"
                                                    Foreground="{Binding StatusForeground}" />
-                                        </Border>
-                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                    </Grid>
                                     <TextBlock Text="{Binding PackageName}" FontSize="11.5" Foreground="#FF8A94A6"
                                            Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                            </StackPanel>
+                            </Grid>
 
                             <TextBlock Grid.Column="1" Text="处理中…" Foreground="#FF9CA3AF" FontSize="12"
                                        VerticalAlignment="Center" Margin="10,0,0,0"
@@ -294,6 +334,15 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+
+            <!-- 操作结果提示：默认隐藏，操作后显示最多 5 秒 -->
+            <Border x:Name="actionTip" Visibility="Collapsed" HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom" Margin="0,0,0,12" MaxWidth="760"
+                    Background="#E60F172A" CornerRadius="8" Padding="14,7"
+                    IsHitTestVisible="False" Panel.ZIndex="2">
+                <TextBlock x:Name="actionTipText" Foreground="White" FontSize="12.5"
+                           TextWrapping="Wrap" TextAlignment="Center" />
+            </Border>
 
             <TextBlock x:Name="emptyHint" Text="没有符合条件的应用" Foreground="#FF9CA3AF"
                        HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />

@@ -602,86 +602,15 @@ namespace AdbTools
         }
 
         /// <summary>
-        /// 文件数量统计（统计前即可上限截断，避免遍历超大目录）
+        /// 拖放/添加 APK 的数量上限：路径枚举开销低，APK 解析开销高，两者分开限制。
         /// </summary>
-        public static class FileCounter
+        public static class DropLimits
         {
-            /// <summary>
-            /// 统计文件数量（包括子文件夹），达到上限时提前结束
-            /// </summary>
-            /// <param name="paths">要统计的路径列表（可为文件或目录）</param>
-            /// <param name="exceededMax">是否达到或超过上限</param>
-            /// <param name="maxCount">文件数量上限</param>
-            /// <returns>文件数量（不超过maxCount）</returns>
-            public static int CountFiles(string[] paths, out bool exceededMax, int maxCount)
-            {
-                exceededMax = false;
-                if (paths == null || paths.Length == 0)
-                {
-                    return 0;
-                }
+            /// <summary>一次拖放最多枚举的文件数（只做路径枚举和文件名判断，开销极低）。</summary>
+            public const int MaxFileCount = 5000;
 
-                int count = 0;
-                foreach (string path in paths)
-                {
-                    if (File.Exists(path))
-                    {
-                        count++;
-                    }
-                    else if (Directory.Exists(path))
-                    {
-                        count = CountDirectory(path, count, maxCount, out exceededMax);
-                        if (exceededMax)
-                        {
-                            return maxCount;
-                        }
-                    }
-
-                    if (count >= maxCount)
-                    {
-                        exceededMax = true;
-                        return maxCount;
-                    }
-                }
-
-                exceededMax = count >= maxCount;
-                return count;
-            }
-
-            /// <summary>
-            /// 迭代统计目录（含子目录）中的文件数，单个目录访问失败时跳过
-            /// </summary>
-            private static int CountDirectory(string directory, int count, int maxCount, out bool exceededMax)
-            {
-                exceededMax = false;
-                var stack = new Stack<string>();
-                stack.Push(directory);
-
-                while (stack.Count > 0)
-                {
-                    string current = stack.Pop();
-                    try
-                    {
-                        foreach (string file in Directory.EnumerateFiles(current))
-                        {
-                            if (++count >= maxCount)
-                            {
-                                exceededMax = true;
-                                return count;
-                            }
-                        }
-                        foreach (string subDirectory in Directory.EnumerateDirectories(current))
-                        {
-                            stack.Push(subDirectory);
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // 跳过无权限或无法访问的目录，继续统计其他目录
-                    }
-                }
-                return count;
-            }
+            /// <summary>安装列表最多容纳的 APK 数（每个都要打开 zip 解析清单与图标）。</summary>
+            public const int MaxApkCount = 500;
         }
     }
 }

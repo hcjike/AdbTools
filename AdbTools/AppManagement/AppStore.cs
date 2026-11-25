@@ -12,7 +12,7 @@ namespace AdbTools
     internal static class AppStore
     {
         /// <summary>库结构版本。新增表/字段时 +1，并在 Upgrade 里补对应分支。</summary>
-        public const int SchemaVersion = 2;
+        public const int SchemaVersion = 3;
 
         /// <summary>旧版本用过的库文件名，启动时清理，避免残留占空间。</summary>
         private static readonly string[] LegacyDatabaseNames = { "app.db", "apps.db", "database.db" };
@@ -134,6 +134,17 @@ namespace AdbTools
 
             CreateSchema(connection);
 
+            // v3：app_label 增加版本名列。旧库就地加列，保留已缓存的名称与图标
+            if (fromVersion < 3 && TableExists(connection, "app_label")
+                && !ColumnExists(connection, "app_label", "version_name"))
+            {
+                using (SQLiteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "ALTER TABLE app_label ADD COLUMN version_name TEXT;";
+                    command.ExecuteNonQuery();
+                }
+            }
+
             // user_version 不能放在事务里回滚，单独写入
             using (SQLiteCommand command = connection.CreateCommand())
             {
@@ -158,6 +169,7 @@ namespace AdbTools
                     "package TEXT NOT NULL," +
                     "label TEXT," +
                     "label_resolved INTEGER NOT NULL DEFAULT 0," +
+                    "version_name TEXT," +
                     "is_service INTEGER," +
                     "icon_hash TEXT," +
                     "icon_failed INTEGER NOT NULL DEFAULT 0," +
@@ -201,6 +213,7 @@ namespace AdbTools
                 && TableExists(connection, "remote_window")
                 && ColumnExists(connection, "app_label", "device_key")
                 && ColumnExists(connection, "app_label", "label_resolved")
+                && ColumnExists(connection, "app_label", "version_name")
                 && ColumnExists(connection, "app_label", "is_service")
                 && ColumnExists(connection, "app_label", "icon_hash")
                 && ColumnExists(connection, "app_label", "icon_failed");

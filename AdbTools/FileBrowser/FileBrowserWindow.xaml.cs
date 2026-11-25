@@ -1426,7 +1426,7 @@ namespace AdbTools.FileBrowser
             _resolver = new AppLabelResolver(_adbPath, _serial, _deviceKey, Dispatcher,
                 message => { }, 4, forcePackage != null);
 
-            _resolver.ItemResolved += (app, label, done, total) =>
+            _resolver.ItemResolved += (app, label, version, done, total) =>
             {
                 if (!string.IsNullOrEmpty(label)) ApplyLabelToEntries(app.PackageName, label);
 

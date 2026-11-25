@@ -123,6 +123,66 @@ namespace AdbTools
             return null;
         }
 
+        /// <summary>读取 &lt;manifest&gt; 上的 versionName（版本名）；读不到返回 null。</summary>
+        public static string ReadVersionName(byte[] manifest)
+        {
+            return ReadVersionName(manifest, null);
+        }
+
+        /// <summary>
+        /// 读取 versionName：同时支持字符串字面量和 @string 资源引用（资源引用需传 resources.arsc）。
+        /// </summary>
+        public static string ReadVersionName(byte[] manifest, byte[] arsc)
+        {
+            if (manifest == null || manifest.Length < 8)
+            {
+                return null;
+            }
+
+            ResStringPool pool = null;
+            int pos = 8; // 跳过文件头
+
+            while (pos + 8 <= manifest.Length)
+            {
+                ushort type = ChunkReader.U16(manifest, pos);
+                ushort headerSize = ChunkReader.U16(manifest, pos + 2);
+                uint size = ChunkReader.U32(manifest, pos + 4);
+                if (size < 8 || pos + (long)size > manifest.Length)
+                {
+                    return null;
+                }
+
+                if (type == ChunkStringPool)
+                {
+                    pool = new ResStringPool(manifest, pos);
+                }
+                else if (type == ChunkXmlStartElement && pool != null)
+                {
+                    int nameIndex = ChunkReader.I32(manifest, pos + headerSize + 4);
+                    if (pool.Get(nameIndex) == "manifest")
+                    {
+                        uint resId;
+                        string literal;
+                        if (!TryReadManifestStringAttribute(manifest, pos, headerSize, pool,
+                                "versionName", out resId, out literal))
+                        {
+                            return null;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(literal)) return literal.Trim();
+                        if (resId == 0 || arsc == null || arsc.Length < 12) return null;
+
+                        string text = new ResTable(arsc).ResolveString(resId, 0);
+                        return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+                    }
+                }
+
+                pos += (int)size;
+            }
+
+            return null;
+        }
+
         /// <summary>读取 &lt;uses-sdk&gt; 上的 android:minSdkVersion；读不到返回 0。</summary>
         public static int ReadMinSdkVersion(byte[] manifest)
         {
@@ -867,6 +927,67 @@ namespace AdbTools
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 读取元素上的字符串属性：按属性名精确匹配，支持字面量字符串和资源引用。
+        /// 用于 versionName 这类没有稳定资源 id、名字匹配最可靠的情况。
+        /// </summary>
+        private static bool TryReadManifestStringAttribute(byte[] data, int chunkPos, int headerSize,
+            ResStringPool pool, string attrName, out uint resId, out string literal)
+        {
+            resId = 0;
+            literal = null;
+
+            int ext = chunkPos + headerSize;
+            if (ext + 16 > data.Length)
+            {
+                return false;
+            }
+
+            int attributeStart = ChunkReader.U16(data, ext + 8);
+            int attributeSize = ChunkReader.U16(data, ext + 10);
+            int attributeCount = ChunkReader.U16(data, ext + 12);
+            if (attributeSize < 20 || attributeCount <= 0)
+            {
+                return false;
+            }
+
+            int attrPos = ext + attributeStart;
+            for (int i = 0; i < attributeCount; i++)
+            {
+                int a = attrPos + i * attributeSize;
+                if (a + 20 > data.Length)
+                {
+                    return false;
+                }
+
+                if (pool.Get(ChunkReader.I32(data, a + 4)) != attrName) continue;
+
+                byte valueType = data[a + 15];
+                uint valueData = ChunkReader.U32(data, a + 16);
+                if (valueType == ValueTypeString)
+                {
+                    literal = pool.Get((int)valueData);
+                    return true;
+                }
+                if (valueType == ValueTypeReference)
+                {
+                    resId = valueData;
+                    return true;
+                }
+
+                // 少数 APK 把值写在 rawValue 里
+                int rawIndex = ChunkReader.I32(data, a + 8);
+                if (rawIndex >= 0)
+                {
+                    literal = pool.Get(rawIndex);
+                    return true;
+                }
+                return false;
+            }
+
+            return false;
         }
 
         private static bool TryReadAttributeValue(byte[] data, int chunkPos, int headerSize,

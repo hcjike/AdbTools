@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -28,6 +29,7 @@ namespace AdbTools
         private readonly ObservableCollection<AppInfo> _apps = new ObservableCollection<AppInfo>();
         private readonly ICollectionView _view;
         private readonly DispatcherTimer _statusTimer = new DispatcherTimer();
+        private readonly DispatcherTimer _actionTipTimer = new DispatcherTimer();
 
         private AppLabelResolver _resolver;
         private string _deviceKey;
@@ -41,6 +43,10 @@ namespace AdbTools
         private bool _batchBusy;
         private bool _batchCancelled;
         private bool _syncingSelection;
+        private ScrollViewer _dragScroller;
+        private double _dragStartX;
+        private double _dragStartOffset;
+        private bool _draggingBadge;
 
         private enum AppAction
         {
@@ -80,6 +86,13 @@ namespace AdbTools
             _statusTimer.Interval = TimeSpan.FromSeconds(6);
             _statusTimer.Tick += StatusTimer_Tick;
 
+            _actionTipTimer.Interval = TimeSpan.FromSeconds(5);
+            _actionTipTimer.Tick += (s, e) =>
+            {
+                _actionTipTimer.Stop();
+                actionTip.Visibility = Visibility.Collapsed;
+            };
+
             searchHint.Visibility = Visibility.Visible;
         }
 
@@ -96,6 +109,7 @@ namespace AdbTools
         private void Window_Closed(object sender, EventArgs e)
         {
             _statusTimer.Stop();
+            _actionTipTimer.Stop();
             _batchCancelled = true;
             if (_resolver != null)
             {
@@ -366,9 +380,11 @@ namespace AdbTools
                 .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // 一次 IN 查询把该设备已缓存的名称、解析状态、服务标记与图标全部取回，避免逐条查库
+            // 一次 IN 查询把该设备已缓存的名称、版本、解析状态、服务标记与图标全部取回，避免逐条查库
             Dictionary<string, string> cachedLabels =
                 AppLabelStore.GetLabels(_deviceKey, entries.Select(x => x.Key));
+            Dictionary<string, string> cachedVersions =
+                AppLabelStore.GetVersions(_deviceKey, entries.Select(x => x.Key));
             Dictionary<string, bool> cachedServices =
                 AppLabelStore.GetServices(_deviceKey, entries.Select(x => x.Key));
             HashSet<string> resolvedNames =
@@ -409,6 +425,12 @@ namespace AdbTools
                 {
                     app.DisplayName = cached;
                     app.FromCache = true;
+                }
+
+                string cachedVersion;
+                if (cachedVersions.TryGetValue(entry.Key, out cachedVersion))
+                {
+                    app.VersionName = cachedVersion;
                 }
 
                 // 名称已解析（含"确定无名称"）：下次不再列入待解析队列，避免反复拉 arsc
@@ -553,7 +575,10 @@ namespace AdbTools
         private void StartResolving()
         {
             // 已卸载的应用不参与自动解析：先恢复才有意义，避免白拉几百 MB 资源
-            List<AppInfo> pending = _apps.Where(a => !a.NameResolved && !a.IsUninstalled).ToList();
+            // 版本首次引入时旧缓存没有该列，VersionName 为 null 的应用也解析一次（写入后不再重复）
+            List<AppInfo> pending = _apps
+                .Where(a => !a.IsUninstalled && (!a.NameResolved || a.VersionName == null))
+                .ToList();
             if (pending.Count == 0)
             {
                 progressText.Text = string.Empty;
@@ -573,11 +598,16 @@ namespace AdbTools
             _resolver.Start(pending);
         }
 
-        private void Resolver_ItemResolved(AppInfo app, string label, int done, int total)
+        private void Resolver_ItemResolved(AppInfo app, string label, string version, int done, int total)
         {
             if (!string.IsNullOrEmpty(label))
             {
                 app.DisplayName = label;
+            }
+
+            if (version != null)
+            {
+                app.VersionName = version;
             }
 
             // 系统服务标记是异步回填的：状态栏计数实时刷新；正在按“系统服务”筛选时补入新项
@@ -649,7 +679,7 @@ namespace AdbTools
                 message => SetStatus(message, NormalBrush), concurrency);
 
             resolver.ItemIconResolved += Resolver_IconResolved;
-            resolver.ItemResolved += (target, label, done, total) =>
+            resolver.ItemResolved += (target, label, version, done, total) =>
             {
                 target.IsBusy = false;
                 if (!string.IsNullOrEmpty(label))
@@ -737,7 +767,7 @@ namespace AdbTools
             menu.Items.Add(new Separator());
             menu.Items.Add(CreateMenuItem("复制包名", itemStyle, () => CopyText(app.PackageName, "包名")));
             menu.Items.Add(CreateMenuItem("复制 APK 路径", itemStyle, () => CopyText(app.ApkPath, "APK 路径")));
-            menu.Items.Add(CreateMenuItem("解析名称", itemStyle, () => ReResolveName(app)));
+            menu.Items.Add(CreateMenuItem("解析应用", itemStyle, () => ReResolveName(app)));
 
             menu.PlacementTarget = button;
             menu.Placement = PlacementMode.Bottom;
@@ -761,10 +791,12 @@ namespace AdbTools
             {
                 Clipboard.SetText(text ?? string.Empty);
                 SetStatus("已复制" + name, OkBrush);
+                ShowActionTip("已复制" + name, true);
             }
             catch (Exception)
             {
                 SetStatus("复制" + name + "失败", ErrorBrush);
+                ShowActionTip("复制" + name + "失败", false);
             }
         }
 
@@ -816,6 +848,9 @@ namespace AdbTools
                 {
                     summary += "。失败：" + string.Join("；", failures);
                     SetStatus(summary, ErrorBrush, false);
+                    ShowActionTip(actionName + "完成：成功 " + successCount
+                        + "，失败 " + failures.Count
+                        + (skippedCount > 0 ? "，跳过 " + skippedCount : ""), false);
                     if (!_batchCancelled)
                     {
                         MessageBox.Show(this, summary, "操作结果",
@@ -825,6 +860,7 @@ namespace AdbTools
                 else
                 {
                     SetStatus(summary, OkBrush);
+                    ShowActionTip(summary, true);
                 }
             };
 
@@ -1129,7 +1165,11 @@ namespace AdbTools
             while (element != null)
             {
                 if (element is T match) return match;
-                element = VisualTreeHelper.GetParent(element);
+
+                // Run 等文本内容元素不是 Visual，不能用 VisualTreeHelper 往上找
+                element = element is Visual
+                    ? VisualTreeHelper.GetParent(element)
+                    : LogicalTreeHelper.GetParent(element);
             }
             return null;
         }
@@ -1287,6 +1327,67 @@ namespace AdbTools
         }
 
         // ------------------------------------------------------------ 辅助
+
+        /// <summary>
+        /// 列表项的 PreviewMouseLeftButtonDown 会把普通点击标记为已处理，
+        /// 这里用 handledEventsToo 注册，才能在徽标区拿到按下事件启动拖拽。
+        /// </summary>
+        private void BadgeScroller_Loaded(object sender, RoutedEventArgs e)
+        {
+            ScrollViewer scroller = sender as ScrollViewer;
+            if (scroller == null) return;
+
+            scroller.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,
+                new MouseButtonEventHandler(BadgeScroller_PreviewMouseLeftButtonDown), true);
+        }
+
+        private void BadgeScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            ScrollViewer scroller = sender as ScrollViewer;
+            if (scroller == null || scroller.ScrollableWidth <= 0) return;
+
+            _dragScroller = scroller;
+            _dragStartX = e.GetPosition(scroller).X;
+            _dragStartOffset = scroller.HorizontalOffset;
+            _draggingBadge = false;
+            scroller.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void BadgeScroller_MouseMove(object sender, MouseEventArgs e)
+        {
+            ScrollViewer scroller = _dragScroller;
+            if (scroller == null || !scroller.IsMouseCaptured) return;
+
+            double delta = e.GetPosition(scroller).X - _dragStartX;
+            if (!_draggingBadge && Math.Abs(delta) < 3) return;
+
+            _draggingBadge = true;
+            double target = _dragStartOffset - delta;
+            scroller.ScrollToHorizontalOffset(Math.Max(0, Math.Min(target, scroller.ScrollableWidth)));
+            e.Handled = true;
+        }
+
+        private void BadgeScroller_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            ScrollViewer scroller = sender as ScrollViewer;
+            if (scroller == null) return;
+
+            bool wasDragging = _draggingBadge;
+            if (scroller.IsMouseCaptured) scroller.ReleaseMouseCapture();
+            if (_dragScroller == scroller)
+            {
+                _dragScroller = null;
+                _draggingBadge = false;
+            }
+            if (wasDragging) e.Handled = true;
+        }
+
+        private void BadgeScroller_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            _dragScroller = null;
+            _draggingBadge = false;
+        }
 
         private string Command(string tail)
         {
@@ -1449,6 +1550,21 @@ namespace AdbTools
             }
         }
 
+        /// <summary>在列表下方显示操作结果提示，5 秒后自动隐藏；新的提示会覆盖旧的。</summary>
+        private void ShowActionTip(string text, bool success)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            actionTipText.Text = text;
+            actionTipText.Foreground = success
+                ? new SolidColorBrush(Color.FromRgb(0x86, 0xEF, 0xAC))
+                : new SolidColorBrush(Color.FromRgb(0xFE, 0xCA, 0xCA));
+            actionTip.Visibility = Visibility.Visible;
+
+            _actionTipTimer.Stop();
+            _actionTipTimer.Start();
+        }
+
         private void StatusTimer_Tick(object sender, EventArgs e)
         {
             _statusTimer.Stop();
@@ -1467,6 +1583,29 @@ namespace AdbTools
             SolidColorBrush brush = new SolidColorBrush(Color.FromRgb(r, g, b));
             brush.Freeze();
             return brush;
+        }
+    }
+
+    /// <summary>把父容器实际宽度按比例换算成 MaxWidth，用于应用名上限随窗口缩放。</summary>
+    internal sealed class RatioConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            double ratio;
+            if (!(value is double) || !(parameter is string)
+                || !double.TryParse((string)parameter, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out ratio))
+            {
+                return Binding.DoNothing;
+            }
+
+            double width = (double)value;
+            return width > 0 ? width * ratio : 0.0;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return Binding.DoNothing;
         }
     }
 }

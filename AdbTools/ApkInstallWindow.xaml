@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="AdbTools.ApkInstallWindow"
-        Title="选择要安装的应用" Width="650" SizeToContent="Height"
+        Title="安装应用" Width="650" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" Background="#FFF3F4F6" FontSize="13"
         ShowInTaskbar="False" UseLayoutRounding="True" SnapsToDevicePixels="True"
         Closed="Window_Closed" ResizeMode="NoResize" PreviewKeyDown="Window_PreviewKeyDown">
@@ -82,21 +82,32 @@
 
                 <Border Grid.Row="0" Background="#FFF8FAFC" CornerRadius="10,10,0,0"
                         BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1" Padding="12">
-                    <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Border Background="#FFE7F8F1" CornerRadius="6" Padding="8,3"
-                                VerticalAlignment="Center">
+                    <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Background="#FFE7F8F1" CornerRadius="6" Padding="8,3"
+                                VerticalAlignment="Center" Margin="0,0,8,0">
                             <TextBlock Text="设备" FontSize="12" Foreground="#FF059669"
-                                       FontWeight="SemiBold" />
+                                       FontWeight="SemiBold" VerticalAlignment="Center" />
                         </Border>
-                        <TextBlock x:Name="deviceText" Foreground="#FF000000" FontWeight="SemiBold"
-                                   Margin="8,0,0,0" MaxWidth="520" TextWrapping="Wrap"
-                                   TextAlignment="Center" VerticalAlignment="Center" />
-                        <Border x:Name="deviceSdkChip" Visibility="Collapsed" VerticalAlignment="Center"
-                                CornerRadius="4" Padding="8,1" Margin="8,0,0,0" Background="#FF2563EB">
+
+                        <TextBlock x:Name="deviceText" Grid.Column="1" Foreground="#FF000000"
+                                   FontWeight="SemiBold" MaxWidth="420" TextWrapping="Wrap"
+                                   TextAlignment="Center" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" />
+
+                        <Border x:Name="deviceSdkChip" Grid.Column="2" Visibility="Collapsed"
+                                VerticalAlignment="Center" CornerRadius="4" Padding="8,1"
+                                Margin="8,0,0,0" Background="#FF2563EB">
                             <TextBlock x:Name="deviceSdkText" Foreground="White" FontSize="11.5"
-                                       FontWeight="SemiBold" TextAlignment="Center" />
+                                       FontWeight="SemiBold" TextAlignment="Center"
+                                       VerticalAlignment="Center" />
                         </Border>
-                    </WrapPanel>
+                    </Grid>
                 </Border>
 
                 <Grid Grid.Row="1" Margin="12,10,12,0">
@@ -144,6 +155,7 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -154,9 +166,9 @@
 
                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                               IsEnabled="{Binding SelectionEnabled}"
-                                              PreviewMouseLeftButtonDown="ItemCheckBox_PreviewMouseLeftButtonDown" Margin="0,0,10,0" Grid.RowSpan="2" />
+                                              PreviewMouseLeftButtonDown="ItemCheckBox_PreviewMouseLeftButtonDown" Margin="0,0,10,0" Grid.RowSpan="3" />
 
-                                    <Border Grid.Row="0" Grid.Column="1" Width="40" Height="40" CornerRadius="9"
+                                    <Border Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Width="40" Height="40" CornerRadius="9"
                                             Background="{Binding IconBackground}" VerticalAlignment="Center"
                                             Margin="0,0,12,0"
                                             ToolTipService.ShowDuration="8000">
@@ -174,23 +186,21 @@
                                         </Grid>
                                     </Border>
 
-                                    <StackPanel Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Label}" FontSize="15" FontWeight="SemiBold"
-                                                   Foreground="#FF000000" TextWrapping="NoWrap"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTipService.ShowDuration="8000">
-                                            <TextBlock.ToolTip>
-                                                <ToolTip Content="{Binding}"
-                                                         ContentTemplate="{StaticResource ApkPathToolTipTemplate}" />
-                                            </TextBlock.ToolTip>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding PackageName}" FontFamily="Consolas"
-                                                   FontSize="12.5" Foreground="#FF1D4ED8" Margin="0,2,0,0"
-                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding PackageName}" />
-                                    </StackPanel>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Label}" FontSize="15"
+                                               FontWeight="SemiBold" Foreground="#FF000000" TextWrapping="NoWrap"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Bottom"
+                                               ToolTipService.ShowDuration="8000">
+                                        <TextBlock.ToolTip>
+                                            <ToolTip Content="{Binding}"
+                                                     ContentTemplate="{StaticResource ApkPathToolTipTemplate}" />
+                                        </TextBlock.ToolTip>
+                                    </TextBlock>
+                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding PackageName}"
+                                               FontFamily="Consolas" FontSize="12.5" Foreground="#FF1D4ED8"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Top" ToolTip="{Binding PackageName}" />
 
-                                    <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal"
+                                    <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal"
                                                 Margin="0,4,0,0" VerticalAlignment="Center">
                                         <Border Background="#FFDCFCE7" CornerRadius="4" Padding="7,2">
                                             <TextBlock FontSize="12" Foreground="#FF166534">
@@ -205,6 +215,17 @@
                                                 <Run Text="{Binding MinSdkText, Mode=OneWay}" />
                                             </TextBlock>
                                         </Border>
+                                        <Border x:Name="versionChip" Background="#FF7C3AED" CornerRadius="4" Padding="7,2"
+                                                Margin="8,0,0,0" ToolTipService.ShowDuration="8000">
+                                            <Border.ToolTip>
+                                                <ToolTip Content="{Binding VersionText, Mode=OneWay}" />
+                                            </Border.ToolTip>
+                                            <TextBlock FontSize="12" Foreground="White" MaxWidth="150"
+                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                                <Run Text="版本 " />
+                                                <Run Text="{Binding VersionText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </Border>
                                         <Border Background="#FFFEF3C7" CornerRadius="4" Padding="7,2"
                                                 Margin="8,0,0,0">
                                             <TextBlock FontSize="12" Foreground="#FF92400E">
@@ -214,7 +235,7 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <Border x:Name="statusChip" Grid.Row="0" Grid.Column="3"
+                                    <Border x:Name="statusChip" Grid.Row="0" Grid.RowSpan="2" Grid.Column="3"
                                             MinWidth="72" CornerRadius="8" Padding="12,6"
                                             Margin="12,0,0,0" VerticalAlignment="Center"
                                             Background="#FFF1F5F9" BorderBrush="#FFE2E8F0"
@@ -282,6 +303,32 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                     </ListBox>
+
+                    <!-- 空列表提示：无 APK 时显示，引导用户添加或拖放 -->
+                    <Border x:Name="emptyHint" Visibility="Collapsed" MinHeight="240"
+                            AllowDrop="True"
+                            DragEnter="ApkList_DragEnter" DragLeave="ApkList_DragLeave"
+                            DragOver="ApkList_DragOver" Drop="ApkList_Drop">
+                        <Border Background="#FFF8FAFC" BorderBrush="#FFCBD5E1" BorderThickness="1"
+                                CornerRadius="10" Margin="0,0,0,8">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
+                                <Grid Width="56" Height="56" HorizontalAlignment="Center">
+                                    <Border Background="#FFE7F8F1" CornerRadius="14" />
+                                    <TextBlock Text="+" FontSize="36" FontWeight="Light"
+                                               Foreground="#FF059669" HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" Margin="0,-4,0,0" />
+                                </Grid>
+                                <TextBlock Text="暂无 APK 文件" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="#FF334155" HorizontalAlignment="Center"
+                                           Margin="0,14,0,0" />
+                                <TextBlock Text="点击下方「添加」按钮选择 APK，或将 APK 文件拖放到此处"
+                                           FontSize="13" Foreground="#FF6B7280"
+                                           HorizontalAlignment="Center" TextWrapping="Wrap"
+                                           TextAlignment="Center" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Border>
+
                     <!-- 拖放蒙层：半透明深色提示拖放目标 -->
                     <Border x:Name="dropOverlay" Visibility="Collapsed" Background="#A01F293B"
                             CornerRadius="8" IsHitTestVisible="False" />

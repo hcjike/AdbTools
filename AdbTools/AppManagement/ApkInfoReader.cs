@@ -20,9 +20,26 @@ namespace AdbTools
         /// <summary>读取应用显示名、包名与最低 SDK 版本；取不到时字符串为 null、SDK 为 0。</summary>
         public static void Read(string apkPath, out string label, out string packageName, out int minSdkVersion)
         {
+            string versionName;
+            Read(apkPath, out label, out packageName, out minSdkVersion, out versionName);
+        }
+
+        /// <summary>读取应用显示名与包名；取不到时对应值为 null。</summary>
+        public static void Read(string apkPath, out string label, out string packageName)
+        {
+            int minSdkVersion;
+            string versionName;
+            Read(apkPath, out label, out packageName, out minSdkVersion, out versionName);
+        }
+
+        /// <summary>读取应用显示名、包名、最低 SDK 与版本名；取不到时字符串为 null、SDK 为 0。</summary>
+        public static void Read(string apkPath, out string label, out string packageName,
+            out int minSdkVersion, out string versionName)
+        {
             label = null;
             packageName = null;
             minSdkVersion = 0;
+            versionName = null;
 
             try
             {
@@ -34,10 +51,11 @@ namespace AdbTools
                         return;
                     }
 
+                    byte[] arsc = ReadEntry(zip, "resources.arsc", MaxArscBytes);
+
                     packageName = ApkLabelReader.ReadPackageName(manifest);
                     minSdkVersion = ApkLabelReader.ReadMinSdkVersion(manifest);
-
-                    byte[] arsc = ReadEntry(zip, "resources.arsc", MaxArscBytes);
+                    versionName = ApkLabelReader.ReadVersionName(manifest, arsc);
                     label = ApkLabelReader.ReadLabel(manifest, arsc);
                 }
             }
@@ -45,13 +63,6 @@ namespace AdbTools
             {
                 // 损坏、被加密或非标准打包：保持默认值，弹窗只显示文件信息
             }
-        }
-
-        /// <summary>读取应用显示名与包名；取不到时对应值为 null。</summary>
-        public static void Read(string apkPath, out string label, out string packageName)
-        {
-            int minSdkVersion;
-            Read(apkPath, out label, out packageName, out minSdkVersion);
         }
 
         private static byte[] ReadEntry(ZipArchive zip, string entryName, long maxBytes)

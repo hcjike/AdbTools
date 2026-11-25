@@ -17,6 +17,7 @@ namespace AdbTools.Tray
         private readonly TaskbarIcon _icon;
         private readonly MenuItem _remoteMenuItem;
         private readonly MenuItem _appListMenuItem;
+        private readonly MenuItem _apkInstallMenuItem;
         private readonly MenuItem _fileMenuItem;
         private readonly MenuItem _shellMenuItem;
         private readonly MenuItem _disconnectMenuItem;
@@ -29,6 +30,7 @@ namespace AdbTools.Tray
         {
             _remoteMenuItem = new MenuItem { Header = "远程控制" };
             _appListMenuItem = new MenuItem { Header = "应用列表" };
+            _apkInstallMenuItem = new MenuItem { Header = "安装应用" };
             _fileMenuItem = new MenuItem { Header = "文件管理" };
             _shellMenuItem = new MenuItem { Header = "Shell 窗口" };
             _disconnectMenuItem = new MenuItem { Header = "断开设备" };
@@ -48,6 +50,7 @@ namespace AdbTools.Tray
             // 先放占位项，保证没有设备时子菜单箭头也能显示，展开时会被真实内容替换
             _remoteMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _appListMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
+            _apkInstallMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _fileMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _shellMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
             _disconnectMenuItem.Items.Add(new MenuItem { Header = "（暂无已连接设备）", IsEnabled = false });
@@ -55,6 +58,7 @@ namespace AdbTools.Tray
             // 设备子菜单在展开时才填充，保证内容始终与当前设备列表一致
             _remoteMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_remoteMenuItem, RemoteControlDevice);
             _appListMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_appListMenuItem, OpenAppListDevice);
+            _apkInstallMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_apkInstallMenuItem, OpenApkInstallDevice);
             _fileMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_fileMenuItem, OpenFileBrowserDevice);
             _shellMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_shellMenuItem, OpenShellDevice);
             _disconnectMenuItem.SubmenuOpened += (s, e) => FillDeviceMenu(_disconnectMenuItem, DisconnectDevice);
@@ -63,6 +67,7 @@ namespace AdbTools.Tray
             menu.Items.Add(CreateItem("刷新设备", (s, e) => App.MainWindowInstance?.TrayRefreshDevices()));
             menu.Items.Add(_refreshIntervalMenuItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(_apkInstallMenuItem);
             menu.Items.Add(_remoteMenuItem);
             menu.Items.Add(_appListMenuItem);
             menu.Items.Add(_fileMenuItem);
@@ -153,6 +158,11 @@ namespace AdbTools.Tray
         private static void OpenAppListDevice(Device device)
         {
             App.MainWindowInstance?.TrayOpenAppList(device);
+        }
+
+        private static void OpenApkInstallDevice(Device device)
+        {
+            App.MainWindowInstance?.TrayOpenApkInstall(device);
         }
 
         private static void OpenShellDevice(Device device)
