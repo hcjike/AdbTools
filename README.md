@@ -20,7 +20,6 @@
 - [远程控制](#远程控制)
 - [常见问题](#常见问题)
 - [第三方组件](#第三方组件)
-- [更新日志](#更新日志)
 - [说明](#说明)
 
 ## 功能特性
@@ -430,10 +429,6 @@
 ADB 相关能力依赖 Google 官方 **Android SDK Platform-Tools 37.0.1**（[下载地址](https://developer.android.com/studio/releases/platform-tools)）中的 `adb.exe`，采用 Android SDK License Agreement 授权（含 Apache License 2.0 组件），版权归 `Google LLC` 所有；仅在本机调用，不额外收集或上传数据。
 
 以上组件的版本、来源、版权人、SHA-256 与用途均记录在 `THIRD_PARTY_NOTICES.txt` 中，随安装包分发。
-
-## 更新日志
-
-各版本的改动内容见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 说明
 
