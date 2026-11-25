@@ -1,0 +1,241 @@
+<Window x:Class="AdbTools.FileBrowser.ConflictDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        Title="目标中已存在同名文件" Width="580" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        ShowInTaskbar="False" WindowStyle="SingleBorderWindow"
+        FontFamily="Microsoft YaHei UI" Background="White">
+
+    <Window.Resources>
+        <!-- 实心按钮统一模板：主色由 Tag 之外用 Style 里的 NormalBackground 控制 -->
+        <Style x:Key="SolidButtonBase" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="22,0" />
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" CornerRadius="7" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.88" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.72" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 覆盖：蓝 -->
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource SolidButtonBase}">
+            <Setter Property="Background" Value="#FF2A9FFF" />
+        </Style>
+
+        <!-- 跳过：灰蓝 -->
+        <Style x:Key="NeutralButton" TargetType="Button" BasedOn="{StaticResource SolidButtonBase}">
+            <Setter Property="Background" Value="#FF64748B" />
+        </Style>
+
+        <!-- 保留两者：绿 -->
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource SolidButtonBase}">
+            <Setter Property="Background" Value="#FF10B981" />
+        </Style>
+
+        <!-- 取消：白底描边（不再用透明，保证看得见） -->
+        <Style x:Key="OutlineButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="#FF4B5563" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Padding" Value="21,0" />
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" CornerRadius="7" Background="White"
+                                BorderBrush="#FFCBD5E1" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FFF1F3F5" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#FF9CA3AF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FFE4E7EB" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 醒目复选框：18px 圆角框，勾选后填充主色 -->
+        <Style x:Key="ApplyAllCheckBox" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#FF1F2937" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                            <Border x:Name="box" Width="18" Height="18" CornerRadius="4"
+                                    Background="White" BorderBrush="#FFB6BEC9" BorderThickness="1.5"
+                                    VerticalAlignment="Center">
+                                <Path x:Name="check" Data="M3,7 L6.2,10.2 L12,4"
+                                      Stroke="White" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round" Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="box" Property="Background" Value="#FF2A9FFF" />
+                                <Setter TargetName="box" Property="BorderBrush" Value="#FF2A9FFF" />
+                                <Setter TargetName="check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="box" Property="BorderBrush" Value="#FF2A9FFF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 端标识：电脑端 / 设备端 -->
+        <Style x:Key="SideChip" TargetType="Border">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题区 -->
+        <Border Grid.Row="0" Background="#FFF8FAFC" BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1"
+                Padding="16,14">
+            <StackPanel Orientation="Horizontal">
+                <Border Width="34" Height="34" CornerRadius="9" Background="#FFFEF3C7"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="!" FontSize="19" FontWeight="Bold" Foreground="#FFB45309"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0" />
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="titleText" FontSize="15.5" FontWeight="SemiBold"
+                               Foreground="#FF1F2937" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBlock x:Name="directionText" FontSize="12" Foreground="#FF6B7280" />
+                        <TextBlock Text=" · " FontSize="12" Foreground="#FFC3C9D2" />
+                        <TextBlock x:Name="subtitleText" FontSize="12" Foreground="#FF6B7280" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- 源 / 目标对照 -->
+        <StackPanel Grid.Row="1" Margin="16,14,16,0">
+            <!-- 源 -->
+            <Border Background="#FFF8FAFC" BorderBrush="#FFE5E7EB" BorderThickness="1"
+                    CornerRadius="8" Padding="13,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Width="3" CornerRadius="2" Background="#FF10B981"
+                            Margin="0,1,12,1" />
+
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="源文件" FontSize="12.5" Foreground="#FF8B93A1"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Border x:Name="sourceChip" Style="{StaticResource SideChip}" Margin="7,0,0,0">
+                                <TextBlock x:Name="sourceChipText" FontSize="11.5" FontWeight="SemiBold" />
+                            </Border>
+                        </StackPanel>
+                        <TextBlock x:Name="sourceName" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#FF111827" Margin="0,5,0,0"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="sourceMeta" FontSize="13" Foreground="#FF6B7280"
+                                   Margin="0,4,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 目标 -->
+            <Border Background="#FFF8FAFC" BorderBrush="#FFE5E7EB" BorderThickness="1"
+                    CornerRadius="8" Padding="13,10" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Width="3" CornerRadius="2" Background="#FFF59E0B"
+                            Margin="0,1,12,1" />
+
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="目标文件" FontSize="12.5" Foreground="#FF8B93A1"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Border x:Name="targetChip" Style="{StaticResource SideChip}" Margin="7,0,0,0">
+                                <TextBlock x:Name="targetChipText" FontSize="11.5" FontWeight="SemiBold" />
+                            </Border>
+                        </StackPanel>
+                        <TextBlock x:Name="targetName" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#FF111827" Margin="0,5,0,0"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="targetMeta" FontSize="13" Foreground="#FF6B7280"
+                                   Margin="0,4,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <CheckBox x:Name="applyAllCheck" Content="为所有冲突执行此操作"
+                      Style="{StaticResource ApplyAllCheckBox}" IsChecked="False"
+                      Margin="0,14,0,0" HorizontalAlignment="Center"
+                      VerticalContentAlignment="Center" />
+        </StackPanel>
+
+        <!-- 按钮区 -->
+        <Border Grid.Row="2" Background="#FFF8FAFC" BorderBrush="#FFE5E7EB" BorderThickness="0,1,0,0"
+                Padding="16,12" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="overwriteButton" Content="覆盖" Click="overwrite_Click"
+                        Style="{StaticResource PrimaryButton}" MinWidth="100" />
+                <Button x:Name="skipButton" Content="跳过" Click="skip_Click"
+                        Style="{StaticResource NeutralButton}" MinWidth="96" Margin="10,0,0,0" />
+                <Button x:Name="keepBothButton" Content="重命名" Click="keepBoth_Click"
+                        ToolTip="自动生成不重名的新名字，例如 报表 (1).xlsx"
+                        Style="{StaticResource SuccessButton}" MinWidth="100" Margin="10,0,0,0" />
+                <Button Content="停止传输" Click="cancel_Click" IsCancel="True"
+                        ToolTip="中止本次全部传输（只跳过当前文件请点「跳过」）"
+                        Style="{StaticResource OutlineButton}" MinWidth="96" Margin="10,0,0,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -48,8 +48,8 @@ namespace AdbTools
         private int _failureStreak;
         private volatile bool _stopped;
 
-        /// <summary>单个应用解析完成（label 为空表示解析失败）。回调已在 UI 线程。</summary>
-        public event Action<AppInfo, string, int, int> ItemResolved;
+        /// <summary>单个应用解析完成（label 为空表示解析失败，version 为版本名或 null）。回调已在 UI 线程。</summary>
+        public event Action<AppInfo, string, string, int, int> ItemResolved;
 
         /// <summary>单个应用图标已写入缓存（回调已在 UI 线程）。</summary>
         public event Action<AppInfo> ItemIconResolved;
@@ -121,12 +121,13 @@ namespace AdbTools
 
                 AppInfo app = items[index];
                 string label = null;
+                string version = null;
                 bool transportOk = false;
                 bool? isService = null;
                 bool nameDetermined = false;
                 try
                 {
-                    label = Resolve(app, out transportOk, out isService, out nameDetermined);
+                    label = Resolve(app, out version, out transportOk, out isService, out nameDetermined);
                 }
                 catch (Exception ex)
                 {
@@ -169,14 +170,22 @@ namespace AdbTools
                     AppLabelStore.SetService(_deviceKey, app.PackageName, isService.Value);
                 }
 
+                // 版本写缓存：读不到也写空串，下次跳过，避免反复拉资源
+                if (transportOk)
+                {
+                    AppLabelStore.SetVersion(_deviceKey, app.PackageName, version);
+                }
+
                 int done = Interlocked.Increment(ref _done);
                 string result = label;
+                string resultVersion = version;
                 _dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (nameDetermined) app.NameResolved = true;
                     if (isService.HasValue) app.IsService = isService.Value;
-                    Action<AppInfo, string, int, int> handler = ItemResolved;
-                    if (handler != null) handler(app, result, done, total);
+                    if (transportOk) app.VersionName = resultVersion;
+                    Action<AppInfo, string, string, int, int> handler = ItemResolved;
+                    if (handler != null) handler(app, result, resultVersion, done, total);
                 }));
             }
         }
@@ -190,8 +199,10 @@ namespace AdbTools
             }));
         }
 
-        private string Resolve(AppInfo app, out bool transportOk, out bool? isService, out bool nameDetermined)
+        private string Resolve(AppInfo app, out string version, out bool transportOk,
+            out bool? isService, out bool nameDetermined)
         {
+            version = null;
             transportOk = false;
             isService = null;
             nameDetermined = false;
@@ -243,6 +254,9 @@ namespace AdbTools
             }
 
             string label = ApkLabelReader.ReadLabel(manifest, arsc);
+
+            // 版本与名称共用同一份 manifest/arsc，不产生额外的 adb 传输
+            version = ApkLabelReader.ReadVersionName(manifest, arsc);
 
             // 名称与图标一起处理；图标失败只影响显示，不影响名称
             TryResolveIcon(app, manifest, arsc);

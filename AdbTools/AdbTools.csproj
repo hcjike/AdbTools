@@ -74,7 +74,7 @@
     <SignManifests>false</SignManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignAssembly>true</SignAssembly>
+    <SignAssembly>false</SignAssembly>
   </PropertyGroup>
   <PropertyGroup>
     <AssemblyOriginatorKeyFile>..\AdbTools.snk</AssemblyOriginatorKeyFile>
@@ -155,6 +155,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="FileBrowser\ConflictDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="CustomControl\HintComboBox.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -218,6 +222,10 @@
       <DependentUpon>FileBrowserWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="FileBrowser\ConflictDialog.xaml.cs">
+      <DependentUpon>ConflictDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="AppListWindow.xaml.cs">
       <DependentUpon>AppListWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -225,6 +233,8 @@
     <Compile Include="AppExceptionLog.cs" />
     <Compile Include="AppManagement\ApkInfoReader.cs" />
     <Compile Include="AppManagement\ApkIconMemoryReader.cs" />
+    <Compile Include="ApkDropHelper.cs" />
+    <Compile Include="DragHintWatchdog.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
     <Compile Include="AppManagement\DailyLogger.cs" />
