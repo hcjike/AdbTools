@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using AdbTools.bean;
 using Microsoft.Win32;
 using WinForms = System.Windows.Forms;
@@ -69,6 +70,11 @@ namespace AdbTools.FileBrowser
         private string _currentPath = "/sdcard";
         private string _lastLocalDirectory;
         private bool _busy;
+        private bool _dragValid;
+
+        /// <summary>本批次统一使用的冲突处理方式（勾选「为所有冲突执行此操作」后生效）。</summary>
+        private ConflictAction? _conflictAll;
+        private int _lastProgressTick;
         private volatile bool _cancelRequested;
         private volatile bool _closed;
         private int _itemCount;
@@ -300,7 +306,8 @@ namespace AdbTools.FileBrowser
                     }
                     else if (entries.Count == 0)
                     {
-                        ShowListNotice("空目录", "当前目录下没有任何文件或文件夹：\r\n" + target, false, target != "/");
+                        ShowListNotice("空目录", "当前目录下没有任何文件或文件夹：\r\n" + target,
+                            false, target != "/", true);
                         SetStatus("空目录");
                     }
                     else
@@ -662,17 +669,135 @@ namespace AdbTools.FileBrowser
 
         #region 《上传 / 下载》
 
-        /// <summary>拖拽本地文件/文件夹到列表：直接上传到当前目录。</summary>
+        /// <summary>拖入时统计文件夹/文件数量并提示，同时判定是否允许放下。</summary>
+        private void fileList_DragEnter(object sender, DragEventArgs e)
+        {
+            EvaluateDrop(e.Data);
+            e.Effects = _dragValid ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        /// <summary>拖拽过程中保持提示与光标一致（DragEnter 未触发时兜底再算一次）。</summary>
         private void fileList_DragOver(object sender, DragEventArgs e)
         {
-            e.Effects = (!_busy && !_inPackageList && e.Data.GetDataPresent(DataFormats.FileDrop))
-                ? DragDropEffects.Copy
-                : DragDropEffects.None;
+            if (!_dragValid) EvaluateDrop(e.Data);
+            e.Effects = _dragValid ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// 拖拽离开。列表项之间移动也会冒泡 DragLeave，
+        /// 所以只有指针真正离开列表范围时才隐藏提示，避免闪烁。
+        /// </summary>
+        private void fileList_DragLeave(object sender, DragEventArgs e)
+        {
+            Point p = e.GetPosition(fileList);
+            if (p.X >= 0 && p.Y >= 0 && p.X <= fileList.ActualWidth && p.Y <= fileList.ActualHeight)
+            {
+                return;
+            }
+            HideDropHint();
+        }
+
+        /// <summary>分析拖入的内容：统计文件夹/文件数量，并给出可拖拽与否的提示。</summary>
+        private void EvaluateDrop(IDataObject data)
+        {
+            string[] paths = (data != null && data.GetDataPresent(DataFormats.FileDrop))
+                ? data.GetData(DataFormats.FileDrop) as string[]
+                : null;
+
+            if (paths == null || paths.Length == 0)
+            {
+                _dragValid = false;
+                ShowDropHint("只能拖入本地文件或文件夹", false);
+                return;
+            }
+
+            if (_inPackageList)
+            {
+                _dragValid = false;
+                ShowDropHint("应用列表里不能上传，请先进入某个目录", false);
+                return;
+            }
+
+            if (_busy)
+            {
+                _dragValid = false;
+                ShowDropHint("正在传输，请完成后再拖入", false);
+                return;
+            }
+
+            int folders = 0;
+            int files = 0;
+            int unsupported = 0;
+            foreach (string path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    unsupported++;
+                }
+                else if (Directory.Exists(path))
+                {
+                    folders++;
+                }
+                else if (File.Exists(path))
+                {
+                    files++;
+                }
+                else
+                {
+                    unsupported++;
+                }
+            }
+
+            if (folders == 0 && files == 0)
+            {
+                _dragValid = false;
+                ShowDropHint("未检测到可上传的文件或文件夹", false);
+                return;
+            }
+
+            _dragValid = true;
+
+            string text;
+            if (folders > 0 && files > 0)
+            {
+                text = "松手上传 " + folders + " 个文件夹、" + files + " 个文件";
+            }
+            else if (folders > 0)
+            {
+                text = "松手上传 " + folders + " 个文件夹";
+            }
+            else
+            {
+                text = "松手上传 " + files + " 个文件";
+            }
+
+            if (unsupported > 0)
+            {
+                text += "（" + unsupported + " 项不受支持，将忽略）";
+            }
+
+            ShowDropHint(text, true);
+        }
+
+        private void ShowDropHint(string text, bool valid)
+        {
+            dropHintText.Text = text;
+            dropHintText.Foreground = valid ? Brushes.LightGreen : Brushes.LightCoral;
+            dropHintBorder.Visibility = Visibility.Visible;
+        }
+
+        private void HideDropHint()
+        {
+            dropHintBorder.Visibility = Visibility.Collapsed;
+            _dragValid = false;
         }
 
         private void fileList_Drop(object sender, DragEventArgs e)
         {
+            HideDropHint();
+
             if (_busy || _inPackageList) return;
 
             string[] paths = e.Data.GetData(DataFormats.FileDrop) as string[];
@@ -788,35 +913,128 @@ namespace AdbTools.FileBrowser
 
             _busy = true;
             _cancelRequested = false;
+            _conflictAll = null;
             SetBusyUi(true, action + "中 0/" + items.Count);
+            SetProgressBusy(true);
+
+            bool runAs = _service.IsRunAsMode;
 
             var thread = new Thread(() =>
             {
-                int done = 0;
+                var stats = new TransferStats();
                 var failed = new List<string>();
 
-                // 应用私有目录的整目录下载是逐文件取回的，把内部进度也打到状态栏
+                // 应用私有目录只能整目录 cp -r，仍按顶层条目计数
                 _service.Progress = text => UpdateStatus(action + "：" + text);
+
+                if (!runAs)
+                {
+                    _service.BeginBatch();
+                    _service.ResolveConflict = info =>
+                    {
+                        try
+                        {
+                            return Dispatcher.Invoke(new Func<ConflictAction>(() => AskConflict(info)));
+                        }
+                        catch (Exception)
+                        {
+                            // 窗口已关闭或调度器已停止：按跳过处理，不要让后台线程崩掉
+                            return ConflictAction.Skip;
+                        }
+                    };
+                }
+
                 try
                 {
-                    foreach (TransferItem item in items)
+                    if (runAs)
                     {
-                        if (_cancelRequested) break;
+                        stats.Total = items.Count;
+                        UpdateProgressTotal(stats.Total);
 
-                        UpdateStatus(action + "中 " + (done + 1) + "/" + items.Count + "：" + ShortName(item));
-
-                        string message;
-                        if (!_service.Transfer(item.Upload, item.LocalPath, item.DevicePath, out message))
+                        foreach (TransferItem item in items)
                         {
                             if (_cancelRequested) break;
-                            failed.Add(ShortName(item) + "：" + message);
+
+                            UpdateStatus(action + "中 · " + ShortName(item));
+
+                            string message;
+                            if (!_service.Transfer(item.Upload, item.LocalPath, item.DevicePath, out message))
+                            {
+                                if (_cancelRequested) break;
+                                failed.Add(ShortName(item) + "：" + message);
+                            }
+
+                            if (_cancelRequested) break;
+
+                            stats.Done++;
+                            stats.Failed = failed.Count;
+                            ReportProgress(action, null, stats);
                         }
-                        done++;
+                    }
+                    else
+                    {
+                        // 阶段1：扫描出全部条目，得到「共多少个文件」
+                        UpdateStatus(action + "前统计文件…");
+                        var entries = new List<TransferEntry>();
+                        foreach (TransferItem item in items)
+                        {
+                            if (_cancelRequested) break;
+
+                            string scanError;
+                            List<TransferEntry> part = _service.Scan(
+                                item.Upload, item.LocalPath, item.DevicePath, out scanError);
+
+                            if (!string.IsNullOrEmpty(scanError)) failed.Add(ShortName(item) + "：" + scanError);
+                            entries.AddRange(part);
+                        }
+
+                        stats.Total = entries.Count(o => !o.IsDirectory);
+                        stats.Failed = failed.Count;
+                        UpdateProgressTotal(stats.Total);
+
+                        // 阶段2：逐个文件传，每个文件前判断冲突
+                        foreach (TransferEntry entry in entries)
+                        {
+                            if (_cancelRequested) break;
+
+                            string message;
+                            TransferOutcome outcome = _service.TransferFile(entry, out message);
+
+                            if (entry.IsDirectory)
+                            {
+                                if (outcome == TransferOutcome.Failed && !_cancelRequested)
+                                {
+                                    failed.Add(ShortName(entry.DevicePath) + "：" + message);
+                                    stats.Failed = failed.Count;
+                                }
+                                continue;
+                            }
+
+                            // 用户点了取消（弹窗里的「取消」或状态栏「取消传输」）：
+                            // 这一项不算跳过，直接中止整批
+                            if (_cancelRequested) break;
+
+                            stats.Done++;
+                            if (outcome == TransferOutcome.Skipped) stats.Skipped++;
+                            else if (outcome == TransferOutcome.Overwritten) stats.Overwritten++;
+                            else if (outcome == TransferOutcome.KeptBoth) stats.KeptBoth++;
+                            else if (outcome == TransferOutcome.Success) stats.Added++;
+                            else if (outcome == TransferOutcome.Failed)
+                            {
+                                if (_cancelRequested) break;
+                                failed.Add(ShortName(entry.Upload ? entry.LocalPath : entry.DevicePath)
+                                    + "：" + message);
+                            }
+
+                            stats.Failed = failed.Count;
+                            ReportProgress(action, entry, stats);
+                        }
                     }
                 }
                 finally
                 {
                     _service.Progress = null;
+                    _service.ResolveConflict = null;
                 }
 
                 bool cancelled = _cancelRequested;
@@ -827,12 +1045,18 @@ namespace AdbTools.FileBrowser
 
                     _busy = false;
                     _cancelRequested = false;
+                    _conflictAll = null;
                     SetBusyUi(false, null);
+                    SetProgressBusy(false);
 
                     string summary = cancelled
-                        ? action + "已取消（" + done + "/" + items.Count + "）"
-                        : action + "完成 " + done + "/" + items.Count;
-                    if (failed.Count > 0) summary += "，失败 " + failed.Count + " 项";
+                        ? action + "已取消（" + stats.Done + "/" + stats.Total + "）"
+                        : action + "完成 " + stats.Done + "/" + stats.Total;
+                    if (stats.Added > 0) summary += "，已新增 " + stats.Added;
+                    if (stats.Overwritten > 0) summary += "，已覆盖 " + stats.Overwritten;
+                    if (stats.KeptBoth > 0) summary += "，已重命名 " + stats.KeptBoth;
+                    if (stats.Skipped > 0) summary += "，已跳过 " + stats.Skipped;
+                    if (stats.Failed > 0) summary += "，失败 " + stats.Failed + " 项";
                     SetStatus(summary);
 
                     if (failed.Count > 0)
@@ -856,6 +1080,137 @@ namespace AdbTools.FileBrowser
                 Name = "file-transfer"
             };
             thread.Start();
+        }
+
+        /// <summary>冲突询问（UI 线程）。本批已选择「全部应用」时不再弹窗。</summary>
+        private ConflictAction AskConflict(ConflictInfo info)
+        {
+            if (_closed) return ConflictAction.Skip;
+            if (_conflictAll.HasValue) return _conflictAll.Value;
+
+            ConflictDialog dialog = new ConflictDialog(info) { Owner = this };
+            bool? result = dialog.ShowDialog();
+
+            if (_closed) return ConflictAction.Skip;
+
+            if (dialog.Cancelled || result != true)
+            {
+                _cancelRequested = true;
+                _service.Cancel();
+                return ConflictAction.Skip;
+            }
+
+            if (dialog.ApplyToAll) _conflictAll = dialog.Action;
+            return dialog.Action;
+        }
+
+        /// <summary>进度条切到不确定态（扫描、run-as 整目录传输时用）。</summary>
+        private void SetProgressBusy(bool busy)
+        {
+            transferBar.IsIndeterminate = busy;
+
+            if (busy)
+            {
+                transferBar.Maximum = 1;
+                transferBar.Value = 0;
+                transferProgressText.Text = "统计中…";
+
+                // 不确定态用整体透明度呼吸，比在模板里写 Storyboard 更稳
+                transferBar.BeginAnimation(OpacityProperty, new DoubleAnimation(1.0, 0.5,
+                    TimeSpan.FromMilliseconds(900))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever
+                });
+            }
+            else
+            {
+                StopProgressPulse();
+            }
+        }
+
+        /// <summary>结束呼吸动画并恢复正常不透明度。</summary>
+        private void StopProgressPulse()
+        {
+            transferBar.BeginAnimation(OpacityProperty, null);
+            transferBar.Opacity = 1;
+        }
+
+        private void UpdateProgressTotal(int total)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_closed) return;
+                    transferBar.IsIndeterminate = total <= 0;
+                    transferBar.Maximum = total <= 0 ? 1 : total;
+                    transferBar.Value = 0;
+                    transferProgressText.Text = total <= 0 ? "无可传文件" : "0/" + total;
+                    if (total > 0) StopProgressPulse();
+                }));
+            }
+            catch (Exception)
+            {
+                // 窗口已关闭
+            }
+        }
+
+        /// <summary>刷新「已完成/总数」进度；按 80ms 节流，避免大量小文件刷爆 UI。</summary>
+        private void ReportProgress(string action, TransferEntry entry, TransferStats stats)
+        {
+            int now = Environment.TickCount;
+            if (stats.Done < stats.Total && now - _lastProgressTick < 80) return;
+            _lastProgressTick = now;
+
+            string name = entry == null
+                ? null
+                : Path.GetFileName(entry.LocalPath);
+
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_closed) return;
+
+                    transferBar.IsIndeterminate = false;
+                    transferBar.Maximum = stats.Total <= 0 ? 1 : stats.Total;
+                    transferBar.Value = Math.Min(stats.Done, stats.Total);
+                    transferProgressText.Text = stats.Done + "/" + stats.Total;
+
+                    // 完成比例已经在进度条里显示，状态栏只留当前文件名与分类统计
+                    string text = action + "中";
+                    if (!string.IsNullOrEmpty(name)) text += " · " + name;
+                    if (stats.Added > 0) text += "    已新增 " + stats.Added;
+                    if (stats.Overwritten > 0) text += "    已覆盖 " + stats.Overwritten;
+                    if (stats.KeptBoth > 0) text += "    已重命名 " + stats.KeptBoth;
+                    if (stats.Skipped > 0) text += "    已跳过 " + stats.Skipped;
+                    if (stats.Failed > 0) text += "    失败 " + stats.Failed;
+                    SetStatus(text);
+                }));
+            }
+            catch (Exception)
+            {
+                // 窗口已关闭
+            }
+        }
+
+        /// <summary>一批传输的计数：Done 为已处理文件数，其余是其中各类结果的数量。</summary>
+        private struct TransferStats
+        {
+            /// <summary>已处理的文件数（含覆盖/重命名/跳过/失败）。</summary>
+            public int Done;
+
+            /// <summary>本批文件总数。</summary>
+            public int Total;
+
+            /// <summary>目标原本没有同名项，直接写入。</summary>
+            public int Added;
+
+            public int Overwritten;
+            public int KeptBoth;
+            public int Skipped;
+            public int Failed;
         }
 
         private void cancelTransfer_Click(object sender, RoutedEventArgs e)
@@ -1757,11 +2112,18 @@ namespace AdbTools.FileBrowser
         }
 
         /// <summary>在列表区域中央显示提示（空目录 / 无权限 / 读取失败）。</summary>
-        private void ShowListNotice(string title, string detail, bool isError, bool showBack)
+        /// <param name="showDropHint">
+        /// 是否允许直接拖拽上传。只有「空目录」为 true；权限不足、读取失败、应用列表等
+        /// 场景必须关掉，否则覆盖层会把不该接收的拖放也接住。
+        /// </param>
+        private void ShowListNotice(string title, string detail, bool isError, bool showBack,
+            bool showDropHint = false)
         {
             noticeTitle.Text = title;
             noticeTitle.Foreground = isError ? NoticeErrorBrush : NoticeNormalBrush;
             noticeDetail.Text = detail;
+            noticeDropHint.Visibility = showDropHint ? Visibility.Visible : Visibility.Collapsed;
+            listNotice.AllowDrop = showDropHint;
             noticeBackButton.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
             listNotice.Visibility = Visibility.Visible;
         }
@@ -1769,6 +2131,8 @@ namespace AdbTools.FileBrowser
         private void HideListNotice()
         {
             listNotice.Visibility = Visibility.Collapsed;
+            listNotice.AllowDrop = false;
+            HideDropHint();
         }
 
         /// <summary>把服务层返回的原因归纳成一句话标题。</summary>
@@ -1855,8 +2219,9 @@ namespace AdbTools.FileBrowser
 
         private void SetBusyUi(bool busy, string text)
         {
-            transferBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            transferProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             cancelButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            if (!busy) transferProgressText.Text = string.Empty;
             if (text != null) SetStatus(text);
         }
 
@@ -1915,13 +2280,19 @@ namespace AdbTools.FileBrowser
 
         private static string ShortName(TransferItem item)
         {
+            return ShortName(item.LocalPath);
+        }
+
+        private static string ShortName(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
             try
             {
-                return Path.GetFileName(item.LocalPath.TrimEnd('\\', '/'));
+                return Path.GetFileName(path.TrimEnd('\\', '/'));
             }
             catch
             {
-                return item.LocalPath;
+                return path;
             }
         }
 

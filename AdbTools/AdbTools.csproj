@@ -155,6 +155,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="FileBrowser\ConflictDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="CustomControl\HintComboBox.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -216,6 +220,10 @@
     <Compile Include="FileBrowser\FileIcons.cs" />
     <Compile Include="FileBrowser\FileBrowserWindow.xaml.cs">
       <DependentUpon>FileBrowserWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FileBrowser\ConflictDialog.xaml.cs">
+      <DependentUpon>ConflictDialog.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="AppListWindow.xaml.cs">

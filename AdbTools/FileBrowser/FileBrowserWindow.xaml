@@ -13,6 +13,36 @@
             <Setter Property="FontSize" Value="13"/>
         </Style>
 
+        <!-- 传输进度条：底槽与填充都做成圆角（高度 24 → 半径 12）；
+             不确定态用一条来回呼吸的圆角条代替默认动画 -->
+        <Style x:Key="RoundedProgressBar" TargetType="{x:Type ProgressBar}">
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ProgressBar}">
+                        <Grid ClipToBounds="True">
+                            <!-- 底槽 -->
+                            <Border x:Name="PART_Track" CornerRadius="12"
+                                    Background="{TemplateBinding Background}" />
+                            <!-- 填充段 -->
+                            <Border x:Name="PART_Indicator" CornerRadius="12"
+                                    HorizontalAlignment="Left"
+                                    Background="{TemplateBinding Foreground}" />
+                            <!-- 不确定态：整条淡色填充（不做动画，避免模板名称域解析问题） -->
+                            <Border x:Name="pulseBar" CornerRadius="12" Visibility="Collapsed"
+                                    Opacity="0.45" Background="{TemplateBinding Foreground}" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsIndeterminate" Value="True">
+                                <Setter TargetName="PART_Indicator" Property="Visibility" Value="Collapsed" />
+                                <Setter TargetName="pulseBar" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- 图标按钮：正方形、无内边距，用于路径栏快速跳转 -->
         <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
             <Setter Property="Background" Value="#FF2A9FFF"/>
@@ -166,7 +196,8 @@
         <!-- 文件列表 -->
         <Grid Grid.Row="1" Margin="0,8,0,0">
             <ListView x:Name="fileList" Background="White" AllowDrop="True"
-                      DragOver="fileList_DragOver" Drop="fileList_Drop"
+                      DragEnter="fileList_DragEnter" DragOver="fileList_DragOver"
+                      DragLeave="fileList_DragLeave" Drop="fileList_Drop"
                       PreviewMouseLeftButtonDown="fileList_PreviewMouseLeftButtonDown"
                       PreviewMouseMove="fileList_PreviewMouseMove"
                       PreviewMouseLeftButtonUp="fileList_PreviewMouseLeftButtonUp"
@@ -241,20 +272,38 @@
                 </ListView.View>
             </ListView>
 
-            <!-- 空目录 / 无权限 / 读取失败时覆盖在列表区域中央，比只在状态栏提示更醒目 -->
+            <!-- 空目录 / 无权限 / 读取失败时覆盖在列表区域中央，比只在状态栏提示更醒目。
+                 覆盖层会挡住下面的 ListView，所以这里也要接收拖放，否则空目录时无法拖拽上传。 -->
             <Border x:Name="listNotice" Background="#F2F9FAFB" BorderBrush="#FFE5E7EB" BorderThickness="1"
-                    Visibility="Collapsed">
+                    Visibility="Collapsed" AllowDrop="True"
+                    DragEnter="fileList_DragEnter" DragOver="fileList_DragOver"
+                    DragLeave="fileList_DragLeave" Drop="fileList_Drop">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
                     <TextBlock x:Name="noticeTitle" FontSize="18" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Foreground="#FF374151"/>
                     <TextBlock x:Name="noticeDetail" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="14"
                                TextAlignment="Center" Foreground="#FF6B7280" LineHeight="22"/>
+                    <TextBlock x:Name="noticeDropHint" Margin="0,8,0,0" FontSize="13"
+                               HorizontalAlignment="Center" Foreground="#FF059669"
+                               Text="可直接把文件或文件夹拖到这里上传"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
                         <Button x:Name="noticeBackButton" Content="返回上级" Click="noticeBack_Click"
                                 Padding="16,4" Margin="0,0,8,0" Visibility="Collapsed"/>
                         <Button Content="刷新" Click="noticeRefresh_Click" Padding="16,4"/>
                     </StackPanel>
                 </StackPanel>
+            </Border>
+
+            <!-- 拖拽提示：跟随拖动显示将上传的文件夹/文件数量。
+                 IsHitTestVisible=False，完全不干扰下面的拖放事件。 -->
+            <Border x:Name="dropHintBorder" Background="#CC1F2937" Visibility="Collapsed"
+                    IsHitTestVisible="False">
+                <Border Background="#EE111827" CornerRadius="10" Padding="18,12"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock x:Name="dropHintText" FontSize="15" FontWeight="SemiBold"
+                               Foreground="White" TextAlignment="Center" TextWrapping="Wrap"
+                               MaxWidth="520" />
+                </Border>
             </Border>
 
             <!-- 操作结果提示：默认隐藏，操作后显示最多 5 秒 -->
@@ -281,9 +330,23 @@
             <Button x:Name="packageFilterButton" Grid.Column="1" Content="显示全部" Click="packageFilter_Click"
                     Visibility="Collapsed" Background="Transparent" Foreground="#FF2A9FFF"
                     Padding="6,2" Margin="10,0,0,0" ToolTip="显示或隐藏非debug应用" />
-            <ProgressBar x:Name="transferBar" Grid.Column="2" Width="160" Height="8" Margin="10,0,0,0"
-                         IsIndeterminate="True" Visibility="Collapsed" VerticalAlignment="Center"/>
-            <Button x:Name="cancelButton" Grid.Column="3" Content="取消传输" Click="cancelTransfer_Click"
+            <!-- 传输进度：加高的进度条 + 居中的「已完成/总数」文字 -->
+            <Grid x:Name="transferProgress" Grid.Column="2" Width="190" Height="24" Margin="12,0,0,0"
+                  Visibility="Collapsed" VerticalAlignment="Center">
+                <ProgressBar x:Name="transferBar" Minimum="0" Maximum="1" Value="0"
+                             IsIndeterminate="True" Height="24" VerticalAlignment="Center"
+                             Style="{StaticResource RoundedProgressBar}"
+                             Foreground="#FF2A9FFF" Background="#FFE8EBEF" BorderThickness="0" />
+                <Border Background="#CC1F2937" CornerRadius="10" Padding="9,1"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsHitTestVisible="False">
+                    <TextBlock x:Name="transferProgressText" Text=""
+                               Foreground="White" FontSize="11.5" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </Grid>
+            <Button x:Name="cancelButton" Grid.Column="3" Content="停止传输" Click="cancelTransfer_Click"
+                    ToolTip="中止本次全部传输"
                     Padding="12,4" Margin="10,0,0,0" Visibility="Collapsed" Background="#FFEF4444"/>
         </Grid>
     </Grid>
