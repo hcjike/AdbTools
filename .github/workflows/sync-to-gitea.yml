@@ -1,4 +1,4 @@
-name: Sync to Gitee
+name: Sync to Gitea
 
 # 仅授予推送所需的最小权限
 permissions:
@@ -18,7 +18,6 @@ on:
     types: [ published ]
 
 env:
-  GITEE_REPO: "https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/hcjike/AdbTools.git"
   GITEA_REPO: "https://${{ secrets.GITEA_USERNAME }}:${{ secrets.GITEA_TOKEN }}@code.hcjike.com/hcjike/AdbTools.git"
   MAX_RETRIES: "3"
 
@@ -45,7 +44,7 @@ jobs:
       - name: Fetch all branches and tags
         run: git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' --prune || true
 
-      # 把“同步到某个远端”封装成脚本，Gitee / Gitea 复用，逻辑统一、便于重试
+      # 把“同步到远端”封装成脚本，逻辑统一、便于重试
       - name: Prepare sync helper
         run: |
           cat > "$GITHUB_WORKSPACE/sync-remote.sh" <<'SCRIPT'
@@ -84,11 +83,6 @@ jobs:
           echo "Successfully synced to $REMOTE_NAME"
           SCRIPT
           chmod +x "$GITHUB_WORKSPACE/sync-remote.sh"
-
-      # Gitee 网络偶发不稳定，允许失败而不阻断后续 Gitea 同步
-      - name: Mirror to Gitee
-        continue-on-error: true
-        run: '"$GITHUB_WORKSPACE/sync-remote.sh" gitee "${{ env.GITEE_REPO }}" "${{ env.MAX_RETRIES }}"'
 
       - name: Mirror to Gitea
         run: '"$GITHUB_WORKSPACE/sync-remote.sh" gitea "${{ env.GITEA_REPO }}" "${{ env.MAX_RETRIES }}"'
