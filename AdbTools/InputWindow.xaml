@@ -64,17 +64,23 @@
                 </Grid>
 
                 <StackPanel Grid.Row="1" Margin="18,14,18,0">
-                    <!-- 说明/错误提示：默认隐藏，没有 Hint 时不占位；过长时省略，ToolTip 给完整内容。
-                         由代码用 Inlines 拼装，以便把路径、原文件名等高亮显示。 -->
+                    <!-- 说明/错误提示：默认隐藏，没有 Hint 时不占位；过长时自动换行，
+                         ToolTip 仍保留完整内容。由代码用 Inlines 拼装，以便把路径、原文件名等高亮显示。 -->
                     <TextBlock x:Name="hintText" FontSize="12" Foreground="#FF6B7280"
-                               TextTrimming="CharacterEllipsis" Margin="0,0,0,8"
+                               TextWrapping="Wrap" Margin="0,0,0,8"
                                Visibility="Collapsed"/>
-                    <!-- 长名字允许换行，窗口会随内容自然变高 -->
+                    <!-- 长名字自动换行，窗口随内容变高；输入框最少 3 行、最多 10 行（代码里按字体实测行高），
+                         超过 10 行后不再撑高窗口，改为输入框内部滚动。 -->
                     <TextBox x:Name="content" Style="{StaticResource UserTextBox}"
-                             MinHeight="38" Padding="10,8" FontSize="14"
-                             HorizontalContentAlignment="Left" VerticalContentAlignment="Center"
+                             Padding="10,8" FontSize="14"
+                             HorizontalContentAlignment="Left" VerticalContentAlignment="Top"
                              AcceptsReturn="False" TextWrapping="Wrap" TabIndex="0"
+                             VerticalScrollBarVisibility="Auto"
                              TextChanged="content_TextChanged"/>
+                    <!-- 校验错误：显示在输入框下方，默认隐藏；不覆盖上方的固定说明 -->
+                    <TextBlock x:Name="errorText" FontSize="12" Foreground="#FFDC2626"
+                               TextWrapping="Wrap" Margin="0,6,0,0"
+                               Visibility="Collapsed"/>
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
