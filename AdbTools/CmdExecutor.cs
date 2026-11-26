@@ -310,7 +310,7 @@ namespace AdbTools
             }
             catch (Exception)
             {
-                MessageBox.Show("启动命令行窗口失败！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("启动命令行窗口失败！", "提示", MessageBoxImage.Warning);
             }
         }
 

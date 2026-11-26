@@ -13,12 +13,14 @@ namespace AdbTools
     public partial class InputWindow : Window
     {
         private static readonly Brush HintBrush = new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63));
-        private static readonly Brush ErrorBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
         private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB));
 
         public InputWindow()
         {
             InitializeComponent();
+
+            // 首次布局前就定好输入框高度范围，避免窗口先按单行高度显示再跳变
+            ApplyContentHeightLimits();
         }
 
         public string Result { get; private set; }
@@ -39,11 +41,36 @@ namespace AdbTools
             content.Focus();
         }
 
+        /// <summary>
+        /// 输入框高度随内容自动增长：最少 3 行、最多 10 行。
+        /// 行高按当前字体实测，避免写死像素后换字号或缩放比例时行数不准；
+        /// 超过 10 行后不再长高，改由输入框内部滚动。
+        /// </summary>
+        private void ApplyContentHeightLimits()
+        {
+            var probe = new TextBlock
+            {
+                FontFamily = content.FontFamily,
+                FontSize = content.FontSize,
+                FontStyle = content.FontStyle,
+                FontWeight = content.FontWeight,
+                FontStretch = content.FontStretch,
+                Text = "国Ag"
+            };
+            probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+            // 内边距与边框不属于文本行，单独加上
+            double chrome = content.Padding.Top + content.Padding.Bottom
+                + content.BorderThickness.Top + content.BorderThickness.Bottom;
+
+            content.MinHeight = Math.Ceiling(probe.DesiredSize.Height * 3 + chrome);
+            content.MaxHeight = Math.Ceiling(probe.DesiredSize.Height * 10 + chrome);
+        }
+
         /// <summary>无边框窗口的自绘标题栏：按住空白处拖动窗口。</summary>
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ButtonState != MouseButtonState.Pressed) return;
-            if (IsInsideButton(e.OriginalSource as DependencyObject)) return;
 
             try
             {
@@ -57,8 +84,8 @@ namespace AdbTools
 
         private void content_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // 用户重新输入时把红字错误提示恢复成普通说明
-            UpdateHint(Hint);
+            // 用户重新输入时收起输入框下方的错误提示，上方固定说明保持不变
+            HideError();
         }
 
         private void enter_Click(object sender, RoutedEventArgs e)
@@ -133,31 +160,25 @@ namespace AdbTools
             hintText.Visibility = Visibility.Visible;
         }
 
+        /// <summary>在输入框下方显示红字错误提示，不覆盖上方的固定说明。</summary>
         private void ShowError(string text)
         {
-            hintText.Inlines.Clear();
-            hintText.ToolTip = text;
-            hintText.Inlines.Add(new Run(text) { Foreground = ErrorBrush });
-            hintText.Visibility = Visibility.Visible;
+            if (errorText == null) return;
+
+            errorText.Text = text ?? string.Empty;
+            errorText.ToolTip = text;
+            errorText.Visibility = Visibility.Visible;
         }
 
-        /// <summary>标题栏上的按钮（关闭）不参与拖动。</summary>
-        private static bool IsInsideButton(DependencyObject source)
+        /// <summary>收起输入框下方的错误提示。</summary>
+        private void HideError()
         {
-            while (source != null)
-            {
-                if (source is Button) return true;
+            if (errorText == null) return;
 
-                try
-                {
-                    source = VisualTreeHelper.GetParent(source);
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-            return false;
+            errorText.Text = string.Empty;
+            errorText.ToolTip = null;
+            errorText.Visibility = Visibility.Collapsed;
         }
+
     }
 }

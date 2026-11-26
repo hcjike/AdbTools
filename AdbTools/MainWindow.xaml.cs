@@ -125,6 +125,7 @@ namespace AdbTools
             string adbDll2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AdbWinUsbApi.dll");
             if (!File.Exists(adbFilePath) || !File.Exists(adbDll1) || !File.Exists(adbDll2))
             {
+                // 程序自身可能无法正常创建自绘窗口，这里保留系统对话框
                 MessageBox.Show("adb工具集丢失，无法运行！", "提示", MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.Exit(0);
                 return;
@@ -242,15 +243,9 @@ namespace AdbTools
                 return;
             }
 
-            MessageBoxResult result = MessageBox.Show(
-                this,
-                "确定要退出 Adb 连接工具吗？\n\n已打开的远程控制与应用列表窗口会一并关闭。",
-                "退出确认",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
-
-            if (result != MessageBoxResult.Yes)
+            if (!Dialogs.Confirm(
+                "确定要退出 Adb 连接工具吗？已打开的远程控制与应用列表窗口会一并关闭。",
+                "退出确认", this, "退出", icon: MessageBoxImage.Question))
             {
                 e.Cancel = true;
             }
@@ -516,7 +511,7 @@ namespace AdbTools
             deviceAddress.Text = address;
             if (!Globals.IsValidIPEndPoint(address))
             {
-                MessageBox.Show("设备连接地址输入错误！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("设备连接地址输入错误！", "提示", MessageBoxImage.Warning, this);
                 return;
             }
 
@@ -526,7 +521,7 @@ namespace AdbTools
                 if (string.IsNullOrWhiteSpace(result) || Globals.ContainsAny(result, "(10060)", "(10061)", "failed to connect"))
                 {
                     waitAnimation(false);
-                    MessageBox.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Dialogs.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxImage.Warning, this);
                     return;
                 }
                 Globals.AppSettings.LAST_DEVICE_ADDRESS = address;
@@ -544,7 +539,7 @@ namespace AdbTools
             }, err =>
             {
                 waitAnimation(false);
-                MessageBox.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("设备连接失败！\r\n1.请检查IP和端口输入是否正确；\r\n2.设备与电脑是否完成配对。", "提示", MessageBoxImage.Warning, this);
                 return true;
             });
         }
@@ -674,7 +669,7 @@ namespace AdbTools
                 int sdk = ParseSdkVersion(result);
                 if (sdk > 0 && sdk < 24)
                 {
-                    MessageBox.Show("当前设备系统版本过低（需要 Android 7.0 及以上），暂不支持远程控制。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Dialogs.Show("当前设备系统版本过低（需要 Android 7.0 及以上），暂不支持远程控制。", "提示", MessageBoxImage.Warning, this);
                     return;
                 }
 
@@ -715,7 +710,7 @@ namespace AdbTools
                 return;
             }
 
-            if (MessageBoxResult.OK != MessageBox.Show($"确定要断开设备【{device.ShowDeviceName}】的连接吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (!Dialogs.Confirm($"确定要断开设备【{device.ShowDeviceName}】的连接吗？", "提示", this, "断开", icon: MessageBoxImage.Question))
             {
                 return;
             }
@@ -729,7 +724,7 @@ namespace AdbTools
 
         private void disconnectAllDeviceItem_Click(object sender, RoutedEventArgs e)
         {
-            if (MessageBoxResult.OK == MessageBox.Show("确定要【断开所有设备】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (Dialogs.Confirm("确定要【断开所有设备】吗？", "提示", this, "全部断开", icon: MessageBoxImage.Question))
             {
                 waitAnimation(true);
                 CmdExecutor.ExecuteCommandAndReturnAsync($"{adbPath} disconnect", result =>
@@ -745,7 +740,7 @@ namespace AdbTools
             var menuItem = (MenuItem)sender;
             var contextMenu = (ContextMenu)menuItem.Parent;
             var textBlock = (TextBlock)contextMenu.PlacementTarget;
-            if (MessageBoxResult.OK != MessageBox.Show($"确定要删除记录【{textBlock.Text}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (!Dialogs.Confirm($"确定要删除记录【{textBlock.Text}】吗？", "提示", this, "删除", icon: MessageBoxImage.Warning))
             {
                 return;
             }
@@ -756,7 +751,7 @@ namespace AdbTools
 
         private void deleteAllHistory_Click(object sender, RoutedEventArgs e)
         {
-            if (MessageBoxResult.OK == MessageBox.Show("确定要【清空所有历史纪录】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (Dialogs.Confirm("确定要【清空所有历史纪录】吗？", "提示", this, "清空", danger: true, icon: MessageBoxImage.Warning))
             {
                 Globals.AppSettings.DEVICE_ADDRESS_HISTORY.Clear();
                 Globals.AppSettings.DEVICE_ADDRESS_HISTORY = Globals.AppSettings.DEVICE_ADDRESS_HISTORY;
@@ -865,7 +860,7 @@ namespace AdbTools
             int index = deviceList.SelectedIndex;
             if (index < 0 || index >= deviceAddressList.Count)
             {
-                MessageBox.Show("请先选择一个设备！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("请先选择一个设备！", "提示", MessageBoxImage.Warning, this);
                 return null;
             }
             return deviceAddressList[index];
@@ -890,7 +885,7 @@ namespace AdbTools
             {
                 return;
             }
-            if (MessageBoxResult.OK != MessageBox.Show($"确定要对设备【{device.ShowDeviceName}】执行【{actionName}】吗？", "提示", MessageBoxButton.OKCancel, MessageBoxImage.Question))
+            if (!Dialogs.Confirm($"确定要对设备【{device.ShowDeviceName}】执行【{actionName}】吗？", "提示", this, "确定", icon: MessageBoxImage.Question))
             {
                 return;
             }
@@ -899,12 +894,12 @@ namespace AdbTools
                 result =>
                 {
                     waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】{actionName}成功", "提示", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                    Dialogs.Show($"设备【{device.ShowDeviceName}】{actionName}成功", "提示", MessageBoxImage.Information, this);
                 },
                 err =>
                 {
                     waitAnimation(false);
-                    MessageBox.Show($"设备【{device.ShowDeviceName}】{actionName}失败！\r\n{failTip}", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Dialogs.Show($"设备【{device.ShowDeviceName}】{actionName}失败！\r\n{failTip}", "提示", MessageBoxImage.Warning, this);
                     return true;
                 });
         }
@@ -968,7 +963,7 @@ namespace AdbTools
                     waitAnimation(false);
                     if (!ok)
                     {
-                        MessageBox.Show("抓取崩溃日志失败：" + error, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        Dialogs.Show("抓取崩溃日志失败：" + error, "错误", MessageBoxImage.Error, this);
                         return;
                     }
                     ShowCollectedResult("崩溃日志已保存：", path);
@@ -987,7 +982,7 @@ namespace AdbTools
                     waitAnimation(false);
                     if (!ok)
                     {
-                        MessageBox.Show("抓取诊断包失败：" + error, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                        Dialogs.Show("抓取诊断包失败：" + error, "错误", MessageBoxImage.Error, this);
                         return;
                     }
                     ShowCollectedResult("诊断包已保存：", path);
@@ -1004,7 +999,7 @@ namespace AdbTools
             }
             catch (Exception ex)
             {
-                MessageBox.Show("打开日志目录失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("打开日志目录失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 
@@ -1021,15 +1016,14 @@ namespace AdbTools
             }
             catch (Exception ex)
             {
-                MessageBox.Show("打开目录失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("打开目录失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 
         private void ShowCollectedResult(string title, string path)
         {
-            string message = title + "\r\n" + path + "\r\n\r\n是否打开所在位置？";
-            if (MessageBoxResult.Yes == MessageBox.Show(message, "完成",
-                MessageBoxButton.YesNo, MessageBoxImage.Information))
+            string message = title + "\r\n" + path + "\r\n是否打开所在位置？";
+            if (Dialogs.Confirm(message, "完成", this, "打开", icon: MessageBoxImage.Information))
             {
                 try
                 {
@@ -1105,7 +1099,7 @@ namespace AdbTools
                 .FirstOrDefault(a => RequestJson.IsInstallerAsset(a.Name));
             if (asset == null || string.IsNullOrEmpty(asset.browser_download_url))
             {
-                MessageBox.Show("该版本未提供安装程序附件，无法自动更新。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("该版本未提供安装程序附件，无法自动更新。", "提示", MessageBoxImage.Warning, this);
                 return;
             }
 
@@ -1115,7 +1109,7 @@ namespace AdbTools
             // 已在后台下载中：不弹更新窗口，直接提示进度即可
             if (updateDownloading)
             {
-                MessageBox.Show($"正在后台下载更新… {updateDownloadPercent}%，请稍候。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                Dialogs.Show($"正在后台下载更新… {updateDownloadPercent}%，请稍候。", "提示", MessageBoxImage.Information, this);
                 return;
             }
             updateVersion.ToolTip = "发现新版本，点击更新";
@@ -1162,7 +1156,7 @@ namespace AdbTools
 
                 if (e.Error != null)
                 {
-                    MessageBox.Show("下载更新失败：" + e.Error.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Dialogs.Show("下载更新失败：" + e.Error.Message, "错误", MessageBoxImage.Error, this);
                     return;
                 }
 
@@ -1173,7 +1167,7 @@ namespace AdbTools
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("启动安装程序失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Dialogs.Show("启动安装程序失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
                     return;
                 }
 
@@ -1191,7 +1185,7 @@ namespace AdbTools
                 updateDownloading = false;
                 updateVersion.ToolTip = null;
                 HideUpdatePercent();
-                MessageBox.Show("下载更新失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("下载更新失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 

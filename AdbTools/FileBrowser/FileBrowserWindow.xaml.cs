@@ -198,10 +198,9 @@ namespace AdbTools.FileBrowser
         {
             if (!_busy) return;
 
-            MessageBoxResult result = MessageBox.Show(this,
-                "正在传输文件，确定要取消并关闭窗口吗？", "提示",
-                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (result != MessageBoxResult.Yes)
+            if (!Dialogs.Confirm(
+                "正在传输文件，确定要取消并关闭窗口吗？", "提示", this,
+                "关闭", danger: true, icon: MessageBoxImage.Warning))
             {
                 e.Cancel = true;
                 return;
@@ -973,10 +972,9 @@ namespace AdbTools.FileBrowser
             // 私有目录是逐文件写入的，本地同名文件会被静默覆盖，开始前统一确认一次
             if (openable.Exists(o => Directory.Exists(Path.Combine(target, o.Package))))
             {
-                MessageBoxResult result = MessageBox.Show(this,
+                if (!Dialogs.Confirm(
                     "目标文件夹里已存在同名应用目录，继续将合并写入并覆盖同名文件。\r\n\r\n确定继续吗？",
-                    "下载确认", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (result != MessageBoxResult.Yes) return;
+                    "下载确认", this, "覆盖", danger: true, icon: MessageBoxImage.Warning)) return;
             }
 
             var items = new List<TransferItem>();
@@ -1239,9 +1237,9 @@ namespace AdbTools.FileBrowser
 
                     if (failed.Count > 0)
                     {
-                        MessageBox.Show(this,
+                        Dialogs.Show(
                             "以下项目" + action + "失败：\r\n\r\n" + string.Join("\r\n", failed.Take(10)),
-                            "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "提示", MessageBoxImage.Warning, this);
                     }
                     else
                     {
@@ -1501,50 +1499,100 @@ namespace AdbTools.FileBrowser
                 ? "注意：这是应用私有数据，删除后可能导致该应用崩溃或数据丢失。"
                 : "删除后无法恢复。";
 
-            MessageBoxResult result = MessageBox.Show(this,
+            if (!Dialogs.Confirm(
                 "确定要删除以下项目吗？\r\n\r\n" + names + "\r\n\r\n" + warning,
-                "删除确认", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-            if (result != MessageBoxResult.Yes) return;
+                "删除确认", this, "删除", danger: true, icon: MessageBoxImage.Warning)) return;
 
             RunOperation("删除",
-                () =>
+                progress =>
                 {
+                    int done = 0;
                     foreach (DeviceFileEntry entry in selected)
                     {
+                        if (_cancelRequested) break;
+
                         string error;
                         if (!_service.Delete(entry.FullPath, out error))
                         {
                             return entry.Name + "：" + error;
                         }
+
+                        done++;
+                        progress(done);
                     }
                     return null;
                 },
+                selected.Count,
                 null);
         }
 
         private void RunOperation(string action, Func<string> operation, Action onSuccess)
         {
+            RunOperation(action, progress => operation(), 0, onSuccess);
+        }
+
+        /// <summary>
+        /// 执行一次文件操作。<paramref name="total"/> 大于 0 时显示逐项进度，
+        /// 操作内部通过 progress 回调上报已完成数量（回调内部会切回 UI 线程）。
+        /// </summary>
+        private void RunOperation(string action, Func<Action<int>, string> operation,
+            int total, Action onSuccess)
+        {
             if (_busy) return;
 
             _busy = true;
+            _cancelRequested = false;
             SetBusyUi(true, action + "中…");
+
+            if (total > 0)
+            {
+                UpdateProgressTotal(total);
+            }
+            else
+            {
+                // 没有可统计的条目：清掉上一次残留的数值，避免显示为已完成
+                transferBar.IsIndeterminate = true;
+                transferBar.Maximum = 1;
+                transferBar.Value = 0;
+                transferProgressText.Text = string.Empty;
+            }
 
             var thread = new Thread(() =>
             {
-                string error = operation();
+                string error = operation(done => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_closed) return;
+
+                    transferBar.IsIndeterminate = false;
+                    transferBar.Maximum = total;
+                    transferBar.Value = Math.Min(done, total);
+                    transferProgressText.Text = done + "/" + total;
+                    SetStatus(action + "中 · " + done + "/" + total);
+                })));
+
+                bool cancelled = _cancelRequested && total > 0;
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_closed) return;
 
                     _busy = false;
+                    _cancelRequested = false;
                     SetBusyUi(false, null);
+
+                    if (cancelled)
+                    {
+                        SetStatus(action + "已取消");
+                        ShowActionTip(action + "已取消", false);
+                        Navigate(_currentPath);
+                        return;
+                    }
 
                     if (!string.IsNullOrEmpty(error))
                     {
                         SetStatus(action + "失败：" + error);
-                        MessageBox.Show(this, action + "失败：\r\n" + error, "提示",
-                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        Dialogs.Show(action + "失败：\r\n" + error, "提示",
+                            MessageBoxImage.Warning, this);
                         return;
                     }
 

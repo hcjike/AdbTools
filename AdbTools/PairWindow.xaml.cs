@@ -109,12 +109,12 @@ namespace AdbTools
             string code = pairCode.Text;
             if (!Globals.IsValidIPEndPoint(address))
             {
-                MessageBox.Show("设备配对地址输入错误！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("设备配对地址输入错误！", "提示", MessageBoxImage.Warning, this);
                 return;
             }
             if (string.IsNullOrWhiteSpace(code))
             {
-                MessageBox.Show("请输入配对码！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.Show("请输入配对码！", "提示", MessageBoxImage.Warning, this);
                 return;
             }
             waitAnimation(true);
@@ -137,7 +137,7 @@ namespace AdbTools
                 }
                 else
                 {
-                    MessageBox.Show("设备配对失败！\r\n1.确认IP地址和端口是否处于配对状态；\r\n2.配对码输入是否正确。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Dialogs.Show("设备配对失败！\r\n1.确认IP地址和端口是否处于配对状态；\r\n2.配对码输入是否正确。", "提示", MessageBoxImage.Warning, this);
                 }
             }, null);
         }

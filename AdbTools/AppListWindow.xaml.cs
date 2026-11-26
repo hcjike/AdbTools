@@ -708,8 +708,14 @@ namespace AdbTools
             bool sensitive = app != null && (app.IsSystem || app.IsService);
             MessageBoxImage icon = sensitive ? MessageBoxImage.Warning : normalIcon;
 
-            return MessageBox.Show(this, BuildConfirmText(app, normal, risk), title,
-                MessageBoxButton.OKCancel, icon) == MessageBoxResult.OK;
+            // 主按钮文案直接用操作名（“确认卸载” → “卸载”），危险操作显示红色
+            string confirmText = !string.IsNullOrEmpty(title)
+                && title.StartsWith("确认", StringComparison.Ordinal)
+                ? title.Substring(2)
+                : "确定";
+
+            return Dialogs.Confirm(BuildConfirmText(app, normal, risk), title, this,
+                confirmText, danger: normalIcon == MessageBoxImage.Warning, icon: icon);
         }
 
         /// <summary>
@@ -853,8 +859,7 @@ namespace AdbTools
                         + (skippedCount > 0 ? "，跳过 " + skippedCount : ""), false);
                     if (!_batchCancelled)
                     {
-                        MessageBox.Show(this, summary, "操作结果",
-                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        Dialogs.Show(summary, "操作结果", MessageBoxImage.Warning, this);
                     }
                 }
                 else
@@ -1061,8 +1066,9 @@ namespace AdbTools
                 text += "\r\n该操作不可撤销。";
             }
 
-            return MessageBox.Show(this, text, name, MessageBoxButton.OKCancel,
-                sensitive ? MessageBoxImage.Warning : MessageBoxImage.Question) == MessageBoxResult.OK;
+            bool danger = action == AppAction.Uninstall || action == AppAction.ClearData;
+            return Dialogs.Confirm(text, name, this, name, danger: danger,
+                icon: sensitive ? MessageBoxImage.Warning : MessageBoxImage.Question);
         }
 
         private bool ConfirmSingle(AppInfo app, AppAction action)
