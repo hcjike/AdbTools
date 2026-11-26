@@ -2,6 +2,9 @@ using System;
 using System.ComponentModel;
 using System.Windows.Media;
 
+using AdbTools.Common;
+using AdbTools.Windows;
+
 namespace AdbTools.bean
 {
     public class Device : INotifyPropertyChanged
@@ -59,7 +62,7 @@ namespace AdbTools.bean
         public string ShowDeviceName { get; set; }
 
         /// <summary>adb -s 参数用的、带双引号的序列号，避免序列号含空格（mDNS/TLS 设备）时命令被截断。</summary>
-        public string SerialArg => AdbTools.Globals.QuoteSerial(DeviceMark);
+        public string SerialArg => Globals.QuoteSerial(DeviceMark);
 
         public string ConnectWay { get; set; }
 

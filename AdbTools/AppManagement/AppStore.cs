@@ -2,6 +2,8 @@ using System;
 using System.Data.SQLite;
 using System.IO;
 
+using AdbTools.Common;
+
 namespace AdbTools
 {
     /// <summary>

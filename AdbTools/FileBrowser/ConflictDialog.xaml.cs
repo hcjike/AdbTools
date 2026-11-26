@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace AdbTools.FileBrowser
@@ -14,9 +15,9 @@ namespace AdbTools.FileBrowser
     {
         // 端标识配色：设备端=紫，电脑端=蓝
         private static readonly Color DeviceChipBackground = Color.FromRgb(0xF3, 0xF0, 0xFF);
-        private static readonly Color DeviceChipForeground = Color.FromRgb(0x6D, 0x28, 0xD9);
+        private static readonly Color DeviceChipForeground = Color.FromRgb(0x5B, 0x21, 0xB6);
         private static readonly Color PcChipBackground = Color.FromRgb(0xEF, 0xF6, 0xFF);
-        private static readonly Color PcChipForeground = Color.FromRgb(0x1D, 0x4E, 0xD8);
+        private static readonly Color PcChipForeground = Color.FromRgb(0x1E, 0x40, 0xAF);
 
         /// <summary>用户选择的处理方式。</summary>
         public ConflictAction Action { get; private set; }
@@ -100,6 +101,21 @@ namespace AdbTools.FileBrowser
         {
             Cancelled = true;
             DialogResult = false;
+        }
+
+        /// <summary>无边框窗口的自绘标题栏：按住空白处拖动窗口。</summary>
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ButtonState != MouseButtonState.Pressed) return;
+
+            try
+            {
+                DragMove();
+            }
+            catch
+            {
+                // 鼠标已经松开时 DragMove 会抛异常，忽略即可
+            }
         }
 
         private void Close(ConflictAction action)

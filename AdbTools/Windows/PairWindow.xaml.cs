@@ -8,7 +8,10 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 
-namespace AdbTools
+using AdbTools;
+using AdbTools.Common;
+
+namespace AdbTools.Windows
 {
     /// <summary>
     /// 配对窗口：同一界面内切换「配对码」与「扫码配对」两种方式。

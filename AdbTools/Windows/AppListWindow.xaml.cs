@@ -14,7 +14,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace AdbTools
+using AdbTools;
+using AdbTools.Common;
+
+namespace AdbTools.Windows
 {
     /// <summary>
     /// 应用列表：一次性拿到设备上的全部应用，按行提供启动、停用/启用、卸载等操作，

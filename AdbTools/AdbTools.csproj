@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -15,7 +15,7 @@
     <Deterministic>true</Deterministic>
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <TargetFrameworkProfile />
-    <!-- NV12→BGRA 颜色转换使用指针以降低开销 -->
+    <!-- NV12鈫払GRA 棰滆壊杞崲浣跨敤鎸囬拡浠ラ檷浣庡紑閿€ -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
@@ -115,9 +115,9 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
-    <!-- 托盘库的 ShowBalloonTip 重载签名用到 System.Drawing.Icon，编译期需能解析该程序集 -->
+    <!-- 鎵樼洏搴撶殑 ShowBalloonTip 閲嶈浇绛惧悕鐢ㄥ埌 System.Drawing.Icon锛岀紪璇戞湡闇€鑳借В鏋愯绋嬪簭闆?-->
     <Reference Include="System.Drawing" />
-    <!-- 文件浏览的「选择文件夹」对话框（FolderBrowserDialog） -->
+    <!-- 鏂囦欢娴忚鐨勩€岄€夋嫨鏂囦欢澶广€嶅璇濇锛團olderBrowserDialog锛?-->
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
@@ -147,7 +147,7 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="AccessInterface\RequestJson.cs" />
-    <Page Include="AppListWindow.xaml">
+    <Page Include="Windows\AppListWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -159,35 +159,15 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="CustomControl\HintComboBox.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="CustomControl\HintPasswordBox.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="CustomControl\HintTextBox.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="CustomControl\ProgressBarControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
     <Page Include="CustomControl\RoundProcessBarLoading.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
-    <Page Include="DeviceLogWindow.xaml">
+    <Page Include="Windows\DeviceLogWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="InfoShowWindow.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="InputWindow.xaml">
+    <Page Include="Windows\InputWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -195,23 +175,19 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="InstallConfirmWindow.xaml">
+    <Page Include="Windows\ApkInstallWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="ApkInstallWindow.xaml">
+    <Page Include="Windows\InstallErrorWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="InstallErrorWindow.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="MainWindow.xaml">
+    <Page Include="Windows\MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
-    <Page Include="UpdateWindow.xaml">
+    <Page Include="Windows\UpdateWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -230,15 +206,15 @@
       <DependentUpon>ConflictDialog.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="AppListWindow.xaml.cs">
+    <Compile Include="Windows\AppListWindow.xaml.cs">
       <DependentUpon>AppListWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="AppExceptionLog.cs" />
+    <Compile Include="Common\AppExceptionLog.cs" />
     <Compile Include="AppManagement\ApkInfoReader.cs" />
     <Compile Include="AppManagement\ApkIconMemoryReader.cs" />
-    <Compile Include="ApkDropHelper.cs" />
-    <Compile Include="DragHintWatchdog.cs" />
+    <Compile Include="Common\ApkDropHelper.cs" />
+    <Compile Include="Common\DragHintWatchdog.cs" />
     <Compile Include="AppManagement\ApkLabelReader.cs" />
     <Compile Include="AppManagement\AppLog.cs" />
     <Compile Include="AppManagement\DailyLogger.cs" />
@@ -256,32 +232,17 @@
     <Compile Include="bean\Device.cs" />
     <Compile Include="bean\GithubReleasesAssets.cs" />
     <Compile Include="bean\GithubReleases.cs" />
-    <Compile Include="CmdExecutor.cs" />
-    <Compile Include="LogCollector.cs" />
-    <Compile Include="DeviceLogWindow.xaml.cs">
+    <Compile Include="Common\CmdExecutor.cs" />
+    <Compile Include="Common\LogCollector.cs" />
+    <Compile Include="Windows\DeviceLogWindow.xaml.cs">
       <DependentUpon>DeviceLogWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="CustomControl\HintComboBox.xaml.cs">
-      <DependentUpon>HintComboBox.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="CustomControl\HintPasswordBox.xaml.cs">
-      <DependentUpon>HintPasswordBox.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="CustomControl\HintTextBox.xaml.cs">
-      <DependentUpon>HintTextBox.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="CustomControl\ProgressBarControl.xaml.cs">
-      <DependentUpon>ProgressBarControl.xaml</DependentUpon>
     </Compile>
     <Compile Include="CustomControl\RoundProcessBarLoading.xaml.cs">
       <DependentUpon>RoundProcessBarLoading.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Globals.cs" />
-    <Compile Include="InfoShowWindow.xaml.cs">
-      <DependentUpon>InfoShowWindow.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="InputWindow.xaml.cs">
+    <Compile Include="Common\Globals.cs" />
+    <Compile Include="Windows\InputWindow.xaml.cs">
       <DependentUpon>InputWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Dialogs\Dialogs.cs" />
@@ -290,16 +251,13 @@
       <DependentUpon>MessageDialog.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="InstallConfirmWindow.xaml.cs">
-      <DependentUpon>InstallConfirmWindow.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="ApkInstallWindow.xaml.cs">
+    <Compile Include="Windows\ApkInstallWindow.xaml.cs">
       <DependentUpon>ApkInstallWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="InstallErrorWindow.xaml.cs">
+    <Compile Include="Windows\InstallErrorWindow.xaml.cs">
       <DependentUpon>InstallErrorWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="MainWindow.xaml.cs">
+    <Compile Include="Windows\MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
@@ -323,7 +281,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
-    <Page Include="PairWindow.xaml">
+    <Page Include="Windows\PairWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -333,10 +291,10 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="PairWindow.xaml.cs">
+    <Compile Include="Windows\PairWindow.xaml.cs">
       <DependentUpon>PairWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="UpdateWindow.xaml.cs">
+    <Compile Include="Windows\UpdateWindow.xaml.cs">
       <DependentUpon>UpdateWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs">
@@ -364,12 +322,12 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <!-- SQLite 的 native 组件直接放输出根目录：本程序只发行 64 位，不需要 x64/x86 子目录区分 -->
+    <!-- SQLite 鐨?native 缁勪欢鐩存帴鏀捐緭鍑烘牴鐩綍锛氭湰绋嬪簭鍙彂琛?64 浣嶏紝涓嶉渶瑕?x64/x86 瀛愮洰褰曞尯鍒?-->
     <Content Include="Libs\SQLite\native\SQLite.Interop.dll">
       <Link>SQLite.Interop.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- WebP 解码：WPF 没有内置解码器，随程序附带官方 libwebp（x64，BSD-3，见 THIRD_PARTY_NOTICES.txt） -->
+    <!-- WebP 瑙ｇ爜锛歐PF 娌℃湁鍐呯疆瑙ｇ爜鍣紝闅忕▼搴忛檮甯﹀畼鏂?libwebp锛坸64锛孊SD-3锛岃 THIRD_PARTY_NOTICES.txt锛?-->
     <Content Include="Libs\libwebp.dll">
       <Link>libwebp.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -383,7 +341,7 @@
     <Content Include="AdbWinUsbApi.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- scrcpy 5.0.1 设备端 server 与授权文件（Apache-2.0），随程序一起发布 -->
+    <!-- scrcpy 5.0.1 璁惧绔?server 涓庢巿鏉冩枃浠讹紙Apache-2.0锛夛紝闅忕▼搴忎竴璧峰彂甯?-->
     <Content Include="scrcpy-server">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -393,8 +351,8 @@
     <Content Include="THIRD_PARTY_NOTICES.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- 本项目许可证全文（Apache-2.0，末尾含 Copyright 2025 宏尘 版权声明），随程序一起发布。
-         源为解决方案根目录的 LICENSE，用 Link 指定输出名，避免在程序目录里再放一份副本 -->
+    <!-- 鏈」鐩鍙瘉鍏ㄦ枃锛圓pache-2.0锛屾湯灏惧惈 Copyright 2025 瀹忓皹 鐗堟潈澹版槑锛夛紝闅忕▼搴忎竴璧峰彂甯冦€?
+         婧愪负瑙ｅ喅鏂规鏍圭洰褰曠殑 LICENSE锛岀敤 Link 鎸囧畾杈撳嚭鍚嶏紝閬垮厤鍦ㄧ▼搴忕洰褰曢噷鍐嶆斁涓€浠藉壇鏈?-->
     <Content Include="..\LICENSE">
       <Link>LICENSE.txt</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

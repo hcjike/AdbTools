@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 
+using AdbTools.Common;
+
 namespace AdbTools
 {
     /// <summary>

@@ -6,7 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Windows;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     /// <summary>
     /// 设备日志快捷收集：崩溃日志、诊断包。

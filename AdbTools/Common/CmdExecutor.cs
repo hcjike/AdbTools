@@ -7,7 +7,9 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     public delegate void ExecuteResult(string result);
     public delegate bool ExecuteErrResult(string err);

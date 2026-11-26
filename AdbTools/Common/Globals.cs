@@ -5,7 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Net;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     /// <summary>
     /// 全局配置与公共工具

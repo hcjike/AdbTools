@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
+using AdbTools.Common;
+
 namespace AdbTools.FileBrowser
 {
     /// <summary>同名冲突的处理方式。</summary>

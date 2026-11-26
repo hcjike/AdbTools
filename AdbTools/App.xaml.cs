@@ -12,6 +12,9 @@ using AdbTools.RemoteControl;
 using AdbTools.Tray;
 using Hardcodet.Wpf.TaskbarNotification;
 
+using AdbTools.Common;
+using AdbTools.Windows;
+
 namespace AdbTools
 {
     /// <summary>

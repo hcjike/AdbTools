@@ -1073,7 +1073,7 @@ namespace AdbTools.RemoteControl
             try
             {
                 // 日志写到 %APPDATA%\AdbTools\logs，按天分文件，避免占用临时目录
-                string path = AdbTools.Globals.GetLogFilePath(
+                string path = AdbTools.Common.Globals.GetLogFilePath(
                     "RemoteControl-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
                 CleanupOldLogs();
 
@@ -1086,7 +1086,7 @@ namespace AdbTools.RemoteControl
                 catch
                 {
                     writer = new StreamWriter(
-                        AdbTools.Globals.GetCacheFilePath("RemoteControl.log"),
+                        AdbTools.Common.Globals.GetCacheFilePath("RemoteControl.log"),
                         true, System.Text.Encoding.UTF8);
                 }
 
@@ -1124,7 +1124,7 @@ namespace AdbTools.RemoteControl
             try
             {
                 const int retention = 7;
-                string[] files = Directory.GetFiles(AdbTools.Globals.LogDirectory, "RemoteControl-*.log");
+                string[] files = Directory.GetFiles(AdbTools.Common.Globals.LogDirectory, "RemoteControl-*.log");
                 if (files.Length <= retention) return;
 
                 foreach (string file in files
@@ -1497,7 +1497,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell wm size")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell wm size")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -1587,7 +1587,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell svc power stayon false")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell svc power stayon false")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -2230,7 +2230,7 @@ namespace AdbTools.RemoteControl
             {
                 // 在设备端就把整份 dumpsys 过滤成一行，避免 350ms 一次轮询时传输上百 KB 文本
                 var psi = new ProcessStartInfo(_adbPath,
-                    "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell \"dumpsys input | grep -m1 'Viewport INTERNAL'\"")
+                    "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell \"dumpsys input | grep -m1 'Viewport INTERNAL'\"")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -2469,7 +2469,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell \"" + script + "\"")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell \"" + script + "\"")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

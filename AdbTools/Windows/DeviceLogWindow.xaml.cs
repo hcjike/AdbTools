@@ -13,7 +13,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace AdbTools
+using AdbTools;
+using AdbTools.Common;
+
+namespace AdbTools.Windows
 {
     /// <summary>日志行：文本 + 按级别着色的前景色。</summary>
     public sealed class LogLine
