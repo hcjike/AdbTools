@@ -47,6 +47,11 @@ namespace AdbTools.FileBrowser
         public string LocalPath { get; set; }
         public string DevicePath { get; set; }
         public bool IsDirectory { get; set; }
+
+        /// <summary>
+        /// 目标处本来就有同名文件夹。仍按一项计入总数与进度，只是完成汇总里不算「新建」。
+        /// </summary>
+        public bool TargetExisted { get; set; }
     }
 
     /// <summary>冲突弹窗需要展示的信息（源与目标两侧的大小、时间）。</summary>
@@ -1175,7 +1180,61 @@ namespace AdbTools.FileBrowser
             {
                 entry.Upload = upload;
             }
+
+            // 文件夹总数保持不变：目标处已存在的文件夹照旧按一项计入总数与进度，
+            // 这里只把它们标记出来，让完成汇总不要把「本来就有」的算成「新建文件夹」。
+            if (upload)
+            {
+                if (entries.Exists(o => o.IsDirectory))
+                {
+                    HashSet<string> existing = ListExistingDeviceDirectories(devicePath);
+                    foreach (TransferEntry entry in entries)
+                    {
+                        if (entry.IsDirectory && existing.Contains(entry.DevicePath)) entry.TargetExisted = true;
+                    }
+                }
+            }
+            else
+            {
+                foreach (TransferEntry entry in entries)
+                {
+                    if (entry.IsDirectory && Directory.Exists(entry.LocalPath)) entry.TargetExisted = true;
+                }
+            }
             return entries;
+        }
+
+        /// <summary>
+        /// 用一次 find 取回目标目录树下已存在的文件夹（含根目录本身），避免逐个目录 ls。
+        /// 结果只用于标记 <see cref="TransferEntry.TargetExisted"/>，不影响待传条目与总数。
+        /// 根目录不存在（或目标处是文件）时返回空集合；老设备没有 find 时同样返回空集合。
+        /// </summary>
+        private HashSet<string> ListExistingDeviceDirectories(string deviceRoot)
+        {
+            var dirs = new HashSet<string>(StringComparer.Ordinal);
+
+            string root = Normalize(deviceRoot);
+            if (!IsDirectory(root)) return dirs;
+
+            dirs.Add(root);
+
+            string error;
+            string output = RunShell("cd " + Quote(root) + " && find . -type d -print", 120000, out error);
+            if (string.IsNullOrEmpty(output)) return dirs;
+
+            foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+
+                // 只接受 find 输出的相对路径，shell 报错行一律忽略
+                if (!line.StartsWith("./", StringComparison.Ordinal)) continue;
+
+                string relative = line.Substring(2).TrimEnd('/');
+                if (relative.Length == 0) continue;   // "." 即根目录本身，已加入
+
+                dirs.Add(JoinDevicePath(root, relative));
+            }
+            return dirs;
         }
 
         private static List<TransferEntry> ScanLocal(string localRoot, string deviceRoot, out string error)

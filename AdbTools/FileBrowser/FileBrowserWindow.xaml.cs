@@ -1102,8 +1102,8 @@ namespace AdbTools.FileBrowser
                     else
                     {
                         // 阶段1：扫描出全部条目（文件 + 子文件夹），进度按条目总数统计。
-                        // 上传时每个文件夹都要单独 mkdir，下载时也要建目录，都算一次处理；
-                        // 这样「已完成/总数」与失败项数始终自洽（失败数不会超过总数）。
+                        // 文件夹不论是否已存在都算一项（总数与进度保持不变），
+                        // 只是「本来就有」的那些在汇总里不算「新建」。
                         UpdateStatus(action + "前统计文件…");
                         var entries = new List<TransferEntry>();
                         foreach (TransferItem item in items)
@@ -1143,6 +1143,11 @@ namespace AdbTools.FileBrowser
                                 {
                                     failed.Add(entryName + "：" + message);
                                     stats.Failed = failed.Count;
+                                }
+                                else if (entry.TargetExisted)
+                                {
+                                    // 目标处本来就有这个文件夹：算一项已处理，但不算「新建」
+                                    stats.ExistedDirectories++;
                                 }
                                 else
                                 {
@@ -1197,7 +1202,7 @@ namespace AdbTools.FileBrowser
                     SetProgressBusy(false);
 
                     // 汇总把文件和文件夹分开给进度：两类单位不同，混在一起时
-                    // 「151/161」与「已新增 86」看起来会对不上
+                    // 「151/161」与「新建 86」看起来会对不上
                     string progress;
                     if (stats.TotalFiles + stats.TotalDirs > 0)
                     {
@@ -1211,20 +1216,21 @@ namespace AdbTools.FileBrowser
                     else
                     {
                         // 应用私有数据整目录传输：按应用 / 顶层条目计数
-                        progress = stats.Done + "/" + stats.Total;
+                        progress = stats.Total > 0 ? stats.Done + "/" + stats.Total : "无可传项目";
                     }
 
                     string summary = (cancelled ? action + "已取消" : action + "完成")
                         + "（" + progress + "）";
                     if (!string.IsNullOrEmpty(note)) summary += "，" + note;
 
-                    if (stats.Added > 0 || stats.AddedDirectories > 0)
-                    {
-                        var added = new List<string>();
-                        if (stats.Added > 0) added.Add(stats.Added + " 个文件");
-                        if (stats.AddedDirectories > 0) added.Add(stats.AddedDirectories + " 个文件夹");
-                        summary += "，已新增 " + string.Join("、", added);
-                    }
+                    // 文件用「新增」，文件夹用「新建」：目标处本来就有文件夹时只提示已存在，
+                    // 不能再把它说成「新建」，否则和总数里的文件夹数对不上。
+                    var added = new List<string>();
+                    if (stats.Added > 0) added.Add("新增 " + stats.Added + " 个文件");
+                    if (stats.AddedDirectories > 0) added.Add("新建 " + stats.AddedDirectories + " 个文件夹");
+                    if (added.Count > 0) summary += "，" + string.Join("、", added);
+                    if (stats.ExistedDirectories > 0)
+                        summary += "，" + stats.ExistedDirectories + " 个文件夹已存在";
                     if (stats.Overwritten > 0) summary += "，已覆盖 " + stats.Overwritten + " 个文件";
                     if (stats.KeptBoth > 0) summary += "，已重命名 " + stats.KeptBoth + " 个文件";
                     if (stats.Skipped > 0) summary += "，已跳过 " + stats.Skipped + " 个文件";
@@ -1380,8 +1386,11 @@ namespace AdbTools.FileBrowser
             /// <summary>文件里目标原本没有同名项、直接写入的数量。</summary>
             public int Added;
 
-            /// <summary>成功创建的文件夹数量（与文件的新增分开统计）。</summary>
+            /// <summary>真正新建的文件夹数量（目标处已存在的已剔除，与文件的新增分开统计）。</summary>
             public int AddedDirectories;
+
+            /// <summary>目标处本来就有、未重复创建的文件夹数量（仍计入总数与进度）。</summary>
+            public int ExistedDirectories;
 
             public int Overwritten;
             public int KeptBoth;
