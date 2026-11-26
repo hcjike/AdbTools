@@ -458,7 +458,7 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
-                <Image x:Name="updateVersion" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" Width="22" Height="22" MouseDown="updateVersion_MouseDown" />
+                <Image x:Name="updateVersion" Visibility="Collapsed" Source="/resource/imgs/new_version.png" VerticalAlignment="Center" Width="22" Height="22" Cursor="Hand" MouseDown="updateVersion_MouseDown" />
                 <!-- 下载进度：仅下载更新时显示在升级图标右侧，平时隐藏 -->
                 <TextBlock x:Name="updateDownloadPercentText" Visibility="Collapsed" VerticalAlignment="Center" Margin="6,0,0,0"
                            FontSize="12" Foreground="#FF2A9FFF" Text="0%"/>
