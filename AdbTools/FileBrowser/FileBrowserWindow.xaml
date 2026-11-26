@@ -398,7 +398,7 @@
 
         </Grid>
 
-        <!-- 底部：状态信息、应用列表筛选与传输控制 -->
+        <!-- 底部：状态信息、应用列表筛选与操作控制 -->
         <Grid Grid.Row="2" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -425,7 +425,7 @@
             <Button x:Name="packageFilterButton" Grid.Column="1" Content="显示全部" Click="packageFilter_Click"
                     Visibility="Collapsed" Background="Transparent" Foreground="#FF2A9FFF"
                     Padding="6,2" Margin="10,0,0,0" ToolTip="显示或隐藏非debug应用" />
-            <!-- 传输进度：加高的进度条 + 居中的「已完成/总数」文字 -->
+            <!-- 操作进度：加高的进度条 + 居中的「已完成/总数」文字 -->
             <Grid x:Name="transferProgress" Grid.Column="2" Width="190" Height="24" Margin="12,0,0,0"
                   Visibility="Collapsed" VerticalAlignment="Center">
                 <ProgressBar x:Name="transferBar" Minimum="0" Maximum="1" Value="0"
@@ -451,8 +451,9 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
             </Grid>
-            <Button x:Name="cancelButton" Grid.Column="3" Content="停止传输" Click="cancelTransfer_Click"
-                    ToolTip="中止本次全部传输"
+            <!-- 上传/下载/删除共用这个按钮，文案保持通用，避免删除时显示「传输」 -->
+            <Button x:Name="cancelButton" Grid.Column="3" Content="取消" Click="cancelTransfer_Click"
+                    ToolTip="中止当前正在进行的操作"
                     Padding="12,4" Margin="10,0,0,0" Visibility="Collapsed" Background="#FFEF4444"/>
         </Grid>
     </Grid>

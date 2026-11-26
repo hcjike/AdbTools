@@ -15,6 +15,9 @@ using AdbTools.bean;
 using Microsoft.Win32;
 using WinForms = System.Windows.Forms;
 
+using AdbTools.Common;
+using AdbTools.Windows;
+
 namespace AdbTools.FileBrowser
 {
     /// <summary>
@@ -1158,7 +1161,7 @@ namespace AdbTools.FileBrowser
                                 continue;
                             }
 
-                            // 用户点了取消（弹窗里的「取消」或状态栏「取消传输」）：
+                            // 用户点了取消（弹窗里的「取消」或状态栏「取消」）：
                             // 这一项不算跳过，直接中止整批
                             if (_cancelRequested) break;
 

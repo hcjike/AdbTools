@@ -4,7 +4,9 @@ using System.Windows;
 using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     /// <summary>
     /// 拖放提示的兜底巡检：OLE 有概率漏发 DragLeave（快速拖出窗口时尤其明显），

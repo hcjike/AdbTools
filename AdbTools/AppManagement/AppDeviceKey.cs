@@ -1,6 +1,8 @@
 using System;
 using System.Text;
 
+using AdbTools.Common;
+
 namespace AdbTools
 {
     /// <summary>

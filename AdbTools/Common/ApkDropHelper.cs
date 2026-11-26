@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     /// <summary>
     /// APK 拖放共用逻辑：按文件数上限扫描并收集 APK、统计重复、生成提示。

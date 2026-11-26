@@ -5,7 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Windows
 {
     /// <summary>集中显示安装失败原因，支持复制原因和定位到安装列表项。</summary>
     public partial class InstallErrorWindow : Window

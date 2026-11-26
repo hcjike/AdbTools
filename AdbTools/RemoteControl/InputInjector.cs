@@ -68,7 +68,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell getprop ro.build.version.sdk")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell getprop ro.build.version.sdk")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -88,7 +88,7 @@ namespace AdbTools.RemoteControl
 
         private void Start()
         {
-            var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell")
+            var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell")
             {
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -265,7 +265,7 @@ namespace AdbTools.RemoteControl
             try
             {
                 string text;
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " shell getevent -pl")
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " shell getevent -pl")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -335,7 +335,7 @@ namespace AdbTools.RemoteControl
         {
             try
             {
-                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Globals.QuoteSerial(_serial) + " " + adbArgs)
+                var psi = new ProcessStartInfo(_adbPath, "-s " + AdbTools.Common.Globals.QuoteSerial(_serial) + " " + adbArgs)
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

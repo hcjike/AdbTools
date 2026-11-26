@@ -5,7 +5,9 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Windows
 {
     /// <summary>
     /// InputWindow.xaml 的交互逻辑

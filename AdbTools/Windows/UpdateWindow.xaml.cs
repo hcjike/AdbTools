@@ -1,6 +1,9 @@
 using System.Windows;
 
-namespace AdbTools
+using AdbTools;
+using AdbTools.Common;
+
+namespace AdbTools.Windows
 {
     /// <summary>
     /// UpdateWindow.xaml 的交互逻辑

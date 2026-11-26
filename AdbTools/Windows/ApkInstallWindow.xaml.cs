@@ -16,7 +16,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
 
-namespace AdbTools
+using AdbTools;
+using AdbTools.Common;
+
+namespace AdbTools.Windows
 {
     /// <summary>
     /// APK 批量安装列表：先异步解析应用信息，用户勾选后逐项安装，最后在本窗口显示整体结果。

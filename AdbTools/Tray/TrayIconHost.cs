@@ -6,6 +6,8 @@ using System.Windows.Media.Imaging;
 using AdbTools.bean;
 using Hardcodet.Wpf.TaskbarNotification;
 
+using AdbTools.Common;
+
 namespace AdbTools.Tray
 {
     /// <summary>

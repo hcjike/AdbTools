@@ -5,7 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 
-namespace AdbTools
+using AdbTools;
+
+namespace AdbTools.Common
 {
     /// <summary>
     /// 程序级异常日志：全局未处理异常在弹框前先写到这里，便于事后排查。

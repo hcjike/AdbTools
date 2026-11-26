@@ -10,6 +10,8 @@ using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 
+using AdbTools.Windows;
+
 namespace AdbTools.AccessInterface
 {
 

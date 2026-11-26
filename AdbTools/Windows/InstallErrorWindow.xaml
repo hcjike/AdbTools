@@ -1,7 +1,7 @@
 <Window
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="AdbTools.InstallErrorWindow"
+        xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="AdbTools.Windows.InstallErrorWindow"
         Title="安装失败详情" Width="560" SizeToContent="Height" MaxHeight="560"
         WindowStartupLocation="CenterScreen" ShowInTaskbar="False" ResizeMode="NoResize"
         Background="#FFF3F4F6" FontSize="13" UseLayoutRounding="True" SnapsToDevicePixels="True">
