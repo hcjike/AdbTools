@@ -551,14 +551,13 @@ namespace AdbTools
             List<ApkInstallItem> toRemove = _items.Where(i => i.IsSelected).ToList();
             if (toRemove.Count == 0)
             {
-                MessageBox.Show(this, "请先勾选要删除的 APK。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                Dialogs.Show("请先勾选要删除的 APK。", "提示", MessageBoxImage.Information, this);
                 return;
             }
 
-            MessageBoxResult result = MessageBox.Show(this,
+            if (!Dialogs.Confirm(
                 "确定从安装列表中移除选中的 " + toRemove.Count + " 个 APK 吗？",
-                "删除确认", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result != MessageBoxResult.Yes) return;
+                "删除确认", this, "移除", icon: MessageBoxImage.Question)) return;
 
             foreach (ApkInstallItem item in toRemove)
             {
@@ -583,8 +582,8 @@ namespace AdbTools
 
             if (_items.Count >= MaxApkItems)
             {
-                MessageBox.Show(this, "安装列表已满（" + MaxApkItems + " 个 APK），请先移除部分再添加。", "提示",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                Dialogs.Show("安装列表已满（" + MaxApkItems + " 个 APK），请先移除部分再添加。", "提示",
+                    MessageBoxImage.Information, this);
                 return;
             }
 
@@ -603,8 +602,8 @@ namespace AdbTools
             {
                 int count = dialog.FileNames.Count(p => !string.IsNullOrWhiteSpace(p)
                     && ApkDropHelper.IsApkFile(p) && _knownPaths.Contains(p));
-                MessageBox.Show(this, "所选 " + count + " 个 APK 均已在列表中。", "提示",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                Dialogs.Show("所选 " + count + " 个 APK 均已在列表中。", "提示",
+                    MessageBoxImage.Information, this);
             }
         }
 
@@ -777,10 +776,10 @@ namespace AdbTools
 
             if (incompatible.Count > 0)
             {
-                MessageBox.Show(this,
+                Dialogs.Show(
                     "以下应用要求的最低系统版本高于当前设备，无法安装：\r\n\r\n"
                     + string.Join("\r\n", incompatibleReasons),
-                    "无法安装", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "无法安装", MessageBoxImage.Warning, this);
             }
 
             BeginInstall(selected.Except(incompatible).ToArray(), incompatibleReasons);

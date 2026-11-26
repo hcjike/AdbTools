@@ -23,6 +23,36 @@
         </Setter>
     </Style>
 
+    <!--次要按钮：白底 + 描边，用于对话框「取消」这类需要明确可见的次操作-->
+    <Style x:Key="UserSecondaryButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource UserButtonStyle}">
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="Foreground" Value="#FF374151"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="border" CornerRadius="5" Background="{TemplateBinding Background}"
+                            BorderBrush="#FFD1D5DB" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#FFF3F4F6"/>
+                            <Setter TargetName="border" Property="BorderBrush" Value="#FF9CA3AF"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#FFE5E7EB"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="border" Property="Background" Value="#FFF3F4F6"/>
+                            <Setter Property="Foreground" Value="#FF9CA3AF"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 
     <!--菜单项：圆角悬停高亮 + 子菜单弹窗（带投影）-->
     <Style x:Key="UserMenuItemStyle" TargetType="{x:Type MenuItem}">

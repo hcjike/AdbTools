@@ -349,10 +349,9 @@ namespace AdbTools
 
         private void Clear_Click(object sender, RoutedEventArgs e)
         {
-            MessageBoxResult result = MessageBox.Show(
-                "将清空当前显示，并同时清除设备端「" + _buffer + "」缓冲区的日志。\r\n是否继续？",
-                "清空日志", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-            if (result != MessageBoxResult.OK) return;
+            if (!Dialogs.Confirm(
+                "将清空当前显示，并同时清除设备端「" + _buffer + "」缓冲区的日志。是否继续？",
+                "清空日志", this, "清空", danger: true, icon: MessageBoxImage.Warning)) return;
 
             ClearLocal();
             LogCollector.ClearBuffer(_adbPath, _serial, _buffer);
@@ -419,7 +418,7 @@ namespace AdbTools
             }
             catch (Exception ex)
             {
-                MessageBox.Show("复制失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("复制失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 
@@ -454,16 +453,16 @@ namespace AdbTools
 
                 File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
 
-                if (MessageBoxResult.Yes == MessageBox.Show(
-                    "已保存到：\r\n" + path + "\r\n\r\n是否打开所在文件夹？",
-                    "保存成功", MessageBoxButton.YesNo, MessageBoxImage.Information))
+                if (Dialogs.Confirm(
+                    "已保存到：\r\n" + path + "\r\n是否打开所在文件夹？",
+                    "保存成功", this, "打开", icon: MessageBoxImage.Information))
                 {
                     Process.Start("explorer.exe", "/select,\"" + path + "\"");
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("保存失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("保存失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 
@@ -475,7 +474,7 @@ namespace AdbTools
             }
             catch (Exception ex)
             {
-                MessageBox.Show("打开目录失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                Dialogs.Show("打开目录失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 

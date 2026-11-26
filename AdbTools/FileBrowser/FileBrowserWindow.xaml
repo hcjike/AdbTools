@@ -432,9 +432,20 @@
                              IsIndeterminate="True" Height="24" VerticalAlignment="Center"
                              Style="{StaticResource RoundedProgressBar}"
                              Foreground="#FF2A9FFF" Background="#FFE8EBEF" BorderThickness="0" />
+                <!-- 文字为空时整个徽标隐藏，避免只剩一个深色小圆点 -->
                 <Border Background="#CC1F2937" CornerRadius="10" Padding="9,1"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         IsHitTestVisible="False">
+                    <Border.Style>
+                        <Style TargetType="{x:Type Border}">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=transferProgressText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
                     <TextBlock x:Name="transferProgressText" Text=""
                                Foreground="White" FontSize="11.5" FontWeight="SemiBold"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />

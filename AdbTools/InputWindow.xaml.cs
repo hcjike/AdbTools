@@ -71,7 +71,6 @@ namespace AdbTools
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ButtonState != MouseButtonState.Pressed) return;
-            if (IsInsideButton(e.OriginalSource as DependencyObject)) return;
 
             try
             {
@@ -181,23 +180,5 @@ namespace AdbTools
             errorText.Visibility = Visibility.Collapsed;
         }
 
-        /// <summary>标题栏上的按钮（关闭）不参与拖动。</summary>
-        private static bool IsInsideButton(DependencyObject source)
-        {
-            while (source != null)
-            {
-                if (source is Button) return true;
-
-                try
-                {
-                    source = VisualTreeHelper.GetParent(source);
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-            return false;
-        }
     }
 }

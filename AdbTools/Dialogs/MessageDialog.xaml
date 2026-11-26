@@ -1,0 +1,84 @@
+<Window x:Class="AdbTools.MessageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="提示" FontSize="13" MinWidth="300" MaxWidth="620"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Loaded="Window_Loaded" PreviewKeyDown="Window_PreviewKeyDown">
+
+    <!-- 外层留出 16px 给投影，否则阴影会被透明窗口边缘裁掉 -->
+    <Grid Margin="16">
+        <Border Background="White" CornerRadius="10" SnapsToDevicePixels="True"
+                BorderBrush="#FFE5E7EB" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20" ShadowDepth="0" Color="#FF1F2937" Opacity="0.18"/>
+            </Border.Effect>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题区：浅灰底 + 底部分隔线；可选图标放在标题前 -->
+                <Border Grid.Row="0" Background="#FFF1F3F6" CornerRadius="9,9,0,0"
+                        BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1"
+                        SnapsToDevicePixels="True">
+                    <Grid Margin="14,10,14,10" Background="Transparent"
+                          MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border x:Name="titleIconBadge" Grid.Column="0" Width="20" Height="20"
+                                CornerRadius="10" VerticalAlignment="Center" Margin="0,0,8,0"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="titleIconGlyph" Foreground="White" FontSize="12"
+                                       FontWeight="Bold" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+
+                        <TextBlock x:Name="titleText" Grid.Column="1" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#FF1F2937" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </Border>
+
+                <!-- 正文：左右各 18px 内边距，富文本自动换行、限高滚动 -->
+                <ScrollViewer x:Name="messageScroll" Grid.Row="1" Margin="14,12,14,12"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBlock x:Name="messageText" TextWrapping="Wrap"
+                               FontSize="13" Foreground="#FF1F2937"
+                               LineHeight="20" LineStackingStrategy="BlockLineHeight">
+                        <TextBlock.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="复制全部" Click="CopyContent_Click"/>
+                            </ContextMenu>
+                        </TextBlock.ContextMenu>
+                    </TextBlock>
+                </ScrollViewer>
+
+                <!-- 按钮区：浅灰底 + 顶部分隔线，与正文明确分开 -->
+                <Border Grid.Row="2" Background="#FFF8FAFC" CornerRadius="0,0,9,9"
+                        BorderBrush="#FFEEF0F3" BorderThickness="0,1,0,0"
+                        SnapsToDevicePixels="True">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right" Margin="14,10,14,10">
+                        <Button x:Name="cancelButton" Style="{StaticResource UserSecondaryButtonStyle}"
+                                Content="取消" MinWidth="88" Height="32" Margin="0,0,10,0"
+                                IsCancel="True" Click="Cancel_Click"/>
+                        <Button x:Name="confirmButton" Style="{StaticResource UserButtonStyle}"
+                                Content="确定" MinWidth="88" Height="32"
+                                Background="#FF2A9FFF" Foreground="White"
+                                IsDefault="True" Click="Confirm_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -11,32 +11,6 @@
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         UseLayoutRounding="True" Loaded="Window_Loaded">
 
-    <Window.Resources>
-        <!-- 关闭按钮：无边框窗口的自绘关闭键，悬停时浅红底 + 红色叉 -->
-        <Style x:Key="CloseButtonStyle" TargetType="{x:Type Button}">
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type Button}">
-                        <Border x:Name="bg" Background="Transparent" CornerRadius="6">
-                            <Path x:Name="icon" Data="M0,0 L10,10 M10,0 L0,10"
-                                  Stroke="#FF6B7280" StrokeThickness="1.6"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="#FFFDECEC"/>
-                                <Setter TargetName="icon" Property="Stroke" Value="#FFEF4444"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-
     <!-- 外层留出 16px 给投影，否则阴影会被透明窗口边缘裁掉 -->
     <Grid Margin="16">
         <Border Background="White" CornerRadius="10" SnapsToDevicePixels="True"
@@ -52,21 +26,22 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 标题栏：整行可拖动，右侧关闭按钮 -->
-                <Grid Grid.Row="0" Margin="18,12,10,0" Background="Transparent"
-                      MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                    <TextBlock x:Name="titleText" FontSize="15" FontWeight="SemiBold"
-                               Foreground="#FF1F2937" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis"/>
-                    <Button x:Name="closeButton" Style="{StaticResource CloseButtonStyle}"
-                            Width="28" Height="28" HorizontalAlignment="Right"
-                            VerticalAlignment="Center" ToolTip="关闭" Click="cancle_Click"/>
-                </Grid>
+                <!-- 标题区：浅灰底 + 底部分隔线，与正文明确分开 -->
+                <Border Grid.Row="0" Background="#FFF1F3F6" CornerRadius="9,9,0,0"
+                        BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1"
+                        SnapsToDevicePixels="True">
+                    <Grid Margin="14,10,14,10" Background="Transparent"
+                          MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                        <TextBlock x:Name="titleText" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#FF1F2937" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </Border>
 
-                <StackPanel Grid.Row="1" Margin="18,14,18,0">
+                <StackPanel Grid.Row="1" Margin="14,12,14,12">
                     <!-- 说明/错误提示：默认隐藏，没有 Hint 时不占位；过长时自动换行，
                          ToolTip 仍保留完整内容。由代码用 Inlines 拼装，以便把路径、原文件名等高亮显示。 -->
-                    <TextBlock x:Name="hintText" FontSize="12" Foreground="#FF6B7280"
+                    <TextBlock x:Name="hintText" FontSize="13" Foreground="#FF6B7280"
                                TextWrapping="Wrap" Margin="0,0,0,8"
                                Visibility="Collapsed"/>
                     <!-- 长名字自动换行，窗口随内容变高；输入框最少 3 行、最多 10 行（代码里按字体实测行高），
@@ -83,17 +58,21 @@
                                Visibility="Collapsed"/>
                 </StackPanel>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
-                            Margin="18,18,18,18">
-                    <Button x:Name="cancle" Style="{StaticResource UserButtonStyle}" Content="取消"
-                            Width="88" Height="32" Margin="0,0,10,0" TabIndex="2"
-                            Background="#FFF3F4F6" Foreground="#FF4B5563"
-                            IsCancel="True" Click="cancle_Click"/>
-                    <Button x:Name="enter" Style="{StaticResource UserButtonStyle}" Content="确定"
-                            Width="88" Height="32" TabIndex="1"
-                            Background="#FF2A9FFF" Foreground="White"
-                            IsDefault="True" Click="enter_Click"/>
-                </StackPanel>
+                <!-- 按钮区：浅灰底 + 顶部分隔线，与正文明确分开 -->
+                <Border Grid.Row="2" Background="#FFF8FAFC" CornerRadius="0,0,9,9"
+                        BorderBrush="#FFEEF0F3" BorderThickness="0,1,0,0"
+                        SnapsToDevicePixels="True">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                Margin="14,10,14,10">
+                        <Button x:Name="cancle" Style="{StaticResource UserSecondaryButtonStyle}" Content="取消"
+                                Width="88" Height="32" Margin="0,0,10,0" TabIndex="2"
+                                IsCancel="True" Click="cancle_Click"/>
+                        <Button x:Name="enter" Style="{StaticResource UserButtonStyle}" Content="确定"
+                                Width="88" Height="32" TabIndex="1"
+                                Background="#FF2A9FFF" Foreground="White"
+                                IsDefault="True" Click="enter_Click"/>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Border>
     </Grid>
