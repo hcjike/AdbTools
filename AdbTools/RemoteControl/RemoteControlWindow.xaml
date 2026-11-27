@@ -201,6 +201,42 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="bg" Property="Background" Value="#FF3A3A45" />
                             </Trigger>
+                            <!-- 截屏执行期间按钮禁用：给出明确的"正在处理"视觉，而不是看起来没反应 -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bg" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--
+            录制按钮专用样式：模板不再在悬停时替换背景色。
+            通用工具按钮悬停会把底色换成灰色，而录制中底色是红色（表示正在录制），
+            被盖成灰色后按钮状态与图标都看不清，所以这里只提亮描边 + 轻微压暗。
+        -->
+        <Style x:Key="RecordButtonStyle" TargetType="{x:Type Button}"
+               BasedOn="{StaticResource ToolIconButtonStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="bg" CornerRadius="4" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- 悬停只提亮描边：录制中的红底与白色停止图标保持原样，不会因为悬停变灰/变暗 -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="BorderBrush" Value="#FF8A8A98" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Opacity" Value="0.75" />
+                            </Trigger>
+                            <!-- 保存录像期间按钮禁用：变暗表示"正在处理"，避免看起来没反应 -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bg" Property="Opacity" Value="0.5" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -217,28 +253,80 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 顶部：左侧状态文字，右侧 1:1 与分辨率菜单。
+        <!-- 顶部：左侧只显示帧率，右侧是截屏 / 录制 / 1:1 与分辨率菜单。
              上下留白让这一栏与窗口边缘、画面区分开，不显得贴在一起 -->
         <Grid x:Name="_topBar" Grid.Row="0" Height="28" Margin="6,2,6,2" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <!-- 与运行时格式一致，避免首帧前闪一下别的文案 -->
-            <TextBlock x:Name="_status" Grid.Column="0" Text="- → -   0 fps"
+            <!-- 与运行时格式一致（只有帧率，分辨率映射在悬停提示里），避免首帧前闪一下别的文案 -->
+            <TextBlock x:Name="_status" Grid.Column="0" Text="0 fps"
                        Style="{StaticResource StatusTextStyle}" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="8,0,0,0">
+                <!-- 截屏：走设备端 screencap，按设备原始分辨率保存 PNG（与采集档位无关） -->
+                <Button x:Name="_shotButton" Width="30" Height="22"
+                        Margin="0,0,6,0" Style="{StaticResource ToolIconButtonStyle}"
+                        UseLayoutRounding="True" SnapsToDevicePixels="True"
+                        Click="Screenshot_Click"
+                        ToolTip="截屏（设备原始分辨率 PNG）">
+                    <!-- 16x16 与 30x22（含 1px 边框）配对：(28-16)/2=6、(20-16)/2=2，都是整数，避免半像素偏移 -->
+                    <Viewbox Width="16" Height="16" Stretch="Uniform"
+                             HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid Width="24" Height="24">
+                            <!-- 取景角标：与 Android Studio 一致的四个直角框 -->
+                            <Path Data="M3.2,8 L3.2,3.2 L8,3.2 M16,3.2 L20.8,3.2 L20.8,8 M20.8,16 L20.8,20.8 L16,20.8 M8,20.8 L3.2,20.8 L3.2,16"
+                                  Stroke="#FFF2F2F2" StrokeThickness="1.7" Fill="Transparent"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                            <!-- 相机机身（严格居中，不留偏移量） -->
+                            <Rectangle Width="11.2" Height="7.8" RadiusX="1.4" RadiusY="1.4"
+                                       Stroke="#FFF2F2F2" StrokeThickness="1.5" Fill="Transparent"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <!-- 镜头 -->
+                            <Ellipse Width="3.3" Height="3.3" Stroke="#FFF2F2F2" StrokeThickness="1.5"
+                                     Fill="Transparent"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Viewbox>
+                </Button>
+
+                <!-- 录制：直接存远程画面码流（不重编码），分辨率跟随采集档位。
+                     未录制显示圆点，录制中显示方块（停止），由代码切换可见性 -->
+                <Button x:Name="_recordButton" Width="30" Height="22"
+                        Margin="0,0,6,0" Style="{StaticResource RecordButtonStyle}"
+                        UseLayoutRounding="True" SnapsToDevicePixels="True"
+                        Click="Record_Click"
+                        ToolTip="录制画面（分辨率跟随当前档位）">
+                    <Viewbox Width="16" Height="16" Stretch="Uniform"
+                             HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid Width="24" Height="24">
+                            <!-- 取景角标：与截屏图标同一套语言，录制态也保留 -->
+                            <Path Data="M3.2,8 L3.2,3.2 L8,3.2 M16,3.2 L20.8,3.2 L20.8,8 M20.8,16 L20.8,20.8 L16,20.8 M8,20.8 L3.2,20.8 L3.2,16"
+                                  Stroke="#FFF2F2F2" StrokeThickness="1.7" Fill="Transparent"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                            <!-- 未录制：红色圆环（沿用 Android Studio 的录屏语义），视觉直径与停止方块接近 -->
+                            <Ellipse x:Name="_recordIdleIcon" Width="9" Height="9"
+                                     Stroke="#FFE0443E" StrokeThickness="2.2" Fill="Transparent"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <!-- 录制中：纯白实心方块，表示“停止”（此时按钮底色为红，保证高对比） -->
+                            <Rectangle x:Name="_recordStopIcon" Width="8" Height="8" RadiusX="1.2" RadiusY="1.2"
+                                       Fill="#FFFFFFFF" Visibility="Collapsed"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Viewbox>
+                </Button>
+
                 <!-- 按画面像素调整窗口：画面 1 个像素 = 屏幕 1 个像素 -->
                 <Button x:Name="_pixelFitButton" Content="1:1" Width="36" Height="22"
                         Margin="0,0,6,0" Style="{StaticResource ToolIconButtonStyle}"
                         Click="PixelFit_Click"
-                        ToolTip="按画面像素调整窗口大小（1:1 显示）&#10;屏幕放不下时会自动缩小并提示" />
+                        ToolTip="按画面像素调整窗口大小（1:1 显示）" />
                 <ComboBox x:Name="_resolutionBox"
                           Width="132" Height="22"
                           VerticalAlignment="Center" Foreground="White" Cursor="Hand"
                           FocusVisualStyle="{x:Null}"
-                          ToolTip="采集分辨率：原画不缩放，其他档位按长边缩放&#10;鼠标悬停到各项可查看清晰度与速度的取舍说明"
+                          ToolTip="采集分辨率"
                           Template="{StaticResource ResolutionComboTemplate}"
                           ItemTemplate="{StaticResource ResolutionItemTemplate}"
                           ItemContainerStyle="{StaticResource ResolutionComboItemStyle}" />
@@ -283,13 +371,21 @@
                 </StackPanel>
             </Border>
 
-            <!-- 操作提示浮层：1:1 调整结果等短暂提示，几秒后自动隐藏，不参与启动/息屏卡片的状态判断 -->
+            <!-- 操作提示浮层：短暂提示，5 秒后自动隐藏，不参与启动/息屏卡片的状态判断。
+                 带产物路径时（截图/录像完成）可点击打开所在文件夹，这时才参与命中测试，
+                 避免平时挡住画面上的点击注入 -->
             <Border x:Name="_toast" Background="#EE1A1A22" BorderBrush="#FF3F3F46" BorderThickness="1"
                     CornerRadius="8" Padding="14,8" Margin="0,0,0,16"
                     HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                    Visibility="Collapsed" IsHitTestVisible="False">
-                <TextBlock x:Name="_toastText" Foreground="#FFF2F2F2" FontSize="12.5"
-                           TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
+                    Visibility="Collapsed" IsHitTestVisible="False"
+                    MouseLeftButtonUp="Toast_Click">
+                <StackPanel>
+                    <TextBlock x:Name="_toastText" Foreground="#FFF2F2F2" FontSize="12.5"
+                               TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
+                    <TextBlock x:Name="_toastAction" Text="点击打开所在文件夹"
+                               Foreground="#FF6EA8FF" FontSize="12" TextAlignment="Center"
+                               Margin="0,4,0,0" Visibility="Collapsed" />
+                </StackPanel>
             </Border>
         </Grid>
 

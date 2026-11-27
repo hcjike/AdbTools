@@ -200,6 +200,9 @@ namespace AdbTools.RemoteControl
         /// <summary>操作提示浮层的自动隐藏计时器。</summary>
         private readonly DispatcherTimer _toastTimer = new DispatcherTimer();
 
+        /// <summary>提示浮层当前可打开的产物路径；为空表示这条提示不可点击。</summary>
+        private string _toastPath;
+
         /// <summary>是否已按首帧画面比例自动调整过窗口尺寸。</summary>
         private bool _autoFitted;
 
@@ -243,6 +246,85 @@ namespace AdbTools.RemoteControl
         private InputInjector _injector;
         private AccessUnitSplitter _splitter;
         private Thread _pumpThread;
+
+        /// <summary>
+        /// 当前录制会话（为空表示未在录制）。取流线程会同步读取该引用，
+        /// 因此用 volatile 语义保证可见性；赋值/清空都在 UI 线程完成。
+        /// </summary>
+        private volatile Mp4Recorder _recorder;
+
+        /// <summary>
+        /// 已点“停止”、正在后台收尾的录制器。保留引用是为了在关窗时能等它写完 moov，
+        /// 否则“点停止后立刻关窗”会因为清理拿不到它而丢掉文件。
+        /// </summary>
+        private volatile Mp4Recorder _stoppingRecorder;
+
+        /// <summary>录制按钮的四个状态：空闲 / 准备中（等关键帧）/ 录制中 / 保存中。</summary>
+        private enum RecordState
+        {
+            Idle,
+            Preparing,
+            Recording,
+            Saving
+        }
+
+        private RecordState _recordState = RecordState.Idle;
+
+        /// <summary>"准备中"的起点，用于在提示里显示已等待多久。</summary>
+        private DateTime _prepareStarted;
+
+        /// <summary>准备超时保护：一直等不到关键帧时自动取消，避免按钮卡在"准备中"。</summary>
+        private DispatcherTimer _prepareTimeout;
+
+        /// <summary>准备阶段最长等待：超时说明设备没有可用画面（多半已息屏）。</summary>
+        private static readonly TimeSpan PrepareTimeout = TimeSpan.FromSeconds(6);
+
+        /// <summary>预录缓存里的一帧：从关键帧开始的一段连续码流。</summary>
+        private struct CachedAu
+        {
+            public byte[] Data;
+            public bool KeyFrame;
+            public long Ticks;
+        }
+
+        /// <summary>预录最多回带 2 秒：再长就会让成片比实际操作还长。</summary>
+        private const int PrerollMaxMs = 2000;
+
+        /// <summary>预录缓存字节上限：8MB 足够 2 秒的高码率画面，超出直接丢弃。</summary>
+        private const long PrerollMaxBytes = 8L * 1024 * 1024;
+
+        /// <summary>
+        /// 预录缓存：未录制时持续收集"最近一个关键帧之后"的码流。点录制时把它补进文件，
+        /// 就能在第一帧关键帧上立即开始录制，不必等设备下一个 IDR（默认 10 秒一个）。
+        /// </summary>
+        private readonly object _prerollLock = new object();
+        private readonly List<CachedAu> _preroll = new List<CachedAu>();
+        private long _prerollKeyTicks;
+        private long _prerollBytes;
+
+        /// <summary>正在截屏：避免连续点击在设备上并发执行多次 screencap。</summary>
+        private int _capturing;
+
+        /// <summary>录制按钮的常态与录制态底色（模板用 TemplateBinding 取背景）。</summary>
+        private static readonly System.Windows.Media.SolidColorBrush RecordIdleBrush =
+            CreateFrozenBrush(0x2A, 0x2A, 0x33);
+        private static readonly System.Windows.Media.SolidColorBrush RecordActiveBrush =
+            CreateFrozenBrush(0xC0, 0x39, 0x2B);
+
+        /// <summary>未录制时的圆环颜色（与 XAML 里的红环一致）。</summary>
+        private static readonly System.Windows.Media.SolidColorBrush RecordRingIdleBrush =
+            CreateFrozenBrush(0xE0, 0x44, 0x3E);
+
+        /// <summary>准备中（等待关键帧）的圆环颜色：琥珀色，与"正在录"区分开。</summary>
+        private static readonly System.Windows.Media.SolidColorBrush RecordRingPreparingBrush =
+            CreateFrozenBrush(0xE0, 0xA3, 0x3E);
+
+        private static System.Windows.Media.SolidColorBrush CreateFrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
 
         private WriteableBitmap _bitmap;
 
@@ -295,9 +377,22 @@ namespace AdbTools.RemoteControl
         /// <summary>上一次帧率采样的时刻，用真实经过时间计算，避免计时器被推迟时算出虚高的帧率。</summary>
         private DateTime _lastFpsSample = DateTime.UtcNow;
 
-        /// <summary>上屏帧率与解码帧率（平滑后）。</summary>
+        /// <summary>上屏帧率与解码帧率（3 秒滑动窗口平均）。</summary>
         private double _displayFps = -1;
         private double _decodeFps = -1;
+
+        /// <summary>帧率滑动窗口的桶数：6 个 × 500ms ≈ 3 秒。</summary>
+        private const int FpsBucketCount = 6;
+
+        /// <summary>每个桶内记录的上屏帧数、解码帧数与实际经过时间（计时器可能被推迟）。</summary>
+        private readonly int[] _presentedBuckets = new int[FpsBucketCount];
+        private readonly int[] _decodedBuckets = new int[FpsBucketCount];
+        private readonly double[] _bucketSeconds = new double[FpsBucketCount];
+
+        private int _fpsBucketIndex;
+        private int _fpsWindowPresented;
+        private int _fpsWindowDecoded;
+        private double _fpsWindowSeconds;
 
         /// <summary>
         /// 上屏延迟（毫秒，指数平滑）：从解码输出一帧到真正写进位图的耗时，
@@ -380,7 +475,14 @@ namespace AdbTools.RemoteControl
         /// <summary>设备键（硬件序列号）：窗口尺寸按它保存，与应用缓存使用同一套设备身份。</summary>
         private readonly string _deviceKey;
 
-        public RemoteControlWindow(string adbPath, string serial, string size, int bitRate, string deviceKey = null)
+        /// <summary>
+        /// 设备名称（品牌 + 型号），用于截屏/录屏目录。由调用方传入，命令行启动时
+        /// 在后台查询；始终不用序列号，避免目录里出现 192.168.x.x:5555 这类连接串。
+        /// </summary>
+        private volatile string _deviceName;
+
+        public RemoteControlWindow(string adbPath, string serial, string size, int bitRate,
+            string deviceKey = null, string deviceName = null)
         {
             // 先加载 XAML，生成界面元素与 x:Name 字段
             InitializeComponent();
@@ -390,7 +492,9 @@ namespace AdbTools.RemoteControl
             _serial = serial;
             _deviceKey = AppDeviceKey.Normalize(
                 string.IsNullOrEmpty(deviceKey) ? serial : deviceKey);
-            LogToFile("=== 打开远程控制: adb=" + adbPath + " serial=" + serial + " size=" + size + " ===");
+            _deviceName = string.IsNullOrEmpty(deviceName) ? null : deviceName.Trim();
+            LogToFile("=== 打开远程控制: adb=" + adbPath + " serial=" + serial + " size=" + size
+                + " 设备名=" + (_deviceName ?? "（待查询）") + " ===");
 
             // 立即按序列号登记：同一设备只允许一个窗口，后续打开直接激活本窗口
             RegisterOpenWindow();
@@ -465,8 +569,8 @@ namespace AdbTools.RemoteControl
             });
             _stateTimer.Start();
 
-            // 操作提示浮层：显示几秒后自动隐藏
-            _toastTimer.Interval = TimeSpan.FromSeconds(2.6);
+            // 操作提示浮层：显示 5 秒后自动隐藏（截屏/录制的路径较长，需要留够阅读时间）
+            _toastTimer.Interval = TimeSpan.FromSeconds(5);
             _toastTimer.Tick += (s, e) =>
             {
                 _toastTimer.Stop();
@@ -575,6 +679,12 @@ namespace AdbTools.RemoteControl
                     QueryPhysicalSize();
                 }
 
+                // 截屏/录屏目录按设备名分：命令行启动时没有设备对象，这里补查一次
+                if (string.IsNullOrEmpty(_deviceName))
+                {
+                    _deviceName = QueryDeviceName();
+                }
+
                 // 启动时设备可能已经是横屏，按实际方向取尺寸，避免先用竖屏尺寸再纠正
                 bool landscapeAtStart = QueryStartupLandscape();
                 SetStartupStep("正在准备取流", "唤醒设备");
@@ -681,6 +791,12 @@ namespace AdbTools.RemoteControl
             {
                 try
                 {
+                    // 录制直接取原始访问单元（单代编码、不重编码），只入队不落盘，
+                    // 因此录制开销与显示是否掉帧完全无关；未录制时顺手维护预录缓存。
+                    Mp4Recorder recorder = _recorder;
+                    if (recorder != null) recorder.Push(au, keyFrame);
+                    else CachePrerollFrame(au, keyFrame);
+
                     if (auSeen++ == 0)
                     {
                         LogToFile("首个 AU " + au.Length + " 字节，头部 "
@@ -984,8 +1100,9 @@ namespace AdbTools.RemoteControl
 
         private void UpdateStatus()
         {
-            // 按真实经过时间计算帧率：DispatcherTimer 在 UI 繁忙时会被推迟，
-            // 若仍按固定的 500ms 换算，界面越卡、算出来的帧率反而越高。
+            // 帧率用 3 秒滑动窗口统计"实际出帧数"，而不是 500ms 瞬时值：
+            // 设备是变化驱动编码，静止时窗口内 0 帧、动作时成串出帧，
+            // 瞬时值会 0↔60 剧烈跳动，看起来像算错。滑动窗口既真实又平稳。
             DateTime now = DateTime.UtcNow;
             double elapsed = (now - _lastFpsSample).TotalSeconds;
             _lastFpsSample = now;
@@ -994,10 +1111,28 @@ namespace AdbTools.RemoteControl
             int presented = _presentedFrames;
             if (elapsed >= 0.05)
             {
-                double rawDecode = (decoded - _lastDecodedFrames) / elapsed;
-                double rawDisplay = (presented - _lastPresentedFrames) / elapsed;
-                _decodeFps = _decodeFps < 0 ? rawDecode : _decodeFps * 0.6 + rawDecode * 0.4;
-                _displayFps = _displayFps < 0 ? rawDisplay : _displayFps * 0.6 + rawDisplay * 0.4;
+                int presentedDelta = presented - _lastPresentedFrames;
+                int decodedDelta = decoded - _lastDecodedFrames;
+
+                // 用新桶替换最旧的桶，O(1) 维护窗口内的累计值
+                _fpsBucketIndex = (_fpsBucketIndex + 1) % FpsBucketCount;
+                _fpsWindowPresented -= _presentedBuckets[_fpsBucketIndex];
+                _fpsWindowDecoded -= _decodedBuckets[_fpsBucketIndex];
+                _fpsWindowSeconds -= _bucketSeconds[_fpsBucketIndex];
+
+                _presentedBuckets[_fpsBucketIndex] = presentedDelta;
+                _decodedBuckets[_fpsBucketIndex] = decodedDelta;
+                _bucketSeconds[_fpsBucketIndex] = elapsed;
+
+                _fpsWindowPresented += presentedDelta;
+                _fpsWindowDecoded += decodedDelta;
+                _fpsWindowSeconds += elapsed;
+
+                if (_fpsWindowSeconds >= 0.2)
+                {
+                    _displayFps = _fpsWindowPresented / _fpsWindowSeconds;
+                    _decodeFps = _fpsWindowDecoded / _fpsWindowSeconds;
+                }
             }
             _lastDecodedFrames = decoded;
             _lastPresentedFrames = presented;
@@ -1012,26 +1147,36 @@ namespace AdbTools.RemoteControl
             string size = _bitmap == null ? "-" : _bitmap.PixelWidth + "x" + _bitmap.PixelHeight;
             string device = _deviceWidth > 0 ? _deviceWidth + "x" + _deviceHeight : "-";
 
-            // 左上角固定为：画面分辨率 → 设备物理分辨率、真实上屏帧率；
-            // 延迟、解码帧率等放悬停提示，其它说明一律在中央卡片里
-            string statusText = string.Format("{0} → {1}   {2:F0} fps", size, device, Math.Max(0, _displayFps));
+            // 状态栏只留帧率：顶栏右侧要放截屏/录制/1:1 与分辨率菜单，
+            // 分辨率映射与延迟等指标全部移到悬停提示，避免横向被挤掉
+            string statusText;
+            if (_displayFps < 0)
+            {
+                statusText = "- fps";
+            }
+            else if (_fpsWindowSeconds >= 2.0 && _fpsWindowPresented == 0)
+            {
+                // 窗口内一帧都没有：画面本来就没变化（设备不产帧），显示"静止"比"0 fps"直观
+                statusText = "静止";
+            }
+            else
+            {
+                statusText = string.Format("{0:F0} fps", Math.Max(0, _displayFps));
+            }
             if (!string.Equals(_status.Text, statusText, StringComparison.Ordinal)) _status.Text = statusText;
 
-            // 详细指标放悬停提示：解码帧率高于上屏帧率说明画面被丢了，是卡顿的主要原因
+            // 悬停只给指标本身：详细解释统一放在 README 的常见问题里，避免提示框长篇大论
             string tooltip = string.Format(
-                "上屏 {0:F0} fps：真正写到画面上的帧数，即你眼睛看到的流畅度\n" +
-                "解码 {1:F0} fps：解码器输出的帧数，明显高于上屏说明电脑跟不上、中间帧被丢弃\n" +
-                "最大帧间隔 {3:F0} ms：最近一次采样窗口内最长的两次上屏间隔，越大越容易感觉一顿\n" +
-                "上屏延迟 {2}：解码完成到画面更新，只含电脑端排队与像素拷贝；\n" +
-                "    另有设备端采集编码约 30~80 ms 与传输耗时，不计入此值\n" +
-                "帧率偏低或延迟偏大时，建议把分辨率调低一档",
-                Math.Max(0, _displayFps), Math.Max(0, _decodeFps),
-                _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-",
-                maxIntervalMs);
+                "画面 {0} → 设备 {1}\n上屏 {2:F0} fps（3 秒平均）\n解码 {3:F0} fps（3 秒平均）\n最大帧间隔 {4:F0} ms\n上屏延迟 {5}",
+                size, device,
+                Math.Max(0, _displayFps), Math.Max(0, _decodeFps), maxIntervalMs,
+                _latencyMs >= 0 ? string.Format("{0:F0} ms", _latencyMs) : "-");
             if (!string.Equals(_status.ToolTip as string, tooltip, StringComparison.Ordinal))
             {
                 _status.ToolTip = tooltip;
             }
+
+            UpdateRecordButtonHint(size);
 
             // 每 10 秒把当前状态写进日志，便于事后排查"画面没恢复"这类问题
             if ((DateTime.UtcNow - _lastStatusLog).TotalSeconds >= 30)
@@ -1548,6 +1693,37 @@ namespace AdbTools.RemoteControl
         }
 
         /// <summary>
+        /// 查询设备名称（品牌 + 型号），用于截屏/录屏目录，与设备日志保持同一套命名。
+        /// 失败返回 null，调用方退回序列号。
+        /// </summary>
+        private string QueryDeviceName()
+        {
+            string output = RunAdbShell("getprop ro.product.brand; getprop ro.product.model");
+            if (string.IsNullOrEmpty(output)) return null;
+
+            var parts = new List<string>();
+            foreach (string raw in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string value = raw.Trim();
+                if (value.Length == 0) continue;
+                if (string.Equals(value, "unknown", StringComparison.OrdinalIgnoreCase)) continue;
+                parts.Add(value);
+            }
+
+            return parts.Count == 0 ? null : string.Join(" ", parts.ToArray());
+        }
+
+        /// <summary>
+        /// 截屏/录屏目录名：优先设备名称（品牌 + 型号），未取到时才退回序列号。
+        /// 不用连接串（192.168.x.x:5555）当目录名，避免在配置目录里出现难认的中转地址。
+        /// </summary>
+        private string CaptureFolderName()
+        {
+            string name = _deviceName;
+            return string.IsNullOrEmpty(name) ? _serial : name;
+        }
+
+        /// <summary>
         /// 采集尺寸只会缩小、不会放大；档位长边超过设备原生分辨率长边时，
         /// 该档位永远达不到（选了也等同于「原始分辨率」），启动时直接从菜单移除。
         /// 例如 720P 屏就不该列出「1080P 高清」。
@@ -1890,10 +2066,57 @@ namespace AdbTools.RemoteControl
         /// <summary>在画面底部显示一条操作提示，几秒后自动隐藏。</summary>
         private void ShowToast(string message)
         {
+            ShowToast(message, null);
+        }
+
+        /// <summary>
+        /// 显示操作提示；传入产物路径时提示层可点击，直接打开所在文件夹。
+        /// 只有可点击的提示才参与命中测试，平时不遮挡画面上发往设备的点击。
+        /// </summary>
+        private void ShowToast(string message, string path)
+        {
             _toastText.Text = message;
+
+            _toastPath = string.IsNullOrEmpty(path) ? null : path;
+            bool clickable = _toastPath != null;
+            _toastAction.Visibility = clickable ? Visibility.Visible : Visibility.Collapsed;
+            _toast.IsHitTestVisible = clickable;
+            _toast.Cursor = clickable ? Cursors.Hand : null;
+
             _toast.Visibility = Visibility.Visible;
             _toastTimer.Stop();
             _toastTimer.Start();
+        }
+
+        /// <summary>点击提示层：在资源管理器中选中产物文件；文件已不存在时退回打开所在的目录。</summary>
+        private void Toast_Click(object sender, MouseButtonEventArgs e)
+        {
+            string path = _toastPath;
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                if (File.Exists(path))
+                {
+                    Process.Start("explorer.exe", "/select,\"" + path + "\"");
+                }
+                else
+                {
+                    string directory = Path.GetDirectoryName(path);
+                    if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                    {
+                        Process.Start("explorer.exe", "\"" + directory + "\"");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile("打开产物目录失败：" + ex.Message);
+            }
+
+            _toastTimer.Stop();
+            _toast.Visibility = Visibility.Collapsed;
+            e.Handled = true;
         }
 
         /// <summary>
@@ -2104,6 +2327,7 @@ namespace AdbTools.RemoteControl
                 // 仍需重建取流让这一档真正跑一遍：不兼容时 server 会再次报错，
                 // 才能依次向下找兼容；否则降级会卡在这一档，看起来像被越级跳过。
                 LogToFile("分辨率档位切换为 " + name + "（采集尺寸不变），重建取流以验证该档位");
+                ResetSplitterForRestart();
                 stream.Restart();
                 return;
             }
@@ -2111,7 +2335,19 @@ namespace AdbTools.RemoteControl
             LogToFile("分辨率切换为 " + newSize + "（" + name + "）");
             stream.BitRate = SuggestBitRate(newSize);
             stream.Size = newSize;
+            ResetSplitterForRestart();
             stream.Restart();
+        }
+
+        /// <summary>
+        /// 主动重建取流前清空码流解析状态：上一条流残留在缓冲区里的半帧会混进新流的
+        /// 第一个访问单元，画面表现是首帧花屏，录制侧还会把这段坏数据写进新分段。
+        /// </summary>
+        private void ResetSplitterForRestart()
+        {
+            AccessUnitSplitter splitter = _splitter;
+            if (splitter == null) return;
+            try { splitter.Reset(); } catch { }
         }
 
         /// <summary>
@@ -2369,6 +2605,7 @@ namespace AdbTools.RemoteControl
             }
             else
             {
+                ResetSplitterForRestart();
                 _stream.Restart();
             }
 
@@ -2835,6 +3072,455 @@ namespace AdbTools.RemoteControl
         }
 
         /// <summary>
+        /// 截屏：走设备端 screencap，拿到设备原始分辨率（与采集档位无关）。
+        /// 设备端失败（安全窗口、adb 异常）时退回当前显示帧，保证按钮总有产物。
+        /// </summary>
+        private void Screenshot_Click(object sender, RoutedEventArgs e)
+        {
+            if (Interlocked.CompareExchange(ref _capturing, 1, 0) != 0) return;
+
+            _shotButton.IsEnabled = false;
+            ShowToast("正在截取设备画面…");
+
+            string adbPath = _adbPath;
+            string serial = _serial;
+
+            Task.Run(() =>
+            {
+                // 设备名还没取到（命令行启动、刚打开窗口）时先补查一次，
+                // 保证目录用设备名，而不是 192.168.x.x:5555 这样的连接串
+                string folder = CaptureFolderName();
+                if (string.IsNullOrEmpty(_deviceName))
+                {
+                    string queried = QueryDeviceName();
+                    if (!string.IsNullOrEmpty(queried))
+                    {
+                        _deviceName = queried;
+                        folder = queried;
+                    }
+                }
+
+                DeviceScreenCapture.Result result = null;
+                try
+                {
+                    result = DeviceScreenCapture.Capture(adbPath, serial, folder);
+                }
+                catch (Exception ex)
+                {
+                    result = DeviceScreenCapture.Result.Fail(ex.Message);
+                }
+
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        // 窗口已关闭：文件已经落盘，不需要再更新界面
+                        if (_closed)
+                        {
+                            Interlocked.Exchange(ref _capturing, 0);
+                            return;
+                        }
+
+                        if (result != null && result.Success)
+                        {
+                            FinishScreenshot(result.Path, result.Width, result.Height, null);
+                            return;
+                        }
+
+                        // 设备端截图不可用：用当前显示的画面兜底（分辨率等于采集档位）
+                        string local = SaveDisplayedFrame();
+                        if (!string.IsNullOrEmpty(local))
+                        {
+                            int width = _bitmap != null ? _bitmap.PixelWidth : 0;
+                            int height = _bitmap != null ? _bitmap.PixelHeight : 0;
+                            FinishScreenshot(local, width, height, "当前显示帧");
+                            return;
+                        }
+
+                        FinishScreenshot(null, 0, 0,
+                            result != null && !string.IsNullOrEmpty(result.Error) ? result.Error : "设备端截图失败");
+                    }));
+                }
+                catch
+                {
+                    // 窗口已关闭、Dispatcher 已停止：截图文件仍然是有效的，忽略界面更新
+                    Interlocked.Exchange(ref _capturing, 0);
+                }
+            });
+        }
+
+        private void FinishScreenshot(string path, int width, int height, string source)
+        {
+            Interlocked.Exchange(ref _capturing, 0);
+            if (_shotButton != null) _shotButton.IsEnabled = true;
+
+            if (string.IsNullOrEmpty(path))
+            {
+                LogToFile("截屏失败：" + source);
+                ShowToast("截屏失败：" + source);
+                return;
+            }
+
+            // 日志保留来源（设备原始分辨率 / 当前显示帧 / 服务端异常信息），提示里只说结果与路径
+            LogToFile("截屏：" + path + "（" + width + "x" + height
+                + (string.IsNullOrEmpty(source) ? string.Empty : "，" + source) + "）");
+            // 带路径：提示层可点击，直接在资源管理器里定位这张截图
+            ShowToast(string.Format("已保存截图 {0}x{1}\n{2}", width, height, path), path);
+        }
+
+        /// <summary>把当前显示的位图编码成 PNG（设备端截图不可用时的兜底，必须在 UI 线程调用）。</summary>
+        private string SaveDisplayedFrame()
+        {
+            WriteableBitmap bitmap = _bitmap;
+            if (bitmap == null) return null;
+
+            try
+            {
+                int width = bitmap.PixelWidth;
+                int height = bitmap.PixelHeight;
+                var pixels = new byte[width * height * 4];
+                bitmap.CopyPixels(pixels, width * 4, 0);
+
+                var source = BitmapSource.Create(width, height, 96, 96,
+                    System.Windows.Media.PixelFormats.Bgra32, null, pixels, width * 4);
+                source.Freeze();
+                return DeviceScreenCapture.SaveCurrentFrame(source, CaptureFolderName());
+            }
+            catch (Exception ex)
+            {
+                LogToFile("保存当前画面失败：" + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 维护预录缓存（只在未录制时收集）：关键帧处重置，超过 2 秒或 8MB 就整段丢弃
+        /// ——半截 GOP 不能当起点，只能等下一个关键帧重新开始。
+        /// </summary>
+        private void CachePrerollFrame(byte[] au, bool keyFrame)
+        {
+            if (au == null || au.Length == 0) return;
+
+            long now = DateTime.UtcNow.Ticks;
+            lock (_prerollLock)
+            {
+                if (keyFrame)
+                {
+                    _preroll.Clear();
+                    _prerollBytes = 0;
+                    _prerollKeyTicks = now;
+                }
+                else if (_preroll.Count == 0)
+                {
+                    // 还没遇到过关键帧：缓存里没有可用起点
+                    return;
+                }
+                else if ((now - _prerollKeyTicks) > PrerollMaxMs * 10000L || _prerollBytes > PrerollMaxBytes)
+                {
+                    // 关键帧已经太旧或数据太多：再回带会超过 2 秒，丢弃并等下一个关键帧
+                    _preroll.Clear();
+                    _prerollBytes = 0;
+                    return;
+                }
+
+                _preroll.Add(new CachedAu { Data = au, KeyFrame = keyFrame, Ticks = now });
+                _prerollBytes += au.Length;
+            }
+        }
+
+        /// <summary>取走预录缓存（点录制时调用一次），返回从关键帧开始的一段连续码流。</summary>
+        private List<CachedAu> TakePrerollSnapshot()
+        {
+            lock (_prerollLock)
+            {
+                if (_preroll.Count == 0) return null;
+
+                var snapshot = new List<CachedAu>(_preroll);
+                _preroll.Clear();
+                _prerollBytes = 0;
+                return snapshot;
+            }
+        }
+
+        /// <summary>录制按钮：空闲时开始、准备中时取消、录制中停止、保存中忽略。</summary>
+        private void Record_Click(object sender, RoutedEventArgs e)
+        {
+            switch (_recordState)
+            {
+                case RecordState.Idle:
+                    StartRecording();
+                    break;
+                case RecordState.Preparing:
+                    CancelRecording("已取消录制");
+                    break;
+                case RecordState.Recording:
+                    StopRecording();
+                    break;
+                // Saving：正在写 moov，点击忽略
+            }
+        }
+
+        private void StartRecording()
+        {
+            if (_recordState != RecordState.Idle) return;
+
+            IVideoStream stream = _stream;
+            if (stream == null || _closing)
+            {
+                ShowToast("画面尚未就绪，暂不能录制");
+                return;
+            }
+            if (_paused)
+            {
+                ShowToast("设备已息屏，亮屏后再开始录制");
+                return;
+            }
+
+            // 录像单独放在 Recordings 子目录，和截图分开，目录里一眼能区分
+            string directory = RemoteCaptureStorage.GetRecordingDirectory(CaptureFolderName());
+            string baseName = RemoteCaptureStorage.BuildRecordingBaseName();
+
+            var recorder = new Mp4Recorder(directory, baseName, LogToFile);
+
+            // 首帧真正写入时把状态从“准备中”切到“录制中”，计时也从那一刻开始
+            recorder.Started += () => Dispatcher.BeginInvoke(new Action(() => OnRecorderStarted(recorder)));
+
+            // 预录缓存：从最近的关键帧开始补一段（最多回带 2 秒），
+            // 这样点下录制立刻就有内容，不必等设备的下一个 IDR
+            List<CachedAu> preroll = TakePrerollSnapshot();
+            if (preroll != null && preroll.Count > 0)
+            {
+                foreach (CachedAu item in preroll)
+                {
+                    recorder.Push(item.Data, item.KeyFrame, item.Ticks);
+                }
+                LogToFile("录制预录：补入 " + preroll.Count + " 帧，回带 "
+                    + ((preroll[preroll.Count - 1].Ticks - preroll[0].Ticks) / 10000) + " ms");
+            }
+
+            _recorder = recorder;
+            _recordState = RecordState.Preparing;
+            _prepareStarted = DateTime.UtcNow;
+            UpdateRecordButton();
+            StartPrepareTimeout();
+
+            LogToFile("开始录制：" + Path.Combine(directory, baseName) + ".mp4，采集尺寸 " + (stream.Size ?? "-"));
+
+            if (preroll == null || preroll.Count == 0)
+            {
+                // 缓存里没有 2 秒内的关键帧：直接重建取流拿 IDR，不必等自然的 10 秒 GOP
+                ShowToast("正在准备录制…");
+                LogToFile("录制准备：预录缓存为空，立即重建取流以获取关键帧");
+                ResetSplitterForRestart();
+                stream.Restart();
+            }
+        }
+
+        /// <summary>首帧写入后的回调（UI 线程）：准备中 → 录制中，计时从 0 开始。</summary>
+        private void OnRecorderStarted(Mp4Recorder recorder)
+        {
+            if (_recordState != RecordState.Preparing || _recorder != recorder) return;
+
+            _recordState = RecordState.Recording;
+            StopPrepareTimeout();
+            UpdateRecordButton();
+
+            int elapsedMs = (int)(DateTime.UtcNow - _prepareStarted).TotalMilliseconds;
+            LogToFile("录制开始（准备耗时 " + elapsedMs + " ms）");
+            ShowToast("录制已开始");
+        }
+
+        /// <summary>准备阶段的超时保护：一直等不到关键帧就自动取消，避免按钮卡在“准备中”。</summary>
+        private void StartPrepareTimeout()
+        {
+            StopPrepareTimeout();
+
+            _prepareTimeout = new DispatcherTimer { Interval = PrepareTimeout };
+            _prepareTimeout.Tick += (s, e) =>
+            {
+                StopPrepareTimeout();
+                if (_recordState != RecordState.Preparing) return;
+
+                int seconds = (int)PrepareTimeout.TotalSeconds;
+                LogToFile("录制准备超时：" + seconds + " 秒内没有取到关键帧（设备可能已息屏或画面完全静止）");
+                CancelRecording("录制未开始：未取到画面关键帧");
+            };
+            _prepareTimeout.Start();
+        }
+
+        private void StopPrepareTimeout()
+        {
+            DispatcherTimer timer = _prepareTimeout;
+            _prepareTimeout = null;
+            if (timer == null) return;
+            try { timer.Stop(); } catch { }
+        }
+
+        /// <summary>取消录制：准备阶段取消不会产生文件；录制中调用等同停止。</summary>
+        private void CancelRecording(string message)
+        {
+            Mp4Recorder recorder = _recorder;
+            _recorder = null;
+            _stoppingRecorder = recorder;
+            _recordState = RecordState.Idle;
+            StopPrepareTimeout();
+            UpdateRecordButton();
+            ShowToast(message);
+
+            if (recorder == null) return;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    recorder.Stop();
+                    recorder.Dispose();
+                }
+                catch { }
+                finally
+                {
+                    if (_stoppingRecorder == recorder) _stoppingRecorder = null;
+                }
+            });
+        }
+
+        private void StopRecording()
+        {
+            Mp4Recorder recorder = _recorder;
+            if (recorder == null)
+            {
+                _recordState = RecordState.Idle;
+                UpdateRecordButton();
+                return;
+            }
+
+            _recorder = null;
+            _stoppingRecorder = recorder;
+            _recordState = RecordState.Saving;
+            StopPrepareTimeout();
+            UpdateRecordButton();
+            ShowToast("正在保存录像…");
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    recorder.Stop();
+                    recorder.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    LogToFile("停止录制失败：" + ex.Message);
+                }
+                finally
+                {
+                    if (_stoppingRecorder == recorder) _stoppingRecorder = null;
+                }
+
+                int segments = recorder.SegmentCount;
+                long bytes = recorder.BytesWritten;
+                int dropped = recorder.DroppedFrames;
+                // 成片时长用"已录入文件"的时长，不再用挂钟时间：
+                // 点录制到写下第一帧之间可能等待/重建取流数秒，挂钟会明显大于视频长度
+                TimeSpan content = recorder.RecordedDuration;
+                TimeSpan wall = recorder.Elapsed;
+                IList<string> files = recorder.Files;
+
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        // 窗口已经关掉就不用再弹提示（清理已由 Window_Closing 负责等它写完）
+                        if (_closed) return;
+
+                        _recordState = RecordState.Idle;
+                        UpdateRecordButton();
+
+                        if (segments == 0)
+                        {
+                            LogToFile("录制结束但没有产生文件（未收到关键帧）");
+                            ShowToast("录制结束：没有采集到画面");
+                            return;
+                        }
+
+                        string summary = string.Format("已保存 {0} 段录像，共 {1}，{2:F1} MB{3}",
+                            segments, content.ToString(@"hh\:mm\:ss"), bytes / 1024.0 / 1024.0,
+                            dropped > 0 ? "（写盘跟不上，丢 " + dropped + " 帧）" : string.Empty);
+                        LogToFile("录制结束：" + summary + "（挂钟 " + wall.ToString(@"hh\:mm\:ss") + "）"
+                            + " | " + string.Join(" | ", files));
+                        // 带路径：提示层可点击，直接定位到最后一段录像
+                        ShowToast(summary + "\n" + files[files.Count - 1], files[files.Count - 1]);
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        /// <summary>
+        /// 刷新录制按钮（UI 线程）：空闲红环、准备中琥珀环、录制中红底白方块、保存中禁用。
+        /// </summary>
+        private void UpdateRecordButton()
+        {
+            if (_recordButton == null) return;
+
+            bool showStop = _recordState == RecordState.Recording;
+            if (_recordIdleIcon != null)
+            {
+                _recordIdleIcon.Visibility = showStop ? Visibility.Collapsed : Visibility.Visible;
+                _recordIdleIcon.Stroke = _recordState == RecordState.Preparing
+                    ? RecordRingPreparingBrush
+                    : RecordRingIdleBrush;
+            }
+            if (_recordStopIcon != null)
+            {
+                _recordStopIcon.Visibility = showStop ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            _recordButton.IsEnabled = _recordState != RecordState.Saving;
+            _recordButton.Background = showStop ? RecordActiveBrush : RecordIdleBrush;
+            UpdateRecordButtonHint(_bitmap == null ? "-" : _bitmap.PixelWidth + "x" + _bitmap.PixelHeight);
+        }
+
+        /// <summary>录制按钮的悬停提示：按状态给出准备进度、录制进度或参数说明。</summary>
+        private void UpdateRecordButtonHint(string frameSize)
+        {
+            if (_recordButton == null) return;
+
+            Mp4Recorder recorder = _recorder;
+            string tip;
+
+            switch (_recordState)
+            {
+                case RecordState.Preparing:
+                    double waited = Math.Max(0, (DateTime.UtcNow - _prepareStarted).TotalSeconds);
+                    tip = string.Format("准备中：等待关键帧（已等待 {0:F1} 秒）\n点击取消", waited);
+                    break;
+
+                case RecordState.Recording:
+                    tip = recorder == null
+                        ? "录制中"
+                        : string.Format("录制中 {0} · {1} 段 · {2:F1} MB{3}\n点击停止",
+                            recorder.RecordedDuration.ToString(@"hh\:mm\:ss"), recorder.SegmentCount,
+                            recorder.BytesWritten / 1024.0 / 1024.0,
+                            recorder.DroppedFrames > 0 ? " · 丢 " + recorder.DroppedFrames + " 帧" : string.Empty);
+                    break;
+
+                case RecordState.Saving:
+                    tip = "正在保存…";
+                    break;
+
+                default:
+                    tip = "录制当前画面（" + frameSize + "）\n点击开始";
+                    break;
+            }
+
+            if (!string.Equals(_recordButton.ToolTip as string, tip, StringComparison.Ordinal))
+            {
+                _recordButton.ToolTip = tip;
+            }
+        }
+
+        /// <summary>
         /// 关闭时窗口立即消失，停流、等取流线程退出、清理设备端服务与转发全部交给后台线程：
         /// 用户不必等待，主界面也不会因为关闭而卡顿。
         /// 后台清理按设备登记，同一设备重新打开时先等它结束（见 StartCaptureAsync）。
@@ -2846,12 +3532,16 @@ namespace AdbTools.RemoteControl
 
             try { if (_rotationTimer != null) _rotationTimer.Stop(); } catch { }
             try { if (_stateTimer != null) _stateTimer.Stop(); } catch { }
+            StopPrepareTimeout();
+            _recordState = RecordState.Idle;
             EndWheelGesture();
 
             IVideoStream stream = _stream;
             H264DecoderMft decoder = _decoder;
             Thread pump = _pumpThread;
             InputInjector injector = _injector;
+            Mp4Recorder recorder = _recorder;
+            Mp4Recorder stoppingRecorder = _stoppingRecorder;
 
             // 断开字段引用：窗口正在关闭，后台残留回调不再参与显示
             _stream = null;
@@ -2859,6 +3549,30 @@ namespace AdbTools.RemoteControl
             _injector = null;
             _splitter = null;
             _pumpThread = null;
+            _recorder = null;
+            _stoppingRecorder = null;
+
+            // 录像必须在这里同步收尾：MP4 只有写完 moov 才能播放。
+            // 若交给后台任务，进程随窗口退出时会把没写完的文件一起带走，
+            // 表现就是"正在录制/刚点停止就关窗，结果没有数据"。正常只阻塞几十到几百毫秒。
+            if (recorder != null)
+            {
+                try { recorder.Stop(); } catch { }
+                if (recorder.SegmentCount > 0)
+                {
+                    LogToFile("窗口关闭：录像已保存 " + recorder.SegmentCount + " 段，"
+                        + (recorder.BytesWritten / 1024) + " KB");
+                }
+                else
+                {
+                    LogToFile("窗口关闭：录像还没写入任何片段（未取到关键帧），无文件产生");
+                }
+            }
+            if (stoppingRecorder != null)
+            {
+                // 刚点过“停止”，后台正在收尾：等它写完 moov，不要在这里打断
+                try { stoppingRecorder.Stop(); } catch { }
+            }
 
             LogToFile("窗口关闭：清理转到后台执行");
             CleanupInBackground(stream, decoder, pump, injector);
@@ -2866,12 +3580,15 @@ namespace AdbTools.RemoteControl
 
         /// <summary>
         /// 后台清理：停流 → 等取流线程退出 → 释放解码器 → 清理设备端服务、转发与常亮状态。
+        /// 录像已在 Window_Closing 里同步收尾（MP4 必须写完 moov 才能播），这里不再处理。
         /// 整个过程不碰界面，也不占用 UI 线程。
         /// </summary>
-        private void CleanupInBackground(IVideoStream stream, H264DecoderMft decoder, Thread pump, InputInjector injector)
+        private void CleanupInBackground(IVideoStream stream, H264DecoderMft decoder, Thread pump,
+            InputInjector injector)
         {
             Task task = Task.Factory.StartNew(() =>
             {
+                // 录像已在 Window_Closing 里同步收尾（见那里的注释），这里只清理取流侧资源
                 try { if (stream != null) stream.Stop(); } catch { }
                 try { if (pump != null) pump.Join(1500); } catch { }
                 try { if (decoder != null) decoder.Dispose(); } catch { }
