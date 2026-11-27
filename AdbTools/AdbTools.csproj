@@ -74,7 +74,7 @@
     <SignManifests>false</SignManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignAssembly>false</SignAssembly>
+    <SignAssembly>true</SignAssembly>
   </PropertyGroup>
   <PropertyGroup>
     <AssemblyOriginatorKeyFile>..\AdbTools.snk</AssemblyOriginatorKeyFile>
@@ -273,6 +273,9 @@
     <Compile Include="RemoteControl\MfInterfaces.cs" />
     <Compile Include="RemoteControl\MfInterop.cs" />
     <Compile Include="RemoteControl\Nv12Converter.cs" />
+    <Compile Include="RemoteControl\DeviceScreenCapture.cs" />
+    <Compile Include="RemoteControl\Mp4Recorder.cs" />
+    <Compile Include="RemoteControl\RemoteCaptureStorage.cs" />
     <Compile Include="RemoteControl\RemoteControlWindow.xaml.cs">
       <DependentUpon>RemoteControlWindow.xaml</DependentUpon>
       <SubType>Code</SubType>

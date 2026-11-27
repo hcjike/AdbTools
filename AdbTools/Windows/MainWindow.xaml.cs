@@ -618,7 +618,7 @@ namespace AdbTools.Windows
             {
                 return;
             }
-            OpenRemoteControl(device.DeviceMark, device.HardwareKey);
+            OpenRemoteControl(device.DeviceMark, device.HardwareKey, device.DeviceInfo);
         }
 
         /// <summary>文件管理：打开该设备的文件浏览窗口（同一设备只保留一个）。</summary>
@@ -650,9 +650,10 @@ namespace AdbTools.Windows
         /// 按设备序列号打开（或激活）远程控制窗口。
         /// 同一设备只允许一个窗口：已有活动窗口时直接激活；
         /// 已关闭（含后台清理尚未完成）的窗口视为已关闭，可以正常重新打开。
-        /// deviceKey 为硬件序列号，用于保存窗口尺寸；命令行启动时没有设备对象，退回连接序列号。
+        /// deviceKey 为硬件序列号，用于保存窗口尺寸；deviceName 为设备名称（品牌 + 型号），
+        /// 用于截屏/录屏目录。命令行启动时没有设备对象，两者都退回连接序列号由窗口自行查询。
         /// </summary>
-        private void OpenRemoteControl(string deviceMark, string deviceKey = null)
+        private void OpenRemoteControl(string deviceMark, string deviceKey = null, string deviceName = null)
         {
             if (string.IsNullOrEmpty(deviceMark))
             {
@@ -682,7 +683,8 @@ namespace AdbTools.Windows
                     return;
                 }
 
-                var window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000, deviceKey);
+                var window = new RemoteControlWindow(adbExe, deviceMark, "720x1280", 8000000,
+                    deviceKey, deviceName);
                 window.Show();
             });
         }
@@ -800,7 +802,7 @@ namespace AdbTools.Windows
         internal void TrayOpenRemoteControl(Device device)
         {
             if (device == null) return;
-            OpenRemoteControl(device.DeviceMark, device.HardwareKey);
+            OpenRemoteControl(device.DeviceMark, device.HardwareKey, device.DeviceInfo);
         }
 
         internal void TrayOpenAppList(Device device)
@@ -992,17 +994,23 @@ namespace AdbTools.Windows
                 });
         }
 
-        private void openAppLogItem_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 关于菜单：打开配置文件夹（%APPDATA%\AdbTools）。
+        /// 日志、设备日志、缓存、截图录像与数据库都在它下面，用户不必再逐个找路径。
+        /// </summary>
+        private void openConfigDirItem_Click(object sender, RoutedEventArgs e)
         {
             about_popup.IsOpen = false;
 
             try
             {
-                System.Diagnostics.Process.Start("explorer.exe", Globals.LogDirectory);
+                string dir = Globals.AppDataDirectory;
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start("explorer.exe", "\"" + dir + "\"");
             }
             catch (Exception ex)
             {
-                Dialogs.Show("打开日志目录失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
+                Dialogs.Show("打开配置文件夹失败：" + ex.Message, "错误", MessageBoxImage.Error, this);
             }
         }
 

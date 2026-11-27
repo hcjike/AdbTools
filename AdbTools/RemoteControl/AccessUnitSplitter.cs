@@ -66,6 +66,23 @@ namespace AdbTools.RemoteControl
             }
         }
 
+        /// <summary>
+        /// 清空解析状态。主动重建取流（切档位、为了拿关键帧而重启）前调用：
+        /// 上一条流残留在缓冲区里的半帧会混进新流的第一个访问单元，
+        /// 表现为首帧花屏，录制侧还会把它当成坏样本写进文件。
+        /// </summary>
+        public void Reset()
+        {
+            lock (_sync)
+            {
+                _length = 0;
+                _currentAu.SetLength(0);
+                _currentAuHasVcl = false;
+                _currentAuIsKeyFrame = false;
+                _lastDataTick = Environment.TickCount;
+            }
+        }
+
         private void EnsureCapacity(int needed)
         {
             if (needed <= _buffer.Length) return;
